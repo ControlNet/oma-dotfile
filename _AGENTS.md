@@ -7,3 +7,4 @@
 - For non-trivial changes: include exact verification commands (lint/test/run) and expected outcome/signals (what should pass / what to look for).
 - Warn before any destructive action (delete/overwrite/migration/force push).
 - Only modify project-level AGENTS.md when explicitly asked to change project rules.
+- Use pixi or conda to manage Python environments. Prevent installing packages to system-level Python.
