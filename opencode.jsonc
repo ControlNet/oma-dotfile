@@ -2,8 +2,7 @@
   "plugin": [
     "opencode-openai-codex-auth",
     "oh-my-opencode@latest",
-    "opencode-wakatime",
-    "opencode-beads"
+    "opencode-wakatime"
   ],
   "provider": {
     "openai": {
