@@ -60,26 +60,31 @@ Ensure-Dir $ConfigDir
 # Build URLs
 $UrlOpenCode = "https://raw.githubusercontent.com/$RepoOwner/$RepoName/$RepoRev/opencode.jsonc"
 $UrlOmoc     = "https://raw.githubusercontent.com/$RepoOwner/$RepoName/$RepoRev/oh-my-opencode.jsonc"
+$UrlAgents   = "https://raw.githubusercontent.com/$RepoOwner/$RepoName/$RepoRev/_AGENTS.md"
 
 $ts = Timestamp   # <<< FIX: no parentheses
 $tmpDir = Join-Path $env:TEMP ("opencode-pull-" + [Guid]::NewGuid().ToString("N"))
 Ensure-Dir $tmpDir
 
 try {
-  $tmpOpen = Join-Path $tmpDir "opencode.jsonc"
-  $tmpOmoc = Join-Path $tmpDir "oh-my-opencode.jsonc"
+  $tmpOpen   = Join-Path $tmpDir "opencode.jsonc"
+  $tmpOmoc   = Join-Path $tmpDir "oh-my-opencode.jsonc"
+  $tmpAgents = Join-Path $tmpDir "_AGENTS.md"
 
   Write-Host "[1/3] Downloading:"
   Write-Host "      - $UrlOpenCode"
   Write-Host "      - $UrlOmoc"
+  Write-Host "      - $UrlAgents"
 
   Download-File $UrlOpenCode $tmpOpen
   Download-File $UrlOmoc     $tmpOmoc
+  Download-File $UrlAgents   $tmpAgents
 
   Write-Host "[2/3] Installing to user-level dir: $ConfigDir"
   $doBackup = -not $NoBackup.IsPresent
-  Backup-And-Replace $tmpOpen (Join-Path $ConfigDir "opencode.jsonc") $ts $doBackup
-  Backup-And-Replace $tmpOmoc (Join-Path $ConfigDir "oh-my-opencode.jsonc") $ts $doBackup
+  Backup-And-Replace $tmpOpen   (Join-Path $ConfigDir "opencode.jsonc") $ts $doBackup
+  Backup-And-Replace $tmpOmoc   (Join-Path $ConfigDir "oh-my-opencode.jsonc") $ts $doBackup
+  Backup-And-Replace $tmpAgents (Join-Path $ConfigDir "AGENTS.md") $ts $doBackup
 
   Write-Host "[3/3] Renaming legacy .json (if exists) so only .jsonc remains active"
   Rename-Json-IfExists (Join-Path $ConfigDir "opencode.json") $ts

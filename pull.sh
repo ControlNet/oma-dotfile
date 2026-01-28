@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Download opencode.jsonc + oh-my-opencode.jsonc from GitHub repo and overwrite *user-level* config.
+# Download opencode.jsonc + oh-my-opencode.jsonc + _AGENTS.md from GitHub repo and overwrite *user-level* config.
 # After install, if opencode.json / oh-my-opencode.json exists, rename it to *.json.bak-<timestamp>
 # so only *.jsonc remains as the active config.
 
@@ -49,7 +49,7 @@ fetch() {
 
 ts() { date +"%Y%m%d-%H%M%S"; }
 
-backup_and_install_jsonc() {
+backup_and_install_file() {
   local src="$1" dst="$2" stamp="$3"
   mkdir -p "$(dirname "$dst")"
   if [[ "$NO_BACKUP" != "1" && -f "$dst" ]]; then
@@ -77,9 +77,10 @@ if [[ -z "$CONFIG_DIR" ]]; then
 fi
 mkdir -p "$CONFIG_DIR"
 
-# Build download URLs for the two config files
+# Build download URLs for the config files
 URL_OPENCODE="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_REV}/opencode.jsonc"
 URL_OMOC="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_REV}/oh-my-opencode.jsonc"
+URL_AGENTS="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_REV}/_AGENTS.md"
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -87,17 +88,21 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 STAMP="$(ts)"
 TMP_OPENCODE="$TMP_DIR/opencode.jsonc"
 TMP_OMOC="$TMP_DIR/oh-my-opencode.jsonc"
+TMP_AGENTS="$TMP_DIR/_AGENTS.md"
 
 echo "[1/3] Downloading:"
 echo "      - $URL_OPENCODE"
 echo "      - $URL_OMOC"
+echo "      - $URL_AGENTS"
 
 fetch "$URL_OPENCODE" "$TMP_OPENCODE"
 fetch "$URL_OMOC" "$TMP_OMOC"
+fetch "$URL_AGENTS" "$TMP_AGENTS"
 
 echo "[2/3] Installing to user-level config dir: $CONFIG_DIR"
-backup_and_install_jsonc "$TMP_OPENCODE" "$CONFIG_DIR/opencode.jsonc" "$STAMP"
-backup_and_install_jsonc "$TMP_OMOC" "$CONFIG_DIR/oh-my-opencode.jsonc" "$STAMP"
+backup_and_install_file "$TMP_OPENCODE" "$CONFIG_DIR/opencode.jsonc" "$STAMP"
+backup_and_install_file "$TMP_OMOC" "$CONFIG_DIR/oh-my-opencode.jsonc" "$STAMP"
+backup_and_install_file "$TMP_AGENTS" "$CONFIG_DIR/AGENTS.md" "$STAMP"
 
 echo "[3/3] Renaming legacy .json (if exists) so only .jsonc remains active"
 rename_json_if_exists "$CONFIG_DIR/opencode.json" "$STAMP"

@@ -1,7 +1,9 @@
 {
   "plugin": [
     "opencode-openai-codex-auth",
-    "oh-my-opencode@latest"
+    "oh-my-opencode@latest",
+    "opencode-wakatime",
+    "opencode-beads"
   ],
   "provider": {
     "openai": {
@@ -104,7 +106,7 @@
       "npm": "@ai-sdk/anthropic",
       "options": {
         "baseURL": "{env:ANTHROPIC_BASE_URL}/v1",
-        "apiKey": "{env:ANTHROPIC_AUTH_TOKEN}/"
+        "apiKey": "{env:ANTHROPIC_AUTH_TOKEN}"
       },
       "models": {
         "claude-opus-4-5": {
@@ -137,11 +139,7 @@
   "mcp": {
     "github": {
       "type": "local",
-      "command": [
-        "npx",
-        "-y",
-        "@modelcontextprotocol/server-github"
-      ],
+      "command": ["npx", "-y", "@modelcontextprotocol/server-github"],
       "enabled": true
     }
   },
