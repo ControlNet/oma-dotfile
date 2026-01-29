@@ -8,3 +8,4 @@
 - Warn before any destructive action (delete/overwrite/migration/force push).
 - Only modify project-level AGENTS.md when explicitly asked to change project rules.
 - Use pixi or conda to manage Python environments. Prevent installing packages to system-level Python.
+- Test-driven development is preferred.
