@@ -4,6 +4,7 @@
     "oh-my-opencode@latest",
     "opencode-wakatime"
   ],
+  "autoupdate": false,
   "provider": {
     "openai": {
       "name": "OpenAI",

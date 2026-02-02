@@ -62,6 +62,10 @@ $UrlOpenCode = "https://raw.githubusercontent.com/$RepoOwner/$RepoName/$RepoRev/
 $UrlOmoc     = "https://raw.githubusercontent.com/$RepoOwner/$RepoName/$RepoRev/oh-my-opencode.jsonc"
 $UrlAgents   = "https://raw.githubusercontent.com/$RepoOwner/$RepoName/$RepoRev/_AGENTS.md"
 
+# Plugins (no backup, just replace)
+$Plugins = @("gotify-notify.js")
+$UrlPluginsBase = "https://raw.githubusercontent.com/$RepoOwner/$RepoName/$RepoRev/plugins"
+
 $ts = Timestamp   # <<< FIX: no parentheses
 $tmpDir = Join-Path $env:TEMP ("opencode-pull-" + [Guid]::NewGuid().ToString("N"))
 Ensure-Dir $tmpDir
@@ -70,8 +74,10 @@ try {
   $tmpOpen   = Join-Path $tmpDir "opencode.jsonc"
   $tmpOmoc   = Join-Path $tmpDir "oh-my-opencode.jsonc"
   $tmpAgents = Join-Path $tmpDir "_AGENTS.md"
+  $tmpPluginsDir = Join-Path $tmpDir "plugins"
+  Ensure-Dir $tmpPluginsDir
 
-  Write-Host "[1/3] Downloading:"
+  Write-Host "[1/4] Downloading config files:"
   Write-Host "      - $UrlOpenCode"
   Write-Host "      - $UrlOmoc"
   Write-Host "      - $UrlAgents"
@@ -80,13 +86,27 @@ try {
   Download-File $UrlOmoc     $tmpOmoc
   Download-File $UrlAgents   $tmpAgents
 
-  Write-Host "[2/3] Installing to user-level dir: $ConfigDir"
+  Write-Host "[2/4] Downloading plugins:"
+  foreach ($plugin in $Plugins) {
+    $pluginUrl = "$UrlPluginsBase/$plugin"
+    Write-Host "      - $pluginUrl"
+    Download-File $pluginUrl (Join-Path $tmpPluginsDir $plugin)
+  }
+
+  Write-Host "[3/4] Installing to user-level dir: $ConfigDir"
   $doBackup = -not $NoBackup.IsPresent
   Backup-And-Replace $tmpOpen   (Join-Path $ConfigDir "opencode.jsonc") $ts $doBackup
   Backup-And-Replace $tmpOmoc   (Join-Path $ConfigDir "oh-my-opencode.jsonc") $ts $doBackup
   Backup-And-Replace $tmpAgents (Join-Path $ConfigDir "AGENTS.md") $ts $doBackup
 
-  Write-Host "[3/3] Renaming legacy .json (if exists) so only .jsonc remains active"
+  # Install plugins (no backup)
+  $pluginsDir = Join-Path $ConfigDir "plugins"
+  Ensure-Dir $pluginsDir
+  foreach ($plugin in $Plugins) {
+    Move-Item (Join-Path $tmpPluginsDir $plugin) (Join-Path $pluginsDir $plugin) -Force
+  }
+
+  Write-Host "[4/4] Renaming legacy .json (if exists) so only .jsonc remains active"
   Rename-Json-IfExists (Join-Path $ConfigDir "opencode.json") $ts
   Rename-Json-IfExists (Join-Path $ConfigDir "oh-my-opencode.json") $ts
 

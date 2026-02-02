@@ -82,6 +82,10 @@ URL_OPENCODE="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REP
 URL_OMOC="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_REV}/oh-my-opencode.jsonc"
 URL_AGENTS="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_REV}/_AGENTS.md"
 
+# Plugins (no backup, just replace)
+PLUGINS=("gotify-notify.js")
+URL_PLUGINS_BASE="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_REV}/plugins"
+
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -89,8 +93,10 @@ STAMP="$(ts)"
 TMP_OPENCODE="$TMP_DIR/opencode.jsonc"
 TMP_OMOC="$TMP_DIR/oh-my-opencode.jsonc"
 TMP_AGENTS="$TMP_DIR/_AGENTS.md"
+TMP_PLUGINS_DIR="$TMP_DIR/plugins"
+mkdir -p "$TMP_PLUGINS_DIR"
 
-echo "[1/3] Downloading:"
+echo "[1/4] Downloading config files:"
 echo "      - $URL_OPENCODE"
 echo "      - $URL_OMOC"
 echo "      - $URL_AGENTS"
@@ -99,12 +105,25 @@ fetch "$URL_OPENCODE" "$TMP_OPENCODE"
 fetch "$URL_OMOC" "$TMP_OMOC"
 fetch "$URL_AGENTS" "$TMP_AGENTS"
 
-echo "[2/3] Installing to user-level config dir: $CONFIG_DIR"
+echo "[2/4] Downloading plugins:"
+for plugin in "${PLUGINS[@]}"; do
+  echo "      - $URL_PLUGINS_BASE/$plugin"
+  fetch "$URL_PLUGINS_BASE/$plugin" "$TMP_PLUGINS_DIR/$plugin"
+done
+
+echo "[3/4] Installing to user-level config dir: $CONFIG_DIR"
 backup_and_install_file "$TMP_OPENCODE" "$CONFIG_DIR/opencode.jsonc" "$STAMP"
 backup_and_install_file "$TMP_OMOC" "$CONFIG_DIR/oh-my-opencode.jsonc" "$STAMP"
 backup_and_install_file "$TMP_AGENTS" "$CONFIG_DIR/AGENTS.md" "$STAMP"
 
-echo "[3/3] Renaming legacy .json (if exists) so only .jsonc remains active"
+# Install plugins (no backup)
+PLUGINS_DIR="$CONFIG_DIR/plugins"
+mkdir -p "$PLUGINS_DIR"
+for plugin in "${PLUGINS[@]}"; do
+  mv -f "$TMP_PLUGINS_DIR/$plugin" "$PLUGINS_DIR/$plugin"
+done
+
+echo "[4/4] Renaming legacy .json (if exists) so only .jsonc remains active"
 rename_json_if_exists "$CONFIG_DIR/opencode.json" "$STAMP"
 rename_json_if_exists "$CONFIG_DIR/oh-my-opencode.json" "$STAMP"
 
