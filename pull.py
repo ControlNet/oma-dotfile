@@ -93,12 +93,23 @@ def get_config_dir() -> Path:
     return Path.home() / ".config" / "opencode"
 
 
+MAX_BACKUPS = 5
+
+
+def cleanup_old_backups(file_path: Path) -> None:
+    pattern = f"{file_path.name}.bak-*"
+    backups = sorted(file_path.parent.glob(pattern), key=lambda p: p.stat().st_mtime)
+    while len(backups) > MAX_BACKUPS:
+        oldest = backups.pop(0)
+        oldest.unlink()
+
+
 def backup_and_install(src: Path, dst: Path, stamp: str) -> None:
-    """Backup existing file if needed, then install new file."""
     dst.parent.mkdir(parents=True, exist_ok=True)
     if not NO_BACKUP and dst.exists():
         backup_path = dst.with_suffix(f"{dst.suffix}.bak-{stamp}")
         shutil.copy2(dst, backup_path)
+        cleanup_old_backups(dst)
     shutil.copy2(src, dst)
 
 
