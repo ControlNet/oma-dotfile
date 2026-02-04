@@ -25,6 +25,57 @@ REPO_REV = os.environ.get("REPO_REV", "master")
 CONFIG_DIR_ENV = os.environ.get("CONFIG_DIR", "")
 NO_BACKUP = os.environ.get("NO_BACKUP", "0") == "1"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# COLORS & STYLES (ANSI escape codes)
+# ─────────────────────────────────────────────────────────────────────────────
+RESET = "\033[0m"
+BOLD = "\033[1m"
+CYAN = "\033[36m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+RED = "\033[31m"
+MAGENTA = "\033[35m"
+
+BANNER = f"""{CYAN}{BOLD}
+ ██████╗ ██████╗ ███╗   ██╗████████╗██████╗  ██████╗ ██╗     ███╗   ██╗███████╗████████╗
+██╔════╝██╔═══██╗████╗  ██║╚══██╔══╝██╔══██╗██╔═══██╗██║     ████╗  ██║██╔════╝╚══██╔══╝
+██║     ██║   ██║██╔██╗ ██║   ██║   ██████╔╝██║   ██║██║     ██╔██╗ ██║█████╗     ██║   
+██║     ██║   ██║██║╚██╗██║   ██║   ██╔══██╗██║   ██║██║     ██║╚██╗██║██╔══╝     ██║   
+╚██████╗╚██████╔╝██║ ╚████║   ██║   ██║  ██║╚██████╔╝███████╗██║ ╚████║███████╗   ██║   
+ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝╚══════╝   ╚═╝   
+{RESET}
+{MAGENTA}{BOLD}                         ██████╗ ███╗   ███╗ ██████╗ 
+                        ██╔═══██╗████╗ ████║██╔═══██╗
+                        ██║   ██║██╔████╔██║██║   ██║
+                        ██║   ██║██║╚██╔╝██║██║   ██║
+                        ╚██████╔╝██║ ╚═╝ ██║╚██████╔╝
+                         ╚═════╝ ╚═╝     ╚═╝ ╚═════╝ 
+{RESET}
+{CYAN}  ══════════════════════════════════════════════════════════════════════════════
+{YELLOW}                    Oh-My-OpenCode Configuration Installer
+{CYAN}  ══════════════════════════════════════════════════════════════════════════════{RESET}
+"""
+
+
+def info(msg: str) -> None:
+    """Print info message with cyan color."""
+    print(f"{CYAN}{BOLD}[INFO]{RESET}    {msg}")
+
+
+def success(msg: str) -> None:
+    """Print success message with green color."""
+    print(f"{GREEN}{BOLD}[SUCCESS]{RESET} {msg}")
+
+
+def warn(msg: str) -> None:
+    """Print warning message with yellow color."""
+    print(f"{YELLOW}{BOLD}[WARN]{RESET}    {msg}", file=sys.stderr)
+
+
+def error(msg: str) -> None:
+    """Print error message with red color and exit."""
+    print(f"{RED}{BOLD}[ERROR]{RESET}   {msg}", file=sys.stderr)
+
 
 def timestamp() -> str:
     return datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -69,6 +120,8 @@ def copy_directory(src_dir: Path, dst_dir: Path) -> None:
 
 
 def main():
+    print(BANNER)
+
     config_dir = get_config_dir()
     config_dir.mkdir(parents=True, exist_ok=True)
     stamp = timestamp()
@@ -79,8 +132,7 @@ def main():
         tmp_path = Path(tmp_dir)
         repo_path = tmp_path / REPO_NAME
 
-        # Step [1/4]: Clone repo (shallow)
-        print(f"[1/4] Cloning repository (branch/tag: {REPO_REV})...")
+        info(f"[1/4] Cloning repository (branch/tag: {REPO_REV})...")
         result = subprocess.run(
             [
                 "git",
@@ -96,12 +148,11 @@ def main():
             text=True,
         )
         if result.returncode != 0:
-            print(f"Error: Failed to clone repository", file=sys.stderr)
+            error(f"Failed to clone repository")
             print(result.stderr, file=sys.stderr)
             sys.exit(1)
 
-        # Step [2/4]: Copy config files
-        print(f"[2/4] Installing config files to: {config_dir}")
+        info(f"[2/4] Installing config files to: {config_dir}")
         config_files = [
             ("opencode.jsonc", "opencode.jsonc"),
             ("oh-my-opencode.jsonc", "oh-my-opencode.jsonc"),
@@ -111,27 +162,26 @@ def main():
             src = repo_path / src_name
             dst = config_dir / dst_name
             if src.exists():
-                print(f"      - {src_name}")
+                print(f"         - {src_name}")
                 backup_and_install(src, dst, stamp)
 
-        # Step [3/4]: Copy plugins and skills directories
-        print("[3/4] Installing plugins and skills...")
+        info("[3/4] Installing plugins and skills...")
         for dir_name in ["plugins", "skills"]:
             src_dir = repo_path / dir_name
             dst_dir = config_dir / dir_name
             if src_dir.exists():
-                print(f"      - {dir_name}/")
+                print(f"         - {dir_name}/")
                 copy_directory(src_dir, dst_dir)
 
-        # Step [4/4]: Rename legacy .json files
-        print("[4/4] Renaming legacy .json (if exists) so only .jsonc remains active")
+        info("[4/4] Renaming legacy .json (if exists) so only .jsonc remains active")
         rename_json_if_exists(config_dir / "opencode.json", stamp)
         rename_json_if_exists(config_dir / "oh-my-opencode.json", stamp)
 
-    print("Done.")
-    print(f"Timestamp: {stamp}")
+    print()
+    success("Installation complete!")
+    info(f"Timestamp: {stamp}")
     if not NO_BACKUP:
-        print(f"Backups: *.bak-{stamp}")
+        info(f"Backups: *.bak-{stamp}")
 
 
 if __name__ == "__main__":
