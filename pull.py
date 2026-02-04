@@ -112,11 +112,12 @@ def rename_json_if_exists(json_path: Path, stamp: str) -> None:
 
 
 def copy_directory(src_dir: Path, dst_dir: Path) -> None:
-    """Copy directory contents, preserving existing local files."""
     if not src_dir.exists():
-        print(f"Warning: Source directory not found: {src_dir}", file=sys.stderr)
+        warn(f"Source directory not found: {src_dir}")
         return
-    shutil.copytree(src_dir, dst_dir, dirs_exist_ok=True)
+    if dst_dir.exists():
+        shutil.rmtree(dst_dir)
+    shutil.copytree(src_dir, dst_dir)
 
 
 def main():
