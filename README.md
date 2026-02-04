@@ -4,12 +4,12 @@ My opencode configurations.
 
 Linux/Mac:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ControlNet/omo-dotfile/master/pull.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ControlNet/omo-dotfile/master/pull.py | python3
 ```
 
-Windows:
+Windows (PowerShell):
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm 'https://raw.githubusercontent.com/ControlNet/omo-dotfile/master/pull.ps1' | iex"
+(Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/ControlNet/omo-dotfile/master/pull.py' -UseBasicParsing).Content | python
 ```
 
 Required environment variables:
