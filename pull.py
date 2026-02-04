@@ -102,6 +102,7 @@ def cleanup_old_backups(file_path: Path) -> None:
     while len(backups) > MAX_BACKUPS:
         oldest = backups.pop(0)
         oldest.unlink()
+        info(f"Removed old backup: {oldest.name}")
 
 
 def backup_and_install(src: Path, dst: Path, stamp: str) -> None:
