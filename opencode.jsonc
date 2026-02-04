@@ -137,11 +137,6 @@
     }
   },
   "mcp": {
-    "github": {
-      "type": "local",
-      "command": ["npx", "-y", "@modelcontextprotocol/server-github"],
-      "enabled": true
-    }
   },
   "$schema": "https://opencode.ai/config.json"
 }
