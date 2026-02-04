@@ -101,6 +101,30 @@
         }
       }
     },
+    "azure-openai": {
+      "name": "Azure OpenAI",
+      "npm": "@ai-sdk/openai",
+      "options": {
+        "baseURL": "{env:AZURE_OPENAI_BASE_URL}",
+        "apiKey": "{env:AZURE_OPENAI_API_KEY}"
+      },
+      "models": {
+        "gpt-5-nano": {
+          "id": "gpt-5-nano",
+          "name": "GPT-5 Nano",
+          "tool_call": true,
+          "attachment": true,
+          "temperature": true
+        },
+        "gpt-5-mini": {
+          "id": "gpt-5-mini",
+          "name": "GPT-5 Mini",
+          "tool_call": true,
+          "attachment": true,
+          "temperature": true
+        }
+      }
+    },
     "azure-anthropic": {
       "name": "Azure Anthropic",
       "npm": "@ai-sdk/anthropic",
