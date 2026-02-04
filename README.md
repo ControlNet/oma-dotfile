@@ -15,8 +15,11 @@ Windows (PowerShell):
 Required environment variables:
 - `ANTHROPIC_BASE_URL` (without `/v1`)
 - `ANTHROPIC_AUTH_TOKEN`
-- `GITHUB_PERSONAL_ACCESS_TOKEN` (used for github MCP)
+- `AZURE_OPENAI_API_KEY`
+- `AZURE_OPENAI_BASE_URL` (with `/openai/v1`)
+- `GITHUB_PERSONAL_ACCESS_TOKEN` (used for gh tools)
 
 Optional environment variables:
 - `GOTIFY_URL` (used for gotify notifications)
 - `GOTIFY_TOKEN_FOR_OPENCODE` (used for gotify notifications)
+- `OPENCODE_GOTIFY_NOTIFY_SUMMARIZER` (format: "provider/model", e.g., "azure-openai/gpt-5-nano")
