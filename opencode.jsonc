@@ -181,8 +181,8 @@
           "reasoning": true,
           "temperature": true,
           "limit": {
-            "context": 200000,
-            "output": 64000
+            "context": 1000000,
+            "output": 128000
           }
         },
         "claude-opus-4-5": {
