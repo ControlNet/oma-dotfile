@@ -177,7 +177,11 @@
           "tool_call": true,
           "attachment": true,
           "reasoning": true,
-          "temperature": true
+          "temperature": true,
+          "limit": {
+            "context": 200000,
+            "output": 64000
+          }
         },
         "claude-opus-4-5": {
           "id": "claude-opus-4-5",
@@ -185,7 +189,11 @@
           "tool_call": true,
           "attachment": true,
           "reasoning": true,
-          "temperature": true
+          "temperature": true,
+          "limit": {
+            "context": 200000,
+            "output": 64000
+          }
         },
         "claude-sonnet-4-5": {
           "id": "claude-sonnet-4-5",
@@ -193,7 +201,11 @@
           "tool_call": true,
           "attachment": true,
           "reasoning": true,
-          "temperature": true
+          "temperature": true,
+          "limit": {
+            "context": 200000,
+            "output": 64000
+          }
         },
         "claude-haiku-4-5": {
           "id": "claude-haiku-4-5",
@@ -201,7 +213,11 @@
           "tool_call": true,
           "attachment": true,
           "reasoning": true,
-          "temperature": true
+          "temperature": true,
+          "limit": {
+            "context": 200000,
+            "output": 64000
+          }
         }
       }
     }
