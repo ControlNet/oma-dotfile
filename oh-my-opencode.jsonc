@@ -2,10 +2,10 @@
   "$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-opencode/master/assets/oh-my-opencode.schema.json",
   "agents": {
     "hephaestus": {
-      "model": "azure-anthropic/claude-opus-4-5"
+      "model": "azure-anthropic/claude-opus-4-6"
     },
     "sisyphus": {
-      "model": "azure-anthropic/claude-opus-4-5"
+      "model": "azure-anthropic/claude-opus-4-6"
     },
     "oracle": {
       "model": "openai/gpt-5.2",
@@ -21,11 +21,11 @@
       "model": "openai/gpt-5.2"
     },
     "prometheus": {
-      "model": "azure-anthropic/claude-opus-4-5",
+      "model": "azure-anthropic/claude-opus-4-6",
       "variant": "max"
     },
     "metis": {
-      "model": "azure-anthropic/claude-opus-4-5",
+      "model": "azure-anthropic/claude-opus-4-6",
       "variant": "max"
     },
     "momus": {
@@ -33,22 +33,22 @@
       "variant": "high"
     },
     "atlas": {
-      "model": "azure-anthropic/claude-opus-4-5"
+      "model": "azure-anthropic/claude-opus-4-6"
     }
   },
   "categories": {
     "visual-engineering": {
-      "model": "azure-anthropic/claude-opus-4-5"
+      "model": "azure-anthropic/claude-opus-4-6"
     },
     "ultrabrain": {
       "model": "openai/gpt-5.2-codex",
       "variant": "xhigh"
     },
     "deep": {
-      "model": "azure-anthropic/claude-opus-4-5"
+      "model": "azure-anthropic/claude-opus-4-6"
     },
     "artistry": {
-      "model": "azure-anthropic/claude-opus-4-5",
+      "model": "azure-anthropic/claude-opus-4-6",
       "variant": "max"
     },
     "quick": {
@@ -58,7 +58,7 @@
       "model": "azure-anthropic/claude-sonnet-4-5"
     },
     "unspecified-high": {
-      "model": "azure-anthropic/claude-opus-4-5"
+      "model": "azure-anthropic/claude-opus-4-6"
     },
     "writing": {
       "model": "openai/gpt-5.2"

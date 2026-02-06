@@ -133,6 +133,14 @@
         "apiKey": "{env:ANTHROPIC_AUTH_TOKEN}"
       },
       "models": {
+        "claude-opus-4-6": {
+          "id": "claude-opus-4-6",
+          "name": "Claude Opus 4.6",
+          "tool_call": true,
+          "attachment": true,
+          "reasoning": true,
+          "temperature": true
+        },
         "claude-opus-4-5": {
           "id": "claude-opus-4-5",
           "name": "Claude Opus 4.5",
