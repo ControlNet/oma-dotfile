@@ -4,6 +4,9 @@
     "oh-my-opencode@latest",
     "opencode-wakatime"
   ],
+  "keybinds": {
+    "variant_cycle": "ctrl+y"
+  },
   "provider": {
     "openai": {
       "name": "OpenAI",
