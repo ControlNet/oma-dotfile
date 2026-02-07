@@ -82,6 +82,7 @@ function parseSummarizer() {
 async function summarizeWithLLM(client, text, parentID) {
   const model = parseSummarizer();
   if (!model) return null;
+  if (!text || !text.trim()) return null;
   
   // Truncate long input
   const input = text.length > MAX_INPUT_LENGTH 
