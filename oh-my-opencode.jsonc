@@ -14,7 +14,7 @@
       "variant": "xhigh"
     },
     "librarian": {
-      "model": "azure-anthropic/claude-sonnet-4-5",
+      "model": "openai/gpt-5.2",
       "variant": "high"
     },
     "explore": {
@@ -63,7 +63,7 @@
       "variant": "high"
     },
     "unspecified-low": {
-      "model": "azure-anthropic/claude-sonnet-4-5",
+      "model": "openai/gpt-5.3-codex",
       "variant": "high"
     },
     "unspecified-high": {
