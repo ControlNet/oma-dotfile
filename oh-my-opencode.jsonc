@@ -6,7 +6,7 @@
       "variant": "max"
     },
     "sisyphus": {
-      "model": "openai/gpt-5.3-codex",
+      "model": "azure-anthropic/claude-opus-4-6",
       "variant": "xhigh"
     },
     "oracle": {
@@ -59,7 +59,7 @@
       "variant": "max"
     },
     "quick": {
-      "model": "azure-anthropic/claude-haiku-4-5",
+      "model": "openai/gpt-5.3-codex",
       "variant": "high"
     },
     "unspecified-low": {
