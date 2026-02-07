@@ -149,6 +149,13 @@
         "apiKey": "{env:AZURE_OPENAI_API_KEY}"
       },
       "models": {
+        "gpt-5.3-codex": {
+          "id": "gpt-5.3-codex",
+          "name": "GPT-5.3 Codex",
+          "tool_call": true,
+          "attachment": true,
+          "temperature": true
+        },
         "gpt-5-nano": {
           "id": "gpt-5-nano",
           "name": "GPT-5 Nano",
@@ -183,7 +190,7 @@
           "limit": {
             "context": 1000000,
             "output": 128000
-          }
+	  }
         },
         "claude-opus-4-5": {
           "id": "claude-opus-4-5",
