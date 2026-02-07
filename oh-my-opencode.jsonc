@@ -2,11 +2,11 @@
   "$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-opencode/master/assets/oh-my-opencode.schema.json",
   "agents": {
     "hephaestus": {
-      "model": "azure-openai/gpt-5.3-codex",
-      "variant": "xhigh"
+      "model": "azure-anthropic/claude-opus-4-6",
+      "variant": "max"
     },
     "sisyphus": {
-      "model": "azure-openai/gpt-5.3-codex",
+      "model": "openai/gpt-5.3-codex",
       "variant": "xhigh"
     },
     "oracle": {
@@ -37,7 +37,7 @@
       "variant": "high"
     },
     "atlas": {
-      "model": "azure-openai/gpt-5.3-codex",
+      "model": "openai/gpt-5.3-codex",
       "variant": "xhigh"
     }
   },
@@ -51,8 +51,8 @@
       "variant": "xhigh"
     },
     "deep": {
-      "model": "azure-openai/gpt-5.3-codex",
-      "variant": "xhigh"
+      "model": "azure-anthropic/claude-opus-4-6",
+      "variant": "max"
     },
     "artistry": {
       "model": "azure-anthropic/claude-opus-4-6",
@@ -67,8 +67,8 @@
       "variant": "high"
     },
     "unspecified-high": {
-      "model": "azure-openai/gpt-5.3-codex",
-      "variant": "xhigh"
+      "model": "azure-anthropic/claude-opus-4-6",
+      "variant": "max"
     },
     "writing": {
       "model": "openai/gpt-5.2"
