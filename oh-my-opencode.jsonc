@@ -37,8 +37,8 @@
       "variant": "high"
     },
     "atlas": {
-      "model": "openai/gpt-5.3-codex",
-      "variant": "xhigh"
+      "model": "azure-anthropic/claude-opus-4-6",
+      "variant": "max"
     }
   },
   "categories": {
