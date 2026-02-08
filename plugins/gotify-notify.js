@@ -223,6 +223,24 @@ export const GotifyNotify = async ({ client }) => {
 
         if (event.type === "session.error") {
           if (NOTIFY_ERROR) {
+            const sessionID = event?.properties?.sessionID;
+            const error = event?.properties?.error;
+
+            // Skip abort errors (normal cancellation, e.g. background_cancel)
+            const errorName = error?.name || "";
+            const errorMsg = String(error?.message || error || "");
+            if (errorName === "AbortedError" || errorMsg.includes("aborted")) {
+              return;
+            }
+
+            // Skip child session errors (subagent/summarizer)
+            if (sessionID) {
+              try {
+                const isChild = await isChildSession(client, sessionID);
+                if (isChild) return;
+              } catch {}
+            }
+
             await gotifyPush("❌ Session encountered an error");
           }
           return;
