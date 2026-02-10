@@ -125,8 +125,11 @@ async function summarizeWithLLM(client, text, parentID) {
   } catch {
     return null; // Silent fallback
   } finally {
-    // Always cleanup
+    // Always cleanup: abort the running prompt loop BEFORE deleting,
+    // otherwise Prompt.loop() keeps running on deleted messages and
+    // throws "No user message found in stream".
     if (sessionID) {
+      await client.session.abort({ path: { id: sessionID } }).catch(() => {});
       await client.session.delete({ path: { id: sessionID } }).catch(() => {});
     }
   }
