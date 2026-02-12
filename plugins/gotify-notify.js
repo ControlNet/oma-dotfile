@@ -26,7 +26,7 @@ const NOTIFY_QUESTION = process.env.OPENCODE_NOTIFY_QUESTION !== "false";
 
 // LLM Summarization config
 const SUMMARIZER = (process.env.OPENCODE_GOTIFY_NOTIFY_SUMMARIZER || "").trim();
-const SUMMARIZER_TIMEOUT = 20000; // 20 seconds
+const SUMMARIZER_TIMEOUT = 120000; // 120 seconds
 const MAX_INPUT_LENGTH = 5000; // Truncate before sending to LLM
 
 function normalizeBase(url) {
@@ -91,19 +91,22 @@ async function summarizeWithLLM(client, text, parentID) {
   
   let sessionID = null;
   try {
-    // Create ephemeral session as child (so it's ignored by isChildSession check)
     const session = await client.session.create({
       body: { title: "[Summarizer]", parentID }
     });
     sessionID = session?.data?.id;
-    if (!sessionID) return null;
+    if (!sessionID) {
+      console.error("[gotify] summarizer: session.create returned no ID");
+      await gotifyPush("🔍 summarizer: session.create returned no ID").catch(() => {});
+      return null;
+    }
     
-    // Prompt with timeout
     const promptPromise = client.session.prompt({
       path: { id: sessionID },
       body: {
         model,
-        tools: {}, // Disable all tools
+        system: "You are a concise summarizer. Output only plain text, no markdown.",
+        tools: {},
         parts: [{ 
           type: "text", 
           text: `Summarize this in ONE short sentence (max 80 chars). No markdown, no quotes, just plain text:\n\n${input}`
@@ -118,12 +121,23 @@ async function summarizeWithLLM(client, text, parentID) {
     const response = await Promise.race([promptPromise, timeoutPromise]);
     const summary = extractAssistantText(response?.data);
     
-    // Validate summary
-    if (!summary || summary.length > 200) return null;
+    if (!summary) {
+      const dbg = `empty summary | response keys: ${Object.keys(response || {})} | data keys: ${Object.keys(response?.data || {})} | data: ${JSON.stringify(response?.data)?.slice(0, 200)}`;
+      console.error("[gotify] summarizer:", dbg);
+      await gotifyPush("🔍 summarizer debug: " + dbg).catch(() => {});
+      return null;
+    }
+    if (summary.length > 200) {
+      console.error("[gotify] summarizer: too long:", summary.length);
+      return null;
+    }
     return summary;
     
-  } catch {
-    return null; // Silent fallback
+  } catch (e) {
+    const msg = e?.message || String(e);
+    console.error("[gotify] summarizer error:", msg);
+    await gotifyPush("🔍 summarizer error: " + msg).catch(() => {});
+    return null;
   } finally {
     // Always cleanup: abort the running prompt loop BEFORE deleting,
     // otherwise Prompt.loop() keeps running on deleted messages and
@@ -174,8 +188,9 @@ export const GotifyNotify = async ({ client }) => {
 
       let last = null;
       for (let i = list.length - 1; i >= 0; i--) {
-        if (list[i]?.info?.role === "assistant") {
-          last = list[i];
+        const msg = list[i];
+        if (msg?.info?.role === "assistant" && !msg?.info?.summary) {
+          last = msg;
           break;
         }
       }
