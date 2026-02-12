@@ -1,25 +1,23 @@
 {
   "$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-opencode/master/assets/oh-my-opencode.schema.json",
   "agents": {
-    "hephaestus": {
+    "sisyphus": {
       "model": "azure-anthropic/claude-opus-4-6",
       "variant": "max"
     },
-    "sisyphus": {
-      "model": "azure-anthropic/claude-opus-4-6",
+    "hephaestus": {
+      "model": "azure-openai/gpt-5.2-codex",
       "variant": "xhigh"
     },
     "oracle": {
       "model": "azure-openai/gpt-5.2",
-      "variant": "xhigh"
+      "variant": "high"
     },
     "librarian": {
-      "model": "azure-openai/gpt-5.2",
-      "variant": "high"
+      "model": "azure-anthropic/claude-sonnet-4-5"
     },
     "explore": {
-      "model": "azure-openai/gpt-5.2-codex",
-      "variant": "high"
+      "model": "azure-anthropic/claude-haiku-4-5"
     },
     "multimodal-looker": {
       "model": "azure-openai/gpt-5.2"
@@ -34,11 +32,10 @@
     },
     "momus": {
       "model": "azure-openai/gpt-5.2",
-      "variant": "high"
+      "variant": "medium"
     },
     "atlas": {
-      "model": "azure-anthropic/claude-opus-4-6",
-      "variant": "max"
+      "model": "azure-anthropic/claude-sonnet-4-5"
     }
   },
   "categories": {
@@ -55,23 +52,21 @@
       "variant": "max"
     },
     "artistry": {
-      "model": "azure-anthropic/claude-opus-4-6",
-      "variant": "max"
+      "model": "azure-anthropic/claude-sonnet-4-5",
+      "variant": "high"
     },
     "quick": {
-      "model": "azure-anthropic/claude-sonnet-4-5",
-      "variant": "high"
+      "model": "azure-openai/gpt-5.2-codex"
     },
     "unspecified-low": {
+      "model": "azure-openai/gpt-5.2-codex"
+    },
+    "unspecified-high": {
       "model": "azure-anthropic/claude-sonnet-4-5",
       "variant": "high"
     },
-    "unspecified-high": {
-      "model": "azure-anthropic/claude-opus-4-6",
-      "variant": "max"
-    },
     "writing": {
-      "model": "azure-openai/gpt-5.2"
+      "model": "azure-anthropic/claude-sonnet-4-5"
     }
   },
   "git_master": {
