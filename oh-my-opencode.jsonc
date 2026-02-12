@@ -59,11 +59,11 @@
       "variant": "max"
     },
     "quick": {
-      "model": "openai/gpt-5.3-codex",
+      "model": "azure-anthropic/claude-sonnet-4-5",
       "variant": "high"
     },
     "unspecified-low": {
-      "model": "openai/gpt-5.3-codex",
+      "model": "azure-anthropic/claude-sonnet-4-5",
       "variant": "high"
     },
     "unspecified-high": {
