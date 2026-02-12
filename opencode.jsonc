@@ -1,7 +1,7 @@
 {
   "plugin": [
     "opencode-openai-codex-auth",
-    "oh-my-opencode@latest",
+    "oh-my-opencode@3.4.0",
     "opencode-wakatime"
   ],
   "keybinds": {
