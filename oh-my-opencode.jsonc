@@ -2,11 +2,11 @@
   "$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-opencode/master/assets/oh-my-opencode.schema.json",
   "agents": {
     "sisyphus": {
-      "model": "azure-openai/gpt-5.2",
+      "model": "azure-openai/gpt-5.2-codex",
       "variant": "xhigh"
     },
     "hephaestus": {
-      "model": "azure-openai/gpt-5.2",
+      "model": "azure-openai/gpt-5.2-codex",
       "variant": "xhigh"
     },
     "oracle": {
@@ -14,20 +14,20 @@
       "variant": "high"
     },
     "librarian": {
-      "model": "azure-openai/gpt-5.2"
+      "model": "azure-openai/gpt-5.2-codex"
     },
     "explore": {
-      "model": "azure-openai/gpt-5.2"
+      "model": "azure-openai/gpt-5.2-codex"
     },
     "multimodal-looker": {
       "model": "azure-openai/gpt-5.2"
     },
     "prometheus": {
-      "model": "azure-openai/gpt-5.2",
+      "model": "azure-openai/gpt-5.2-codex",
       "variant": "xhigh"
     },
     "metis": {
-      "model": "azure-openai/gpt-5.2",
+      "model": "azure-openai/gpt-5.2-codex",
       "variant": "xhigh"
     },
     "momus": {
@@ -35,38 +35,38 @@
       "variant": "medium"
     },
     "atlas": {
-      "model": "azure-openai/gpt-5.2"
+      "model": "azure-openai/gpt-5.2-codex"
     }
   },
   "categories": {
     "visual-engineering": {
-      "model": "azure-openai/gpt-5.2",
+      "model": "azure-openai/gpt-5.2-codex",
       "variant": "xhigh"
     },
     "ultrabrain": {
-      "model": "azure-openai/gpt-5.2",
+      "model": "azure-openai/gpt-5.2-codex",
       "variant": "xhigh"
     },
     "deep": {
-      "model": "azure-openai/gpt-5.2",
+      "model": "azure-openai/gpt-5.2-codex",
       "variant": "xhigh"
     },
     "artistry": {
-      "model": "azure-openai/gpt-5.2",
+      "model": "azure-openai/gpt-5.2-codex",
       "variant": "high"
     },
     "quick": {
-      "model": "azure-openai/gpt-5.2"
+      "model": "azure-openai/gpt-5.2-codex"
     },
     "unspecified-low": {
-      "model": "azure-openai/gpt-5.2"
+      "model": "azure-openai/gpt-5.2-codex"
     },
     "unspecified-high": {
-      "model": "azure-openai/gpt-5.2",
+      "model": "azure-openai/gpt-5.2-codex",
       "variant": "high"
     },
     "writing": {
-      "model": "azure-openai/gpt-5.2"
+      "model": "azure-openai/gpt-5.2-codex"
     }
   },
   "git_master": {
