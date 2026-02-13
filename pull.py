@@ -33,6 +33,16 @@ NO_BACKUP = os.environ.get("NO_BACKUP", "0") == "1"
 SETUP_NOTIFY_HOOKS = os.environ.get("SETUP_NOTIFY_HOOKS", "1") == "1"
 SETUP_NOTIFY_HOOKS_FORCE = os.environ.get("SETUP_NOTIFY_HOOKS_FORCE", "0") == "1"
 
+REQUIRED_ENV_VARS = [
+    "CODEX_BASE_URL",
+    "CODEX_API_KEY",
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_AUTH_TOKEN",
+    "AZURE_OPENAI_API_KEY",
+    "AZURE_OPENAI_BASE_URL",
+    "GITHUB_PERSONAL_ACCESS_TOKEN",
+]
+
 # ─────────────────────────────────────────────────────────────────────────────
 # COLORS & STYLES (ANSI escape codes)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -87,6 +97,18 @@ def error(msg: str) -> None:
 
 def timestamp() -> str:
     return datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
+def warn_missing_required_env_vars() -> None:
+    missing = [name for name in REQUIRED_ENV_VARS if not os.environ.get(name, "").strip()]
+    if not missing:
+        info("All required environment variables are present")
+        return
+
+    warn("Missing required environment variables from README:")
+    for name in missing:
+        warn(f"  - {name}")
+    warn("Script will continue, but related features may not work as expected.")
 
 
 def get_config_dir() -> Path:
@@ -253,6 +275,7 @@ def ensure_codex_notify_config(codex_dir: Path, stamp: str) -> None:
 
 def main():
     print(BANNER)
+    warn_missing_required_env_vars()
 
     config_dir = get_config_dir()
     codex_dir = get_codex_dir()
