@@ -13,7 +13,7 @@
       "npm": "@ai-sdk/openai",
       "options": {
         "baseURL": "{env:CODEX_BASE_URL}",
-        "apiKey": "{env:CODEX_BASE_URL}",
+        "apiKey": "{env:CODEX_API_KEY}",
         "reasoningEffort": "medium",
         "reasoningSummary": "auto",
         "textVerbosity": "medium",
