@@ -105,10 +105,10 @@ def warn_missing_required_env_vars() -> None:
         info("All required environment variables are present")
         return
 
-    warn("Missing required environment variables from README:")
+    info("Missing required environment variables from README:")
     for name in missing:
-        warn(f"  - {name}")
-    warn("Script will continue, but related features may not work as expected.")
+        info(f"  - {name}")
+    info("Script will continue, but related features may not work as expected.")
 
 
 def get_config_dir() -> Path:
