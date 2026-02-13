@@ -28,6 +28,7 @@ Optional:
   CODEX_NOTIFY_SUMMARIZER_MAX_INPUT_CHARS (default: 5000)
   CODEX_NOTIFY_SUMMARIZER_BASE_URL (optional override)
   CODEX_NOTIFY_SUMMARIZER_API_KEY (optional override)
+  CODEX_NOTIFY_USER_AGENT (optional; default mimics browser UA)
 """
 
 from __future__ import annotations
@@ -59,6 +60,14 @@ def _env_first(*names: str, default: str = "") -> str:
         if value is not None:
             return value.strip()
     return default
+
+
+def _notify_user_agent() -> str:
+    custom = _env_first("CODEX_NOTIFY_USER_AGENT", "OPENCODE_NOTIFY_USER_AGENT")
+    if custom:
+        return custom
+    # Some reverse proxies/WAFs block Python's default urllib user agent.
+    return "Mozilla/5.0 (X11; Linux x86_64) CodexGotifyNotify/1.0"
 
 
 def _normalize_base(url: str) -> str:
@@ -210,10 +219,12 @@ def _json_post(
     timeout_sec: float,
 ) -> dict[str, object] | None:
     request_data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    request_headers = dict(headers)
+    request_headers.setdefault("User-Agent", _notify_user_agent())
     req = urllib.request.Request(
         url,
         data=request_data,
-        headers=headers,
+        headers=request_headers,
         method="POST",
     )
     try:
@@ -571,6 +582,7 @@ def _push_gotify(base_url: str, token: str, title: str, message: str) -> None:
         headers={
             "Content-Type": "application/json",
             "X-Gotify-Key": token,
+            "User-Agent": _notify_user_agent(),
         },
         method="POST",
     )
