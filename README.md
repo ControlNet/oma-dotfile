@@ -13,6 +13,8 @@ Windows (PowerShell):
 ```
 
 Required environment variables:
+- `CODEX_BASE_URL` (with `/v1`)
+- `CODEX_API_KEY`
 - `ANTHROPIC_BASE_URL` (without `/v1`)
 - `ANTHROPIC_AUTH_TOKEN`
 - `AZURE_OPENAI_API_KEY`

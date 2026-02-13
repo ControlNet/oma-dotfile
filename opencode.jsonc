@@ -8,9 +8,12 @@
     "variant_cycle": "ctrl+y"
   },
   "provider": {
-    "openai": {
-      "name": "OpenAI",
+    "codex": {
+      "name": "Codex",
+      "npm": "@ai-sdk/openai",
       "options": {
+        "baseURL": "{env:CODEX_BASE_URL}",
+        "apiKey": "{env:CODEX_BASE_URL}",
         "reasoningEffort": "medium",
         "reasoningSummary": "auto",
         "textVerbosity": "medium",
