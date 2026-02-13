@@ -2,8 +2,8 @@
   "$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-opencode/master/assets/oh-my-opencode.schema.json",
   "agents": {
     "sisyphus": {
-      "model": "azure-openai/gpt-5.2-codex",
-      "variant": "xhigh"
+      "model": "azure-anthropic/claude-opus-4-6",
+      "variant": "max"
     },
     "hephaestus": {
       "model": "azure-openai/gpt-5.2-codex",
@@ -14,45 +14,45 @@
       "variant": "high"
     },
     "librarian": {
-      "model": "azure-openai/gpt-5.2-codex"
+      "model": "azure-anthropic/claude-sonnet-4-5"
     },
     "explore": {
-      "model": "azure-openai/gpt-5.2-codex"
+      "model": "azure-anthropic/claude-haiku-4-5"
     },
     "multimodal-looker": {
       "model": "azure-openai/gpt-5.2"
     },
     "prometheus": {
-      "model": "azure-openai/gpt-5.2-codex",
-      "variant": "xhigh"
+      "model": "azure-anthropic/claude-opus-4-6",
+      "variant": "max"
     },
     "metis": {
-      "model": "azure-openai/gpt-5.2-codex",
-      "variant": "xhigh"
+      "model": "azure-anthropic/claude-opus-4-6",
+      "variant": "max"
     },
     "momus": {
       "model": "azure-openai/gpt-5.2",
       "variant": "medium"
     },
     "atlas": {
-      "model": "azure-openai/gpt-5.2-codex"
+      "model": "azure-anthropic/claude-sonnet-4-5"
     }
   },
   "categories": {
     "visual-engineering": {
-      "model": "azure-openai/gpt-5.2-codex",
-      "variant": "xhigh"
+      "model": "azure-anthropic/claude-opus-4-6",
+      "variant": "max"
     },
     "ultrabrain": {
-      "model": "azure-openai/gpt-5.2-codex",
+      "model": "openai/gpt-5.3-codex",
       "variant": "xhigh"
     },
     "deep": {
-      "model": "azure-openai/gpt-5.2-codex",
-      "variant": "xhigh"
+      "model": "azure-anthropic/claude-opus-4-6",
+      "variant": "max"
     },
     "artistry": {
-      "model": "azure-openai/gpt-5.2-codex",
+      "model": "azure-anthropic/claude-sonnet-4-5",
       "variant": "high"
     },
     "quick": {
@@ -62,11 +62,11 @@
       "model": "azure-openai/gpt-5.2-codex"
     },
     "unspecified-high": {
-      "model": "azure-openai/gpt-5.2-codex",
+      "model": "azure-anthropic/claude-sonnet-4-5",
       "variant": "high"
     },
     "writing": {
-      "model": "azure-openai/gpt-5.2-codex"
+      "model": "azure-anthropic/claude-sonnet-4-5"
     }
   },
   "git_master": {
