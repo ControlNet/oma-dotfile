@@ -146,7 +146,8 @@
       "npm": "@ai-sdk/openai",
       "options": {
         "baseURL": "{env:AZURE_OPENAI_BASE_URL}",
-        "apiKey": "{env:AZURE_OPENAI_API_KEY}"
+        "apiKey": "{env:AZURE_OPENAI_API_KEY}",
+        "setCacheKey": true
       },
       "models": {
         "gpt-5.3-codex": {
@@ -262,7 +263,8 @@
       "npm": "@ai-sdk/anthropic",
       "options": {
         "baseURL": "{env:ANTHROPIC_BASE_URL}/v1",
-        "apiKey": "{env:ANTHROPIC_AUTH_TOKEN}"
+        "apiKey": "{env:ANTHROPIC_AUTH_TOKEN}",
+        "setCacheKey": true
       },
       "models": {
         "claude-opus-4-6": {
