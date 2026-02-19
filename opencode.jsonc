@@ -38,6 +38,11 @@
               "text"
             ]
           },
+          "cost": {
+            "input": 0.25,
+            "output": 2.0,
+            "cache_read": 0.025
+          },
           "variants": {
             "low": {
               "reasoningEffort": "low",
@@ -70,6 +75,11 @@
             "output": [
               "text"
             ]
+          },
+          "cost": {
+            "input": 1.75,
+            "output": 14.0,
+            "cache_read": 0.175
           },
           "variants": {
             "none": {
@@ -113,6 +123,11 @@
             "output": [
               "text"
             ]
+          },
+          "cost": {
+            "input": 1.25,
+            "output": 10.0,
+            "cache_read": 0.125
           },
           "variants": {
             "low": {
