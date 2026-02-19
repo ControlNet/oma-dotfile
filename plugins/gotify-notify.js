@@ -161,7 +161,7 @@ async function summarizeWithLLM(text) {
     ? text.slice(0, MAX_INPUT_LENGTH) + "..."
     : text;
 
-  const prompt = `Summarize this in ONE short sentence (max 80 chars). No markdown, no quotes, just plain text:\n\n${input}`;
+  const prompt = `You are a concise summarizer. Output plain text only.\nSummarize this in ONE short sentence (max 80 chars). No markdown, no quotes, just plain text:\n\n${input}`;
   const headers = {
     Authorization: `Bearer ${config.apiKey}`,
     "api-key": config.apiKey,
@@ -170,7 +170,6 @@ async function summarizeWithLLM(text) {
   const chatBody = {
     model: config.model,
     messages: [
-      { role: "system", content: "You are a concise summarizer. Output only plain text, no markdown." },
       { role: "user", content: prompt },
     ],
     max_tokens: 80,
@@ -189,10 +188,6 @@ async function summarizeWithLLM(text) {
   const responsesBody = {
     model: config.model,
     input: [
-      {
-        role: "system",
-        content: [{ type: "input_text", text: "You are a concise summarizer. Output plain text only." }],
-      },
       {
         role: "user",
         content: [{ type: "input_text", text: prompt }],

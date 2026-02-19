@@ -305,6 +305,7 @@ def _summarize_with_llm(text: str) -> str:
         return ""
 
     prompt = (
+        "You are a concise summarizer. Output plain text only.\n"
         "Summarize this in ONE short sentence (max 80 chars). "
         "No markdown, no quotes, just plain text:\n\n"
         f"{clipped}"
@@ -319,10 +320,6 @@ def _summarize_with_llm(text: str) -> str:
     chat_body = {
         "model": model,
         "messages": [
-            {
-                "role": "system",
-                "content": "You are a concise summarizer. Output plain text only.",
-            },
             {"role": "user", "content": prompt},
         ],
         "max_tokens": 80,
@@ -343,15 +340,6 @@ def _summarize_with_llm(text: str) -> str:
     responses_body = {
         "model": model,
         "input": [
-            {
-                "role": "system",
-                "content": [
-                    {
-                        "type": "input_text",
-                        "text": "You are a concise summarizer. Output plain text only.",
-                    }
-                ],
-            },
             {
                 "role": "user",
                 "content": [{"type": "input_text", "text": prompt}],
