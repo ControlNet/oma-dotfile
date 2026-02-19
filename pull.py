@@ -4,17 +4,20 @@ pull.py - Sync opencode configs from GitHub repo to user-level config.
 
 Env:
   REPO_OWNER=ControlNet
-  REPO_NAME=omo-dotfile
+  REPO_NAME=oma-dotfile
   REPO_REV=master
   CONFIG_DIR=<optional override>
   CODEX_DIR=<optional override>
   CODEX_HOME=<optional override; used when CODEX_DIR is not set>
+  OMP_AGENT_DIR=<optional override for ~/.omp/agent>
+  PI_CODING_AGENT_DIR=<oh-my-pi native override; used when OMP_AGENT_DIR is not set>
   NO_BACKUP=1 (optional)
   SETUP_NOTIFY_HOOKS=0 (optional; disable auto-configure Codex notify hook)
   SETUP_NOTIFY_HOOKS_FORCE=1 (optional; replace existing Codex notify line; default off)
 """
 
 import os
+import json
 import re
 import sys
 import shutil
@@ -25,10 +28,11 @@ from tempfile import TemporaryDirectory
 
 # Config from environment
 REPO_OWNER = os.environ.get("REPO_OWNER", "ControlNet")
-REPO_NAME = os.environ.get("REPO_NAME", "omo-dotfile")
+REPO_NAME = os.environ.get("REPO_NAME", "oma-dotfile")
 REPO_REV = os.environ.get("REPO_REV", "master")
 CONFIG_DIR_ENV = os.environ.get("CONFIG_DIR", "")
 CODEX_DIR_ENV = os.environ.get("CODEX_DIR", "")
+OMP_AGENT_DIR_ENV = os.environ.get("OMP_AGENT_DIR", "").strip()
 NO_BACKUP = os.environ.get("NO_BACKUP", "0") == "1"
 SETUP_NOTIFY_HOOKS = os.environ.get("SETUP_NOTIFY_HOOKS", "1") == "1"
 SETUP_NOTIFY_HOOKS_FORCE = os.environ.get("SETUP_NOTIFY_HOOKS_FORCE", "0") == "1"
@@ -62,15 +66,15 @@ BANNER = f"""{CYAN}{BOLD}
 ╚██████╗╚██████╔╝██║ ╚████║   ██║   ██║  ██║╚██████╔╝███████╗██║ ╚████║███████╗   ██║   
  ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝╚══════╝   ╚═╝   
 {RESET}
-{MAGENTA}{BOLD}                         ██████╗ ███╗   ███╗ ██████╗ 
-                        ██╔═══██╗████╗ ████║██╔═══██╗
-                        ██║   ██║██╔████╔██║██║   ██║
-                        ██║   ██║██║╚██╔╝██║██║   ██║
-                        ╚██████╔╝██║ ╚═╝ ██║╚██████╔╝
-                         ╚═════╝ ╚═╝     ╚═╝ ╚═════╝ 
+{MAGENTA}{BOLD}                         ██████╗ ███╗   ███╗ █████╗ 
+                        ██╔═══██╗████╗ ████║██╔══██╗
+                        ██║   ██║██╔████╔██║███████║
+                        ██║   ██║██║╚██╔╝██║██╔══██║
+                        ╚██████╔╝██║ ╚═╝ ██║██║  ██║
+                        ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝
 {RESET}
 {CYAN}  ══════════════════════════════════════════════════════════════════════════════
-{YELLOW}                    Oh-My-OpenCode Configuration Installer
+{YELLOW}                ControlNet Oh-My-Agents Configuration Installer
 {CYAN}  ══════════════════════════════════════════════════════════════════════════════{RESET}
 """
 
@@ -133,6 +137,16 @@ def get_codex_dir() -> Path:
     return Path.home() / ".codex"
 
 
+def get_omp_agent_dir() -> Path:
+    """Determine oh-my-pi agent config directory."""
+    if OMP_AGENT_DIR_ENV:
+        return Path(OMP_AGENT_DIR_ENV)
+    pi_agent_dir = os.environ.get("PI_CODING_AGENT_DIR", "").strip()
+    if pi_agent_dir:
+        return Path(pi_agent_dir)
+    return Path.home() / ".omp" / "agent"
+
+
 MAX_BACKUPS = 5
 
 
@@ -192,6 +206,46 @@ def backup_file_if_exists(path: Path, stamp: str) -> None:
     backup_path = path.with_suffix(f"{path.suffix}.bak-{stamp}")
     shutil.copy2(path, backup_path)
     cleanup_old_backups(path)
+
+
+def render_omp_models(content: str, codex_base_url: str) -> tuple[str, bool]:
+    """Render omp_models.yaml by inlining CODEX_BASE_URL placeholder."""
+    pattern = re.compile(r'^(\s*baseUrl:\s*)(["\']?)CODEX_BASE_URL\2(\s*(?:#.*)?)$', re.MULTILINE)
+    quoted_url = json.dumps(codex_base_url)
+    rendered, count = pattern.subn(lambda m: f"{m.group(1)}{quoted_url}{m.group(3)}", content)
+    return rendered, count > 0
+
+
+def backup_and_install_omp_models(src: Path, dst: Path, stamp: str) -> None:
+    """Install models.yml for oh-my-pi and inline CODEX_BASE_URL."""
+    try:
+        content = src.read_text(encoding="utf-8")
+    except OSError as exc:
+        warn(f"Failed to read {src}: {exc}")
+        return
+
+    codex_base_url = os.environ.get("CODEX_BASE_URL", "").strip()
+    if codex_base_url:
+        content, replaced = render_omp_models(content, codex_base_url)
+        if replaced:
+            info("Injected CODEX_BASE_URL into omp models.yml")
+        else:
+            warn("No `baseUrl: CODEX_BASE_URL` placeholder found in omp_models.yaml")
+    else:
+        warn(
+            "CODEX_BASE_URL is not set; leaving `baseUrl: CODEX_BASE_URL` in omp models.yml. "
+            "oh-my-pi will not auto-expand it."
+        )
+
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if not NO_BACKUP and dst.exists():
+        backup_path = dst.with_suffix(f"{dst.suffix}.bak-{stamp}")
+        shutil.copy2(dst, backup_path)
+        cleanup_old_backups(dst)
+    try:
+        dst.write_text(content, encoding="utf-8")
+    except OSError as exc:
+        warn(f"Failed to write {dst}: {exc}")
 
 
 def ensure_codex_notify_config(codex_dir: Path, stamp: str) -> None:
@@ -279,8 +333,10 @@ def main():
 
     config_dir = get_config_dir()
     codex_dir = get_codex_dir()
+    omp_agent_dir = get_omp_agent_dir()
     config_dir.mkdir(parents=True, exist_ok=True)
     codex_dir.mkdir(parents=True, exist_ok=True)
+    omp_agent_dir.mkdir(parents=True, exist_ok=True)
     stamp = timestamp()
 
     repo_url = f"https://github.com/{REPO_OWNER}/{REPO_NAME}.git"
@@ -289,7 +345,7 @@ def main():
         tmp_path = Path(tmp_dir)
         repo_path = tmp_path / REPO_NAME
 
-        info(f"[1/6] Cloning repository (branch/tag: {REPO_REV})...")
+        info(f"[1/7] Cloning repository (branch/tag: {REPO_REV})...")
         result = subprocess.run(
             [
                 "git",
@@ -309,7 +365,7 @@ def main():
             print(result.stderr, file=sys.stderr)
             sys.exit(1)
 
-        info(f"[2/6] Installing OpenCode config files to: {config_dir}")
+        info(f"[2/7] Installing OpenCode config files to: {config_dir}")
         config_files = [
             ("opencode.jsonc", "opencode.jsonc"),
             ("oh-my-opencode.jsonc", "oh-my-opencode.jsonc"),
@@ -322,7 +378,7 @@ def main():
                 print(f"         - {src_name}")
                 backup_and_install(src, dst, stamp)
 
-        info("[3/6] Installing OpenCode plugins and skills...")
+        info("[3/7] Installing OpenCode plugins and skills...")
         for dir_name in ["plugins", "skills"]:
             src_dir = repo_path / dir_name
             dst_dir = config_dir / dir_name
@@ -330,7 +386,34 @@ def main():
                 print(f"         - {dir_name}/")
                 copy_directory(src_dir, dst_dir)
 
-        info(f"[4/6] Installing shared Codex assets to: {codex_dir}")
+        info(f"[4/7] Installing oh-my-pi config files to: {omp_agent_dir}")
+        omp_config_files = [
+            ("omp_config.yml", "config.yml"),
+        ]
+        for src_name, dst_name in omp_config_files:
+            src = repo_path / src_name
+            dst = omp_agent_dir / dst_name
+            if src.exists():
+                print(f"         - {src_name}")
+                backup_and_install(src, dst, stamp)
+
+        omp_extension_files = [
+            ("omp-gotify-notify.js", "extensions/omp-gotify-notify.js"),
+        ]
+        for src_name, dst_name in omp_extension_files:
+            src = repo_path / src_name
+            dst = omp_agent_dir / dst_name
+            if src.exists():
+                print(f"         - {src_name}")
+                backup_and_install(src, dst, stamp)
+
+        omp_models_src = repo_path / "omp_models.yaml"
+        omp_models_dst = omp_agent_dir / "models.yml"
+        if omp_models_src.exists():
+            print("         - omp_models.yaml (render CODEX_BASE_URL)")
+            backup_and_install_omp_models(omp_models_src, omp_models_dst, stamp)
+
+        info(f"[5/7] Installing shared Codex assets to: {codex_dir}")
         codex_files = [
             ("_AGENTS.md", "AGENTS.md"),
             ("codex-gotify-notify.py", "codex-gotify-notify.py"),
@@ -348,11 +431,11 @@ def main():
             print("         - skills/ (merge)")
             copy_directory_merge(codex_skills_src, codex_skills_dst)
 
-        info("[5/6] Renaming legacy .json (if exists) so only .jsonc remains active")
+        info("[6/7] Renaming legacy .json (if exists) so only .jsonc remains active")
         rename_json_if_exists(config_dir / "opencode.json", stamp)
         rename_json_if_exists(config_dir / "oh-my-opencode.json", stamp)
 
-        info("[6/6] Optionally configuring Codex notify hook")
+        info("[7/7] Optionally configuring Codex notify hook")
         if SETUP_NOTIFY_HOOKS:
             ensure_codex_notify_config(codex_dir, stamp)
         else:

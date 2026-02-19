@@ -1,0 +1,50 @@
+# Codex provider for oh-my-pi
+# Merge this under providers: in ~/.omp/agent/models.yml
+# See: https://github.com/can1357/oh-my-pi/blob/main/docs/models.md
+#
+# - apiKey: env var name (value resolved at runtime); set CODEX_API_KEY
+# - baseUrl: literal URL only (no env expansion); set to your CODEX_BASE_URL value
+# - api: openai-codex-responses is the Codex/Responses API (not openai-completions)
+
+providers:
+  codex:
+    baseUrl: CODEX_BASE_URL
+    apiKey: CODEX_API_KEY
+    api: openai-responses
+    authHeader: true
+    models:
+      - id: gpt-5.1-codex-mini
+        name: GPT 5.1 Codex Mini (OAuth)
+        reasoning: true
+        input: [text, image]
+        cost:
+          input: 0.25
+          output: 2.0
+          cacheRead: 0.025
+          cacheWrite: 0
+        contextWindow: 400000
+        maxTokens: 128000
+
+      - id: gpt-5.2
+        name: GPT 5.2 (OAuth)
+        reasoning: true
+        input: [text, image]
+        cost:
+          input: 1.75
+          output: 14.0
+          cacheRead: 0.175
+          cacheWrite: 0
+        contextWindow: 272000
+        maxTokens: 128000
+
+      - id: gpt-5.3-codex
+        name: GPT 5.3 Codex (OAuth)
+        reasoning: true
+        input: [text, image]
+        cost:
+          input: 1.25
+          output: 10.0
+          cacheRead: 0.125
+          cacheWrite: 0
+        contextWindow: 272000
+        maxTokens: 128000
