@@ -306,6 +306,7 @@ def _summarize_with_llm(text: str) -> str:
 
     prompt = (
         "You are a concise summarizer. Output plain text only.\n"
+        "Use the same language as the input text.\n"
         "Summarize this in ONE short sentence (max 80 chars). "
         "No markdown, no quotes, just plain text:\n\n"
         f"{clipped}"
