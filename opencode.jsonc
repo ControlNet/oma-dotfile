@@ -170,9 +170,9 @@
           "attachment": true,
           "temperature": true,
           "cost": {
-            "input": 1.75,
-            "output": 14.0,
-            "cache_read": 0.17
+            "input": 1.25,
+            "output": 10.0,
+            "cache_read": 0.125
           },
           "variants": {
             "low": {
@@ -230,7 +230,7 @@
           "cost": {
             "input": 1.75,
             "output": 14.0,
-            "cache_read": 0.13
+            "cache_read": 0.175
           },
           "variants": {
             "none": {
@@ -269,7 +269,7 @@
           "cost": {
             "input": 1.75,
             "output": 14.0,
-            "cache_read": 0.17
+            "cache_read": 0.175
           },
           "variants": {
             "low": {
