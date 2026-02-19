@@ -1,0 +1,32 @@
+defaultThinkingLevel: high
+modelRoles: 
+  default: codex/gpt-5.3-codex
+  smol: codex/gpt-5.1-codex-mini
+  slow: codex/gpt-5.3-codex
+  plan: codex/gpt-5.3-codex
+  commit: codex/gpt-5.1-codex-mini
+disabledProviders: 
+  - claude
+  - gemini
+  - cursor
+  - cline
+  - github
+  - windsurf
+  - vscode
+  - codex
+task: 
+  agentModelOverrides: 
+    designer: codex/gpt-5.3-codex
+memories: 
+  enabled: false
+collapseChangelog: true
+commands: 
+  enableClaudeUser: false
+  enableClaudeProject: false
+providers: 
+  webSearch: auto
+  image: auto
+lsp: 
+  diagnosticsOnEdit: true
+ttsr: 
+  contextMode: discard
