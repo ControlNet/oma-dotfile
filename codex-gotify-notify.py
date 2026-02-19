@@ -27,6 +27,9 @@ Optional:
   CODEX_NOTIFY_SUMMARIZER_TIMEOUT_SEC (default: 120)
   CODEX_NOTIFY_SUMMARIZER_MAX_INPUT_CHARS (default: 5000)
   CODEX_NOTIFY_USER_AGENT (optional; default mimics browser UA)
+
+Execution log:
+  ~/.codex/log/gotify-notify.log
 """
 
 from __future__ import annotations
@@ -47,6 +50,22 @@ DEFAULT_SUMMARIZER_TIMEOUT_SEC = 120.0
 DEFAULT_SUMMARIZER_MAX_INPUT_CHARS = 5000
 DEFAULT_DEDUP_WINDOW_SEC = 15
 DEFAULT_THREAD_SOURCE_CACHE_MAX_ENTRIES = 512
+NOTIFY_LOG_FILE = Path.home() / ".codex" / "log" / "gotify-notify.log"
+
+
+def _log_line(message: str) -> None:
+    timestamp = time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime())
+    line = f"{timestamp} pid={os.getpid()} {message}\n"
+    try:
+        NOTIFY_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with NOTIFY_LOG_FILE.open("a", encoding="utf-8") as fp:
+            fp.write(line)
+    except OSError:
+        return
+
+
+def _log_preview(value: object, limit: int = 300) -> str:
+    return _truncate(_normalize_text(str(value or "")), limit)
 
 
 def _env(name: str, default: str = "") -> str:
@@ -157,6 +176,14 @@ def _get_summarizer_config() -> tuple[str, str, str] | None:
     endpoint = _normalize_base(_env("GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT"))
     api_key = _env("GOTIFY_NOTIFY_SUMMARIZER_API_KEY")
     if not model or not endpoint or not api_key:
+        missing: list[str] = []
+        if not model:
+            missing.append("GOTIFY_NOTIFY_SUMMARIZER_MODEL")
+        if not endpoint:
+            missing.append("GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT")
+        if not api_key:
+            missing.append("GOTIFY_NOTIFY_SUMMARIZER_API_KEY")
+        _log_line(f"summarizer_config_missing missing={','.join(missing)}")
         return None
     return model, endpoint, api_key
 
@@ -185,15 +212,25 @@ def _json_post(
     try:
         with urllib.request.urlopen(req, timeout=timeout_sec) as response:
             payload = response.read().decode("utf-8")
-    except (urllib.error.URLError, TimeoutError, OSError):
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = exc.read().decode("utf-8", errors="replace")
+        except OSError:
+            detail = ""
+        _log_line(f"http_error url={url} status={exc.code} detail={_log_preview(detail)}")
+        return None
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        _log_line(f"request_error url={url} kind={type(exc).__name__} detail={_log_preview(exc)}")
         return None
 
     try:
         data = json.loads(payload)
     except json.JSONDecodeError:
+        _log_line(f"json_decode_error url={url} body={_log_preview(payload)}")
         return None
     if isinstance(data, dict):
         return data
+    _log_line(f"unexpected_json_type url={url} kind={type(data).__name__}")
     return None
 
 
@@ -235,9 +272,11 @@ def _extract_openai_text(response: dict[str, object]) -> str:
 def _summarize_with_llm(text: str) -> str:
     summarizer = _get_summarizer_config()
     if not summarizer:
+        _log_line("summarizer_skip reason=missing_summarizer_env")
         return ""
 
     model, base_url, api_key = summarizer
+    _log_line(f"summarizer_start model={model} endpoint={base_url}")
     timeout_sec = _parse_float(
         _env_first(
             "CODEX_NOTIFY_SUMMARIZER_TIMEOUT_SEC",
@@ -262,6 +301,7 @@ def _summarize_with_llm(text: str) -> str:
 
     clipped = _truncate(_normalize_text(text), max_input_chars)
     if not clipped:
+        _log_line("summarizer_skip reason=empty_input")
         return ""
 
     prompt = (
@@ -296,7 +336,9 @@ def _summarize_with_llm(text: str) -> str:
     if chat_data:
         summary = _extract_openai_text(chat_data)
         if summary:
+            _log_line("summarizer_success route=chat_completions")
             return _truncate(summary, 200)
+    _log_line("summarizer_fallback route=responses reason=chat_completions_failed_or_empty")
 
     responses_body = {
         "model": model,
@@ -325,10 +367,13 @@ def _summarize_with_llm(text: str) -> str:
         timeout_sec,
     )
     if not responses_data:
+        _log_line("summarizer_failed reason=responses_failed")
         return ""
     summary = _extract_openai_text(responses_data)
     if not summary:
+        _log_line("summarizer_failed reason=responses_empty_output")
         return ""
+    _log_line("summarizer_success route=responses")
     return _truncate(summary, 200)
 
 
@@ -550,6 +595,8 @@ def _is_subagent_thread(thread_id: str) -> bool:
 
     cache = _load_thread_source_cache()
     if thread_id in cache:
+        if cache[thread_id]:
+            _log_line(f"subagent_detected source=cache thread_id={thread_id}")
         return cache[thread_id]
 
     detected = _detect_subagent_from_sessions(thread_id)
@@ -558,6 +605,8 @@ def _is_subagent_thread(thread_id: str) -> bool:
 
     cache[thread_id] = detected
     _save_thread_source_cache(cache)
+    if detected:
+        _log_line(f"subagent_detected source=sessions thread_id={thread_id}")
     return detected
 
 
@@ -763,6 +812,7 @@ def _should_send(payload: dict[str, object], message: str) -> bool:
 
     last = data.get(dedup_key)
     if isinstance(last, int) and now - last < dedup_window_sec:
+        _log_line(f"dedup_skip key={_log_preview(dedup_key, 180)} age_sec={now - last}")
         return False
 
     compacted: dict[str, int] = {}
@@ -797,6 +847,7 @@ def _push_gotify(base_url: str, token: str, title: str, message: str) -> None:
 
 
 def main() -> int:
+    _log_line("run_start")
     payload: dict[str, object] | None = None
     if len(sys.argv) >= 2:
         payload_raw = sys.argv[-1]
@@ -821,11 +872,17 @@ def main() -> int:
                 payload = parsed
 
     if not isinstance(payload, dict):
+        _log_line("run_skip reason=invalid_payload")
         return 0
+
+    event_type = _event_type(payload) or "unknown"
+    thread_id = _payload_thread_id(payload) or _payload_session_id(payload) or "-"
+    _log_line(f"payload_loaded event={event_type} thread_id={thread_id}")
 
     gotify_url = _normalize_base(_env("GOTIFY_URL"))
     gotify_token = _env("GOTIFY_TOKEN_FOR_CODEX") or _env("GOTIFY_TOKEN_FOR_OPENCODE")
     if not gotify_url or not gotify_token:
+        _log_line("run_skip reason=missing_gotify_config")
         return 0
 
     include_prompt = _is_true(
@@ -833,12 +890,19 @@ def main() -> int:
     )
     message, summarize_source = _extract_message(payload, include_prompt)
     if not message:
+        _log_line(f"run_skip reason=no_message event={event_type}")
         return 0
 
     if summarize_source:
+        _log_line(f"summarizer_attempt input_chars={len(summarize_source)}")
         summary = _summarize_with_llm(summarize_source)
         if summary:
             message = "✅ " + _escape_markdown(summary)
+            _log_line("summarizer_applied")
+        else:
+            _log_line("summarizer_failed fallback=preview")
+    else:
+        _log_line("summarizer_skip reason=empty_source")
 
     max_chars = _parse_int(
         _env_first("CODEX_NOTIFY_MAX_CHARS", "OPENCODE_NOTIFY_MAX_CHARS", default=str(DEFAULT_MAX_CHARS)),
@@ -847,13 +911,16 @@ def main() -> int:
     if max_chars <= 0:
         max_chars = DEFAULT_MAX_CHARS
     if not _should_send(payload, message):
+        _log_line("run_skip reason=dedup")
         return 0
     title = _env_first("CODEX_NOTIFY_TITLE", "OPENCODE_NOTIFY_TITLE", default="Codex")
     message = _truncate(message, max_chars)
 
     try:
         _push_gotify(gotify_url, gotify_token, title, message)
-    except (urllib.error.URLError, TimeoutError, OSError):
+        _log_line(f"run_success event={event_type} message_chars={len(message)}")
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        _log_line(f"gotify_push_failed kind={type(exc).__name__} detail={_log_preview(exc)}")
         return 0
 
     return 0

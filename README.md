@@ -31,6 +31,9 @@ Optional environment variables:
 - `SETUP_NOTIFY_HOOKS=0` (optional; disable auto-configure Codex notify hook during `pull.py`; default is enabled)
 - `SETUP_NOTIFY_HOOKS_FORCE=1` (optional; replace existing `notify = ...` in Codex `config.toml`; default is disabled)
 
+Codex notify hook execution logs are written to:
+- `~/.codex/log/gotify-notify.log`
+
 ## Codex support
 
 `pull.py` installs shared Codex assets into `~/.codex` (or `$CODEX_DIR` if set):
