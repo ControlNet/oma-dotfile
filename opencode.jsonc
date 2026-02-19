@@ -20,7 +20,8 @@
         "include": [
           "reasoning.encrypted_content"
         ],
-        "store": false
+        "store": false,
+        "setCacheKey": true
       },
       "models": {
         "gpt-5.1-codex-mini": {
