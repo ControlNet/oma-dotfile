@@ -46,6 +46,7 @@ DEFAULT_TAIL = 50
 DEFAULT_SUMMARIZER_TIMEOUT_SEC = 120.0
 DEFAULT_SUMMARIZER_MAX_INPUT_CHARS = 5000
 DEFAULT_DEDUP_WINDOW_SEC = 15
+DEFAULT_THREAD_SOURCE_CACHE_MAX_ENTRIES = 512
 
 
 def _env(name: str, default: str = "") -> str:
@@ -275,6 +276,28 @@ def _summarize_with_llm(text: str) -> str:
         "api-key": api_key,
     }
 
+    chat_body = {
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a concise summarizer. Output plain text only.",
+            },
+            {"role": "user", "content": prompt},
+        ],
+        "max_tokens": 80,
+    }
+    chat_data = _json_post(
+        _join_endpoint(base_url, "/chat/completions"),
+        chat_body,
+        headers,
+        timeout_sec,
+    )
+    if chat_data:
+        summary = _extract_openai_text(chat_data)
+        if summary:
+            return _truncate(summary, 200)
+
     responses_body = {
         "model": model,
         "input": [
@@ -301,31 +324,9 @@ def _summarize_with_llm(text: str) -> str:
         headers,
         timeout_sec,
     )
-    if responses_data:
-        summary = _extract_openai_text(responses_data)
-        if summary:
-            return _truncate(summary, 200)
-
-    chat_body = {
-        "model": model,
-        "messages": [
-            {
-                "role": "system",
-                "content": "You are a concise summarizer. Output plain text only.",
-            },
-            {"role": "user", "content": prompt},
-        ],
-        "max_tokens": 80,
-    }
-    chat_data = _json_post(
-        _join_endpoint(base_url, "/chat/completions"),
-        chat_body,
-        headers,
-        timeout_sec,
-    )
-    if not chat_data:
+    if not responses_data:
         return ""
-    summary = _extract_openai_text(chat_data)
+    summary = _extract_openai_text(responses_data)
     if not summary:
         return ""
     return _truncate(summary, 200)
@@ -344,6 +345,9 @@ def _extract_text_candidate(value: object) -> str:
     if isinstance(value, dict):
         for key in (
             "last-assistant-message",
+            "last_assistant_message",
+            "input-messages",
+            "input_messages",
             "message",
             "content",
             "text",
@@ -357,6 +361,7 @@ def _extract_text_candidate(value: object) -> str:
             "summary",
             "prompt",
             "error",
+            "hook_event",
         ):
             if key in value:
                 text = _extract_text_candidate(value[key])
@@ -365,9 +370,195 @@ def _extract_text_candidate(value: object) -> str:
     return ""
 
 
+def _payload_get(container: object, *keys: str) -> object:
+    if not isinstance(container, dict):
+        return None
+    for key in keys:
+        variants = (key, key.replace("_", "-"), key.replace("-", "_"))
+        for variant in variants:
+            if variant in container:
+                return container[variant]
+    return None
+
+
+def _hook_event_payload(payload: dict[str, object]) -> dict[str, object] | None:
+    hook_event = _payload_get(payload, "hook_event")
+    if isinstance(hook_event, dict):
+        return hook_event
+    return None
+
+
+def _payload_thread_id(payload: dict[str, object]) -> str:
+    thread_id = _payload_get(payload, "thread_id", "thread-id")
+    if thread_id is None:
+        hook_event = _hook_event_payload(payload)
+        thread_id = _payload_get(hook_event, "thread_id", "thread-id")
+    text = str(thread_id or "").strip()
+    return text
+
+
+def _payload_session_id(payload: dict[str, object]) -> str:
+    session_id = _payload_get(
+        payload,
+        "session_id",
+        "conversation_id",
+        "thread_id",
+        "thread-id",
+    )
+    if session_id is None:
+        hook_event = _hook_event_payload(payload)
+        session_id = _payload_get(hook_event, "thread_id", "thread-id")
+    text = str(session_id or "").strip()
+    return text
+
+
+def _payload_last_assistant_message(payload: dict[str, object]) -> str:
+    value = _payload_get(payload, "last_assistant_message", "last-assistant-message")
+    if value is None:
+        hook_event = _hook_event_payload(payload)
+        value = _payload_get(hook_event, "last_assistant_message", "last-assistant-message")
+    return _normalize_text(str(value or ""))
+
+
+def _payload_input_messages(payload: dict[str, object]) -> list[object]:
+    value = _payload_get(payload, "input_messages", "input-messages")
+    if value is None:
+        hook_event = _hook_event_payload(payload)
+        value = _payload_get(hook_event, "input_messages", "input-messages")
+    if isinstance(value, list):
+        return value
+    if value is None:
+        return []
+    return [value]
+
+
 def _event_type(payload: dict[str, object]) -> str:
-    raw = payload.get("type") or payload.get("event") or payload.get("hook_event_name")
-    return str(raw or "").strip()
+    raw = _payload_get(payload, "type", "event", "hook_event_name")
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+
+    hook_event = _hook_event_payload(payload)
+    event_type = _payload_get(hook_event, "event_type", "type")
+    normalized = str(event_type or "").strip().lower().replace("_", "-")
+    if normalized == "after-agent":
+        return "agent-turn-complete"
+    if normalized:
+        return normalized
+    return ""
+
+
+def _thread_source_cache_path() -> Path:
+    return Path.home() / ".codex" / ".gotify-notify-thread-source-cache.json"
+
+
+def _sessions_root_path() -> Path:
+    custom = _env("CODEX_NOTIFY_SESSIONS_DIR")
+    if custom:
+        return Path(custom).expanduser()
+    return Path.home() / ".codex" / "sessions"
+
+
+def _load_thread_source_cache() -> dict[str, bool]:
+    path = _thread_source_cache_path()
+    try:
+        if not path.exists():
+            return {}
+        raw = path.read_text(encoding="utf-8")
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            return {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+    out: dict[str, bool] = {}
+    for key, value in data.items():
+        if not isinstance(key, str):
+            continue
+        if isinstance(value, bool):
+            out[key] = value
+        elif isinstance(value, dict) and isinstance(value.get("is_subagent"), bool):
+            out[key] = value["is_subagent"]
+    return out
+
+
+def _save_thread_source_cache(cache: dict[str, bool]) -> None:
+    path = _thread_source_cache_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if len(cache) > DEFAULT_THREAD_SOURCE_CACHE_MAX_ENTRIES:
+            keys = list(cache.keys())
+            overflow = len(cache) - DEFAULT_THREAD_SOURCE_CACHE_MAX_ENTRIES
+            for key in keys[:overflow]:
+                cache.pop(key, None)
+        path.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        return
+
+
+def _source_is_subagent(source: object) -> bool:
+    if isinstance(source, dict):
+        for key in ("subagent", "sub_agent", "thread_spawn", "threadSpawn"):
+            if key in source:
+                return True
+        for value in source.values():
+            if _source_is_subagent(value):
+                return True
+        return False
+    if isinstance(source, list):
+        return any(_source_is_subagent(item) for item in source)
+    if isinstance(source, str):
+        normalized = source.lower().replace("_", "-")
+        return "subagent" in normalized or "sub-agent" in normalized or "thread-spawn" in normalized
+    return False
+
+
+def _detect_subagent_from_sessions(thread_id: str) -> bool | None:
+    sessions_root = _sessions_root_path()
+    if not sessions_root.exists():
+        return None
+
+    candidates = list(sessions_root.glob(f"**/rollout-*-{thread_id}.jsonl"))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item.stat().st_mtime, reverse=True)
+
+    for file_path in candidates[:3]:
+        try:
+            with file_path.open("r", encoding="utf-8") as fp:
+                first_line = fp.readline().strip()
+            if not first_line:
+                continue
+            parsed = json.loads(first_line)
+            if not isinstance(parsed, dict):
+                continue
+            payload = parsed.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            source = _payload_get(payload, "source")
+            if source is None:
+                continue
+            return _source_is_subagent(source)
+        except (OSError, json.JSONDecodeError):
+            continue
+    return None
+
+
+def _is_subagent_thread(thread_id: str) -> bool:
+    thread_id = thread_id.strip()
+    if not thread_id:
+        return False
+
+    cache = _load_thread_source_cache()
+    if thread_id in cache:
+        return cache[thread_id]
+
+    detected = _detect_subagent_from_sessions(thread_id)
+    if detected is None:
+        return False
+
+    cache[thread_id] = detected
+    _save_thread_source_cache(cache)
+    return detected
 
 
 def _is_true_like(value: object) -> bool:
@@ -415,8 +606,19 @@ def _is_subagent_event(payload: dict[str, object], event_lower: str) -> bool:
     if _looks_like_subagent_text(event_lower):
         return True
 
+    thread_id = _payload_thread_id(payload)
+    if thread_id and _is_subagent_thread(thread_id):
+        return True
+
+    session_id = _payload_session_id(payload)
+    if thread_id and session_id and thread_id != session_id:
+        return True
+
     containers: list[dict[str, object]] = [payload]
-    for key in ("properties", "session", "metadata", "data"):
+    hook_event = _hook_event_payload(payload)
+    if hook_event is not None:
+        containers.append(hook_event)
+    for key in ("properties", "session", "metadata", "data", "source"):
         nested = payload.get(key)
         if isinstance(nested, dict):
             containers.append(nested)
@@ -492,13 +694,13 @@ def _extract_message(payload: dict[str, object], include_prompt: bool) -> tuple[
                 return "✅ Subagent task completed", ""
             return "", ""
         if notify_complete:
-            assistant = str(payload.get("last-assistant-message") or "").strip()
+            assistant = _payload_last_assistant_message(payload)
             if assistant:
                 preview = _preview(assistant, head, tail)
                 return "✅ " + _escape_markdown(preview), assistant
             if include_prompt:
-                prompts = payload.get("input-messages") or []
-                if isinstance(prompts, list) and prompts:
+                prompts = _payload_input_messages(payload)
+                if prompts:
                     last_prompt = _extract_text_candidate(prompts[-1])
                     if last_prompt:
                         preview = _preview(last_prompt, head, tail)
@@ -506,16 +708,19 @@ def _extract_message(payload: dict[str, object], include_prompt: bool) -> tuple[
             return "✅ Agent turn completed", ""
         return "", ""
 
-    tool_name = str(payload.get("tool_name") or payload.get("tool") or "").lower()
+    tool_name = str(_payload_get(payload, "tool_name", "tool") or "").lower()
+    if not tool_name:
+        hook_event = _hook_event_payload(payload)
+        tool_name = str(_payload_get(hook_event, "tool_name", "tool") or "").lower()
     if notify_question and tool_name == "question":
-        question_text = _extract_text_candidate(payload.get("tool_input") or payload.get("args") or payload)
+        question_text = _extract_text_candidate(_payload_get(payload, "tool_input", "args") or payload)
         if question_text:
             body = _preview(question_text, head, tail)
             return "❓ " + _escape_markdown(body), ""
         return "❓ Question", ""
 
     if include_prompt:
-        prompt = _extract_text_candidate(payload.get("prompt") or payload.get("input-messages"))
+        prompt = _extract_text_candidate(_payload_get(payload, "prompt") or _payload_input_messages(payload))
         if prompt:
             preview = _preview(prompt, head, tail)
             return "✅ " + _escape_markdown(preview), ""
@@ -539,7 +744,7 @@ def _should_send(payload: dict[str, object], message: str) -> bool:
     if dedup_window_sec <= 0:
         return True
 
-    session_id = str(payload.get("session_id") or payload.get("conversation_id") or "")
+    session_id = _payload_session_id(payload)
     event = _event_type(payload)
     dedup_key = f"{session_id}|{event}|{message}"
     now = int(time.time())
