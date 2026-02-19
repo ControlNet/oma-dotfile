@@ -1,15 +1,15 @@
-# omo-dotfile
+# oma-dotfile
 
 My opencode configurations.
 
 Linux/Mac:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ControlNet/omo-dotfile/master/pull.py | python3
+curl -fsSL https://raw.githubusercontent.com/ControlNet/oma-dotfile/master/pull.py | python3
 ```
 
 Windows (PowerShell):
 ```powershell
-(Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/ControlNet/omo-dotfile/master/pull.py' -UseBasicParsing).Content | python
+(Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/ControlNet/oma-dotfile/master/pull.py' -UseBasicParsing).Content | python
 ```
 
 Required environment variables:
