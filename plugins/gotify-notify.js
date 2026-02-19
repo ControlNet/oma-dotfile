@@ -12,7 +12,9 @@
 //   OPENCODE_NOTIFY_PERMISSION        default true (notify on permission requests)
 //   OPENCODE_NOTIFY_ERROR             default true (notify on session errors)
 //   OPENCODE_NOTIFY_QUESTION          default true (notify on question tool calls)
-//   OPENCODE_GOTIFY_NOTIFY_SUMMARIZER format: "provider/model" (e.g., "anthropic/claude-sonnet-4-20250514")
+//   GOTIFY_NOTIFY_SUMMARIZER_MODEL    e.g. "gpt-5-nano"
+//   GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT OpenAI-compatible endpoint, e.g. "https://api.openai.com/v1"
+//   GOTIFY_NOTIFY_SUMMARIZER_API_KEY  API key for endpoint auth
 
 const HEAD = Number.parseInt(process.env.OPENCODE_NOTIFY_HEAD || "50", 10);
 const TAIL = Number.parseInt(process.env.OPENCODE_NOTIFY_TAIL || "50", 10);
@@ -25,7 +27,9 @@ const NOTIFY_ERROR = process.env.OPENCODE_NOTIFY_ERROR !== "false";
 const NOTIFY_QUESTION = process.env.OPENCODE_NOTIFY_QUESTION !== "false";
 
 // LLM Summarization config
-const SUMMARIZER = (process.env.OPENCODE_GOTIFY_NOTIFY_SUMMARIZER || "").trim();
+const SUMMARIZER_MODEL = (process.env.GOTIFY_NOTIFY_SUMMARIZER_MODEL || "").trim();
+const SUMMARIZER_ENDPOINT = normalizeBase(process.env.GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT || "");
+const SUMMARIZER_API_KEY = (process.env.GOTIFY_NOTIFY_SUMMARIZER_API_KEY || "").trim();
 const SUMMARIZER_TIMEOUT = 120000; // 120 seconds
 const MAX_INPUT_LENGTH = 5000; // Truncate before sending to LLM
 
@@ -72,81 +76,141 @@ function escapeMarkdown(s) {
   return out;
 }
 
-function parseSummarizer() {
-  if (!SUMMARIZER || !SUMMARIZER.includes("/")) return null;
-  const [providerID, ...rest] = SUMMARIZER.split("/");
-  const modelID = rest.join("/"); // Handle model IDs with slashes
-  return { providerID, modelID };
+function summarizerConfig() {
+  if (!SUMMARIZER_MODEL || !SUMMARIZER_ENDPOINT || !SUMMARIZER_API_KEY) return null;
+  return {
+    model: SUMMARIZER_MODEL,
+    endpoint: SUMMARIZER_ENDPOINT,
+    apiKey: SUMMARIZER_API_KEY,
+  };
 }
 
-async function summarizeWithLLM(client, text, parentID) {
-  const model = parseSummarizer();
-  if (!model) return null;
-  if (!text || !text.trim()) return null;
-  
-  // Truncate long input
-  const input = text.length > MAX_INPUT_LENGTH 
-    ? text.slice(0, MAX_INPUT_LENGTH) + "..." 
-    : text;
-  
-  let sessionID = null;
-  try {
-    const session = await client.session.create({
-      body: { title: "[Summarizer]", parentID }
-    });
-    sessionID = session?.data?.id;
-    if (!sessionID) {
-      console.error("[gotify] summarizer: session.create returned no ID");
-      await gotifyPush("🔍 summarizer: session.create returned no ID").catch(() => {});
-      return null;
-    }
-    
-    const promptPromise = client.session.prompt({
-      path: { id: sessionID },
-      body: {
-        model,
-        system: "You are a concise summarizer. Output only plain text, no markdown.",
-        tools: {},
-        parts: [{ 
-          type: "text", 
-          text: `Summarize this in ONE short sentence (max 80 chars). No markdown, no quotes, just plain text:\n\n${input}`
-        }]
+function endpointJoin(base, path) {
+  if (!base) return "";
+  if (base.endsWith(path)) return base;
+  return `${base}${path}`;
+}
+
+function extractOpenAIText(payload) {
+  if (!payload || typeof payload !== "object") return "";
+
+  const outputText = payload.output_text;
+  if (typeof outputText === "string" && outputText.trim()) {
+    return normalizeText(outputText);
+  }
+
+  const output = payload.output;
+  if (Array.isArray(output)) {
+    for (const item of output) {
+      if (!item || typeof item !== "object") continue;
+      const content = item.content;
+      if (!Array.isArray(content)) continue;
+      for (const part of content) {
+        if (!part || typeof part !== "object") continue;
+        if (typeof part.text === "string" && part.text.trim()) {
+          return normalizeText(part.text);
+        }
       }
-    });
-    
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error("timeout")), SUMMARIZER_TIMEOUT)
-    );
-    
-    const response = await Promise.race([promptPromise, timeoutPromise]);
-    const summary = extractAssistantText(response?.data);
-    
-    if (!summary) {
-      const dbg = `empty summary | response keys: ${Object.keys(response || {})} | data keys: ${Object.keys(response?.data || {})} | data: ${JSON.stringify(response?.data)?.slice(0, 200)}`;
-      console.error("[gotify] summarizer:", dbg);
-      await gotifyPush("🔍 summarizer debug: " + dbg).catch(() => {});
-      return null;
-    }
-    if (summary.length > 200) {
-      console.error("[gotify] summarizer: too long:", summary.length);
-      return null;
-    }
-    return summary;
-    
-  } catch (e) {
-    const msg = e?.message || String(e);
-    console.error("[gotify] summarizer error:", msg);
-    await gotifyPush("🔍 summarizer error: " + msg).catch(() => {});
-    return null;
-  } finally {
-    // Always cleanup: abort the running prompt loop BEFORE deleting,
-    // otherwise Prompt.loop() keeps running on deleted messages and
-    // throws "No user message found in stream".
-    if (sessionID) {
-      await client.session.abort({ path: { id: sessionID } }).catch(() => {});
-      await client.session.delete({ path: { id: sessionID } }).catch(() => {});
     }
   }
+
+  const choices = payload.choices;
+  if (Array.isArray(choices)) {
+    for (const choice of choices) {
+      if (!choice || typeof choice !== "object") continue;
+      const message = choice.message;
+      if (!message || typeof message !== "object") continue;
+      if (typeof message.content === "string" && message.content.trim()) {
+        return normalizeText(message.content);
+      }
+    }
+  }
+
+  return "";
+}
+
+async function postJSON(url, body, headers, timeoutMs) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...headers,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    const data = await response.json().catch(() => null);
+    if (!data || typeof data !== "object") return null;
+    return data;
+  } catch (e) {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function summarizeWithLLM(text) {
+  const config = summarizerConfig();
+  if (!config || !text || !text.trim()) return null;
+
+  const input = text.length > MAX_INPUT_LENGTH
+    ? text.slice(0, MAX_INPUT_LENGTH) + "..."
+    : text;
+
+  const prompt = `Summarize this in ONE short sentence (max 80 chars). No markdown, no quotes, just plain text:\n\n${input}`;
+  const headers = {
+    Authorization: `Bearer ${config.apiKey}`,
+    "api-key": config.apiKey,
+  };
+
+  const chatBody = {
+    model: config.model,
+    messages: [
+      { role: "system", content: "You are a concise summarizer. Output only plain text, no markdown." },
+      { role: "user", content: prompt },
+    ],
+    max_tokens: 80,
+  };
+  const chatData = await postJSON(
+    endpointJoin(config.endpoint, "/chat/completions"),
+    chatBody,
+    headers,
+    SUMMARIZER_TIMEOUT,
+  );
+  if (chatData) {
+    const summary = extractOpenAIText(chatData);
+    if (summary && summary.length <= 200) return summary;
+  }
+
+  const responsesBody = {
+    model: config.model,
+    input: [
+      {
+        role: "system",
+        content: [{ type: "input_text", text: "You are a concise summarizer. Output plain text only." }],
+      },
+      {
+        role: "user",
+        content: [{ type: "input_text", text: prompt }],
+      },
+    ],
+    max_output_tokens: 80,
+    reasoning: { effort: "low" },
+  };
+  const responsesData = await postJSON(
+    endpointJoin(config.endpoint, "/responses"),
+    responsesBody,
+    headers,
+    SUMMARIZER_TIMEOUT,
+  );
+  if (!responsesData) return null;
+  const summary = extractOpenAIText(responsesData);
+  if (!summary || summary.length > 200) return null;
+  return summary;
 }
 
 async function gotifyPush(message) {
@@ -204,7 +268,7 @@ export const GotifyNotify = async ({ client }) => {
       const text = extractAssistantText(last);
       
       // Try LLM summary first, fallback to preview
-      let body = await summarizeWithLLM(client, text, sessionID);
+      let body = await summarizeWithLLM(text);
       if (!body) {
         body = preview(text, HEAD, TAIL);
       }

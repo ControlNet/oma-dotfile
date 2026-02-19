@@ -21,13 +21,11 @@ Optional:
   CODEX_NOTIFY_QUESTION (default: true)
   CODEX_NOTIFY_INCLUDE_PROMPT (default: false)
   CODEX_NOTIFY_DEDUP_WINDOW_SEC (default: 15)
-  CODEX_GOTIFY_NOTIFY_SUMMARIZER (format: "provider/model")
-    - falls back to OPENCODE_GOTIFY_NOTIFY_SUMMARIZER
-    - provider: anthropic | openai | azure-openai
+  GOTIFY_NOTIFY_SUMMARIZER_MODEL (e.g. "gpt-5-nano")
+  GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT (OpenAI-compatible, e.g. "https://api.openai.com/v1")
+  GOTIFY_NOTIFY_SUMMARIZER_API_KEY
   CODEX_NOTIFY_SUMMARIZER_TIMEOUT_SEC (default: 120)
   CODEX_NOTIFY_SUMMARIZER_MAX_INPUT_CHARS (default: 5000)
-  CODEX_NOTIFY_SUMMARIZER_BASE_URL (optional override)
-  CODEX_NOTIFY_SUMMARIZER_API_KEY (optional override)
   CODEX_NOTIFY_USER_AGENT (optional; default mimics browser UA)
 """
 
@@ -153,63 +151,19 @@ def _is_true(raw: str) -> bool:
     return raw.lower() in {"1", "true", "yes", "on"}
 
 
-def _parse_summarizer(raw: str) -> tuple[str, str] | None:
-    if not raw or "/" not in raw:
+def _get_summarizer_config() -> tuple[str, str, str] | None:
+    model = _env("GOTIFY_NOTIFY_SUMMARIZER_MODEL")
+    endpoint = _normalize_base(_env("GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT"))
+    api_key = _env("GOTIFY_NOTIFY_SUMMARIZER_API_KEY")
+    if not model or not endpoint or not api_key:
         return None
-    provider, model = raw.split("/", 1)
-    provider = provider.strip()
-    model = model.strip()
-    if not provider or not model:
-        return None
-    return provider, model
+    return model, endpoint, api_key
 
 
-def _get_summarizer_config() -> tuple[str, str] | None:
-    raw = _env_first(
-        "CODEX_GOTIFY_NOTIFY_SUMMARIZER",
-        "OPENCODE_GOTIFY_NOTIFY_SUMMARIZER",
-    )
-    return _parse_summarizer(raw)
-
-
-def _resolve_openai_endpoint(provider: str) -> tuple[str, str] | None:
-    base_override = _env_first("CODEX_NOTIFY_SUMMARIZER_BASE_URL", "OPENCODE_NOTIFY_SUMMARIZER_BASE_URL")
-    key_override = _env_first("CODEX_NOTIFY_SUMMARIZER_API_KEY", "OPENCODE_NOTIFY_SUMMARIZER_API_KEY")
-    if base_override and key_override:
-        return _normalize_base(base_override), key_override
-
-    if provider == "openai":
-        base = _env("OPENAI_BASE_URL", "https://api.openai.com/v1")
-        key = _env("OPENAI_API_KEY")
-        if base and key:
-            return _normalize_base(base), key
-        return None
-
-    if provider == "azure-openai":
-        base = _env("AZURE_OPENAI_BASE_URL")
-        key = _env("AZURE_OPENAI_API_KEY")
-        if base and key:
-            return _normalize_base(base), key
-        return None
-
-    return None
-
-
-def _resolve_anthropic_endpoint() -> tuple[str, str] | None:
-    base_override = _env_first("CODEX_NOTIFY_SUMMARIZER_BASE_URL", "OPENCODE_NOTIFY_SUMMARIZER_BASE_URL")
-    key_override = _env_first("CODEX_NOTIFY_SUMMARIZER_API_KEY", "OPENCODE_NOTIFY_SUMMARIZER_API_KEY")
-    if base_override and key_override:
-        return _normalize_base(base_override), key_override
-
-    base = _env("ANTHROPIC_BASE_URL")
-    key = _env("ANTHROPIC_AUTH_TOKEN")
-    if not base or not key:
-        return None
-
-    normalized = _normalize_base(base)
-    if not normalized.endswith("/v1"):
-        normalized = normalized + "/v1"
-    return normalized, key
+def _join_endpoint(base_url: str, path: str) -> str:
+    if base_url.endswith(path):
+        return base_url
+    return f"{base_url}{path}"
 
 
 def _json_post(
@@ -277,27 +231,12 @@ def _extract_openai_text(response: dict[str, object]) -> str:
     return ""
 
 
-def _extract_anthropic_text(response: dict[str, object]) -> str:
-    content = response.get("content")
-    if not isinstance(content, list):
-        return ""
-    for part in content:
-        if not isinstance(part, dict):
-            continue
-        if part.get("type") != "text":
-            continue
-        text = part.get("text")
-        if isinstance(text, str) and text.strip():
-            return _normalize_text(text)
-    return ""
-
-
 def _summarize_with_llm(text: str) -> str:
     summarizer = _get_summarizer_config()
     if not summarizer:
         return ""
 
-    provider, model = summarizer
+    model, base_url, api_key = summarizer
     timeout_sec = _parse_float(
         _env_first(
             "CODEX_NOTIFY_SUMMARIZER_TIMEOUT_SEC",
@@ -330,34 +269,6 @@ def _summarize_with_llm(text: str) -> str:
         f"{clipped}"
     )
 
-    if provider == "anthropic":
-        endpoint = _resolve_anthropic_endpoint()
-        if not endpoint:
-            return ""
-        base_url, api_key = endpoint
-        body = {
-            "model": model,
-            "max_tokens": 80,
-            "system": "You are a concise summarizer. Output plain text only.",
-            "messages": [{"role": "user", "content": prompt}],
-        }
-        headers = {
-            "Content-Type": "application/json",
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-        }
-        data = _json_post(f"{base_url}/messages", body, headers, timeout_sec)
-        if not data:
-            return ""
-        summary = _extract_anthropic_text(data)
-        if not summary:
-            return ""
-        return _truncate(summary, 200)
-
-    endpoint = _resolve_openai_endpoint(provider)
-    if not endpoint:
-        return ""
-    base_url, api_key = endpoint
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
@@ -385,7 +296,7 @@ def _summarize_with_llm(text: str) -> str:
         "max_output_tokens": 80,
     }
     responses_data = _json_post(
-        f"{base_url}/responses",
+        _join_endpoint(base_url, "/responses"),
         responses_body,
         headers,
         timeout_sec,
@@ -407,7 +318,7 @@ def _summarize_with_llm(text: str) -> str:
         "max_tokens": 80,
     }
     chat_data = _json_post(
-        f"{base_url}/chat/completions",
+        _join_endpoint(base_url, "/chat/completions"),
         chat_body,
         headers,
         timeout_sec,
@@ -459,6 +370,91 @@ def _event_type(payload: dict[str, object]) -> str:
     return str(raw or "").strip()
 
 
+def _is_true_like(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return _is_true(value.strip())
+    return False
+
+
+def _looks_like_subagent_text(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    normalized = value.strip().lower().replace("_", "-")
+    return "subagent" in normalized or "sub-agent" in normalized or "child" in normalized
+
+
+def _has_parent_reference(container: dict[str, object]) -> bool:
+    for key in (
+        "parent_id",
+        "parentID",
+        "parentId",
+        "parent_session_id",
+        "parentSessionID",
+        "parentSessionId",
+        "parent_session",
+        "parentSession",
+        "parent",
+    ):
+        if key not in container:
+            continue
+        value = container.get(key)
+        if isinstance(value, str) and value.strip():
+            return True
+        if isinstance(value, (int, float)) and value != 0:
+            return True
+        if isinstance(value, dict) and value:
+            return True
+    return False
+
+
+def _is_subagent_event(payload: dict[str, object], event_lower: str) -> bool:
+    if _looks_like_subagent_text(event_lower):
+        return True
+
+    containers: list[dict[str, object]] = [payload]
+    for key in ("properties", "session", "metadata", "data"):
+        nested = payload.get(key)
+        if isinstance(nested, dict):
+            containers.append(nested)
+
+    for container in containers:
+        if _has_parent_reference(container):
+            return True
+
+        for key in (
+            "is_subagent",
+            "isSubagent",
+            "is_sub_agent",
+            "subagent",
+            "sub_agent",
+            "is_child",
+            "isChild",
+            "is_child_session",
+            "isChildSession",
+            "child_session",
+            "childSession",
+        ):
+            if key in container and _is_true_like(container.get(key)):
+                return True
+
+        for key in (
+            "session_type",
+            "sessionType",
+            "agent_type",
+            "agentType",
+            "kind",
+            "source",
+        ):
+            if key in container and _looks_like_subagent_text(container.get(key)):
+                return True
+
+    return False
+
+
 def _extract_message(payload: dict[str, object], include_prompt: bool) -> tuple[str, str]:
     event_type = _event_type(payload)
     event_lower = event_type.lower()
@@ -470,6 +466,7 @@ def _extract_message(payload: dict[str, object], include_prompt: bool) -> tuple[
     notify_permission = _is_true(_env_first("CODEX_NOTIFY_PERMISSION", "OPENCODE_NOTIFY_PERMISSION", default="true"))
     notify_error = _is_true(_env_first("CODEX_NOTIFY_ERROR", "OPENCODE_NOTIFY_ERROR", default="true"))
     notify_question = _is_true(_env_first("CODEX_NOTIFY_QUESTION", "OPENCODE_NOTIFY_QUESTION", default="true"))
+    is_subagent = _is_subagent_event(payload, event_lower)
 
     if "permission" in event_lower and ("ask" in event_lower or "request" in event_lower):
         if notify_permission:
@@ -484,12 +481,16 @@ def _extract_message(payload: dict[str, object], include_prompt: bool) -> tuple[
             return "❌ Session encountered an error", ""
         return "", ""
 
-    if "subagent" in event_lower and ("stop" in event_lower or "complete" in event_lower):
+    if is_subagent and ("stop" in event_lower or "complete" in event_lower):
         if notify_subagent:
             return "✅ Subagent task completed", ""
         return "", ""
 
     if event_lower == "agent-turn-complete" or ("turn" in event_lower and "complete" in event_lower):
+        if is_subagent:
+            if notify_subagent:
+                return "✅ Subagent task completed", ""
+            return "", ""
         if notify_complete:
             assistant = str(payload.get("last-assistant-message") or "").strip()
             if assistant:
