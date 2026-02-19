@@ -161,7 +161,7 @@ async function summarizeWithLLM(text) {
     ? text.slice(0, MAX_INPUT_LENGTH) + "..."
     : text;
 
-  const prompt = `You are a concise summarizer. Output plain text only.\nSummarize this in ONE short sentence (max 80 chars). No markdown, no quotes, just plain text:\n\n${input}`;
+  const prompt = `You are a concise summarizer. Output plain text only.\nUse the same language as the input text.\nSummarize this in ONE short sentence (max 80 chars). No markdown, no quotes, just plain text:\n\n${input}`;
   const headers = {
     Authorization: `Bearer ${config.apiKey}`,
     "api-key": config.apiKey,
