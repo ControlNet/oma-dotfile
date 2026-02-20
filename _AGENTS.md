@@ -5,7 +5,7 @@
 - Never include secrets/tokens/keys in code, logs, docs, or gists. Assume public by default; use env vars and mention .gitignore/.env.local.
 - Prefer minimal, reviewable patches; avoid large refactors unless asked.
 - For non-trivial changes: include exact verification commands (lint/test/run) and expected outcome/signals (what should pass / what to look for).
-- For non-trivial implementation work, load the beads skill and track execution in Beads (bd): create or continue an issue, keep current progress + next step in the issue, and close/update it with verification notes before ending the session.
+- For non-trivial implementation work, load the beads skill and track execution in Beads (bd): create or continue an issue, keep current progress + next step in the issue, and close/update it with verification notes before ending the session. Use `bd init` if the beads is not initialized in the current repository.
 - Warn before any destructive action (delete/overwrite/migration/force push).
 - Only modify project-level AGENTS.md when explicitly asked to change project rules.
 - Use pixi or conda to manage Python environments, unless the use of Python does not involve the 3rd-party packages. Prevent installing packages to system-level Python.
