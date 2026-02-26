@@ -287,15 +287,30 @@ export default function OmpGotifyNotify(pi) {
 		await pushGotify(title, truncate(finalMessage, maxChars));
 	}
 
-	pi.on("turn_end", async (event, ctx) => {
+	function findLastAssistantMessage(messages) {
+		if (!Array.isArray(messages)) return null;
+		for (let i = messages.length - 1; i >= 0; i -= 1) {
+			const message = messages[i];
+			if (message && typeof message === "object" && message.role === "assistant") {
+				return message;
+			}
+		}
+		return null;
+	}
+
+	pi.on("agent_end", async (event, ctx) => {
 		try {
 			const sessionId = String(ctx?.sessionManager?.getSessionId?.() || "-");
-			const message = event?.message;
-			if (!message || message.role !== "assistant") return;
+			const message = findLastAssistantMessage(event?.messages);
+			if (!message) {
+				if (!notifyComplete) return;
+				await send(sessionId, "agent_complete", "✅ Agent turn completed");
+				return;
+			}
 
 			if (message.stopReason === "error") {
 				if (!notifyError) return;
-				await send(sessionId, "turn_error", "❌ Agent turn failed");
+				await send(sessionId, "agent_error", "❌ Agent turn failed");
 				return;
 			}
 
@@ -304,12 +319,12 @@ export default function OmpGotifyNotify(pi) {
 			if (assistantText) {
 				await send(
 					sessionId,
-					"turn_complete",
+					"agent_complete",
 					`✅ ${escapeMarkdown(preview(assistantText, head, tail))}`,
 					assistantText,
 				);
 			} else {
-				await send(sessionId, "turn_complete", "✅ Agent turn completed");
+				await send(sessionId, "agent_complete", "✅ Agent turn completed");
 			}
 		} catch {
 			// Never fail the host runtime due to notifier errors.
