@@ -69,6 +69,6 @@ This is required because oh-my-pi does not auto-expand environment variables for
 If `CODEX_BASE_URL` is missing, the placeholder remains and installer prints a warning.
 
 `omp-gotify-notify.js` is an oh-my-pi extension (built on official extension events), and can send Gotify notifications for:
-- turn completion (`turn_end`)
+- full run completion (`agent_end`, uses the final assistant message)
 - retry failure (`auto_retry_end`)
 - ask tool waiting for input (`tool_call` with `ask`)
