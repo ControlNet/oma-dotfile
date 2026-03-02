@@ -12,16 +12,16 @@ Windows (PowerShell):
 (Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/ControlNet/oma-dotfile/master/pull.py' -UseBasicParsing).Content | python
 ```
 
-Required environment variables:
-- `CODEX_BASE_URL` (with `/v1`)
-- `CODEX_API_KEY`
-- `ANTHROPIC_BASE_URL` (without `/v1`)
-- `ANTHROPIC_AUTH_TOKEN`
-- `AZURE_OPENAI_API_KEY`
-- `AZURE_OPENAI_BASE_URL` (with `/openai/v1`)
+Optional environment variables:
+- `CODEX_BASE_URL` (with `/v1`, required if you want to use codex provider)
+- `CODEX_API_KEY` (required if you want to use codex provider)
+- `ANTHROPIC_BASE_URL` (without `/v1`, required if you want to use azure-anthropic provider)
+- `ANTHROPIC_AUTH_TOKEN` (required if you want to use azure-anthropic provider)
+- `AZURE_OPENAI_API_KEY` (required if you want to use azure-openai provider)
+- `AZURE_OPENAI_BASE_URL` (with `/openai/v1`, required if you want to use azure-openai provider)
 - `GITHUB_PERSONAL_ACCESS_TOKEN` (used for gh tools)
 
-Optional environment variables:
+Other optional environment variables:
 - `GOTIFY_URL` (used for gotify notifications)
 - `GOTIFY_TOKEN_FOR_OPENCODE` (used for gotify notifications)
   - `GOTIFY_TOKEN_FOR_CODEX` (optional; if missing, Codex notify falls back to `GOTIFY_TOKEN_FOR_OPENCODE`)
