@@ -8,6 +8,7 @@
 //   OPENCODE_NOTIFY_HEAD              default 50
 //   OPENCODE_NOTIFY_TAIL              default 50
 //   OPENCODE_NOTIFY_COMPLETE          default true (notify on root session completion)
+//   OPENCODE_NOTIFY_IDLE_CONFIRM_MS   default 10000 (notify only if session stays quiet)
 //   OPENCODE_NOTIFY_SUBAGENT          default false (notify on subagent completion)
 //   OPENCODE_NOTIFY_PERMISSION        default true (notify on permission requests)
 //   OPENCODE_NOTIFY_ERROR             default true (notify on session errors)
@@ -18,6 +19,10 @@
 
 const HEAD = Number.parseInt(process.env.OPENCODE_NOTIFY_HEAD || "50", 10);
 const TAIL = Number.parseInt(process.env.OPENCODE_NOTIFY_TAIL || "50", 10);
+const IDLE_CONFIRM_MS_RAW = Number.parseInt(process.env.OPENCODE_NOTIFY_IDLE_CONFIRM_MS || "10000", 10);
+const IDLE_CONFIRM_MS = Number.isFinite(IDLE_CONFIRM_MS_RAW)
+  ? Math.max(0, IDLE_CONFIRM_MS_RAW)
+  : 10000;
 
 // Event notification toggles
 const NOTIFY_COMPLETE = process.env.OPENCODE_NOTIFY_COMPLETE !== "false";
@@ -74,6 +79,65 @@ function escapeMarkdown(s) {
     else out += ch;
   }
   return out;
+}
+
+function toNonEmptyString(value) {
+  if (typeof value !== "string") return "";
+  const text = value.trim();
+  return text.length > 0 ? text : "";
+}
+
+function getSessionIDFromEvent(event) {
+  const props = event?.properties;
+  const info = props?.info;
+  const candidates = [
+    props?.sessionID,
+    props?.sessionId,
+    props?.id,
+    props?.threadID,
+    props?.threadId,
+    props?.conversationID,
+    props?.conversationId,
+    info?.sessionID,
+    info?.sessionId,
+    info?.id,
+  ];
+  for (const candidate of candidates) {
+    const sessionID = toNonEmptyString(candidate);
+    if (sessionID) return sessionID;
+  }
+  return "";
+}
+
+function getSessionIDFromToolHook(input, output) {
+  const candidates = [
+    output?.sessionID,
+    output?.sessionId,
+    output?.id,
+    input?.sessionID,
+    input?.sessionId,
+    input?.id,
+    output?.args?.sessionID,
+    output?.args?.sessionId,
+    input?.args?.sessionID,
+    input?.args?.sessionId,
+  ];
+  for (const candidate of candidates) {
+    const sessionID = toNonEmptyString(candidate);
+    if (sessionID) return sessionID;
+  }
+  return "";
+}
+
+function isIdleStatusEvent(event) {
+  return event?.type === "session.status" && event?.properties?.status?.type === "idle";
+}
+
+function isActivityEvent(event) {
+  if (!event?.type) return false;
+  if (event.type === "session.idle") return false;
+  if (isIdleStatusEvent(event)) return false;
+  return true;
 }
 
 function summarizerConfig() {
@@ -239,6 +303,22 @@ async function isChildSession(client, sessionID) {
 
 export const GotifyNotify = async ({ client }) => {
    const lastSent = new Map();
+   const activityVersion = new Map();
+   const pendingIdleTimers = new Map();
+
+   function clearPendingIdle(sessionID) {
+     const timer = pendingIdleTimers.get(sessionID);
+     if (timer) {
+       clearTimeout(timer);
+       pendingIdleTimers.delete(sessionID);
+     }
+   }
+
+   function markActivity(sessionID) {
+     if (!sessionID) return;
+     clearPendingIdle(sessionID);
+     activityVersion.set(sessionID, (activityVersion.get(sessionID) || 0) + 1);
+   }
 
     async function sendLatestAssistant(sessionID) {
       const resp = await client.session.messages({ path: { id: sessionID } });
@@ -277,8 +357,13 @@ export const GotifyNotify = async ({ client }) => {
      event: async ({ event }) => {
        if (!event?.type) return;
 
+       const relatedSessionID = getSessionIDFromEvent(event);
+       if (relatedSessionID && isActivityEvent(event)) {
+         markActivity(relatedSessionID);
+       }
+
        if (event.type === "session.idle") {
-         const sessionID = event?.properties?.sessionID;
+         const sessionID = getSessionIDFromEvent(event);
          if (!sessionID) return;
 
          try {
@@ -289,7 +374,25 @@ export const GotifyNotify = async ({ client }) => {
               }
            } else {
              if (NOTIFY_COMPLETE) {
-               await sendLatestAssistant(sessionID);
+               const scheduledVersion = activityVersion.get(sessionID) || 0;
+               clearPendingIdle(sessionID);
+
+               if (IDLE_CONFIRM_MS <= 0) {
+                 await sendLatestAssistant(sessionID);
+               } else {
+                 const timer = setTimeout(async () => {
+                   pendingIdleTimers.delete(sessionID);
+                   if ((activityVersion.get(sessionID) || 0) !== scheduledVersion) {
+                     return;
+                   }
+                   try {
+                     await sendLatestAssistant(sessionID);
+                   } catch (err) {
+                     console.error("[gotify] delayed idle notify failed:", err?.message || err);
+                   }
+                 }, IDLE_CONFIRM_MS);
+                 pendingIdleTimers.set(sessionID, timer);
+               }
              }
            }
          } catch (e) {
@@ -300,7 +403,7 @@ export const GotifyNotify = async ({ client }) => {
 
         if (event.type === "session.error") {
           if (NOTIFY_ERROR) {
-            const sessionID = event?.properties?.sessionID;
+            const sessionID = getSessionIDFromEvent(event);
             const error = event?.properties?.error;
 
             // Skip abort errors (normal cancellation, e.g. background_cancel)
@@ -324,17 +427,34 @@ export const GotifyNotify = async ({ client }) => {
         }
      },
 
-      "permission.ask": async () => {
+      "permission.ask": async (input) => {
+        const sessionID = getSessionIDFromToolHook(input, undefined);
+        if (sessionID) {
+          markActivity(sessionID);
+        }
+
         if (NOTIFY_PERMISSION) {
           await gotifyPush("🔐 Permission request");
         }
       },
 
        "tool.execute.before": async (input, output) => {
+         const sessionID = getSessionIDFromToolHook(input, output);
+         if (sessionID) {
+           markActivity(sessionID);
+         }
+
          if (input?.tool === "question" && NOTIFY_QUESTION) {
            const firstQuestion = output?.args?.questions?.[0];
            const questionText = firstQuestion?.question || firstQuestion?.header || "Question";
            await gotifyPush("❓ " + escapeMarkdown(preview(questionText, HEAD, TAIL)));
+         }
+       },
+
+       "tool.execute.after": async (input, output) => {
+         const sessionID = getSessionIDFromToolHook(input, output);
+         if (sessionID) {
+           markActivity(sessionID);
          }
        },
     };
