@@ -8,7 +8,7 @@
 //   OPENCODE_NOTIFY_HEAD              default 50
 //   OPENCODE_NOTIFY_TAIL              default 50
 //   OPENCODE_NOTIFY_COMPLETE          default true (notify on root session completion)
-//   OPENCODE_NOTIFY_IDLE_CONFIRM_MS   default 10000 (notify only if session stays quiet)
+//   OPENCODE_NOTIFY_IDLE_CONFIRM_MS   default 10000 (check session status before notify)
 //   OPENCODE_NOTIFY_SUBAGENT          default false (notify on subagent completion)
 //   OPENCODE_NOTIFY_PERMISSION        default true (notify on permission requests)
 //   OPENCODE_NOTIFY_ERROR             default true (notify on session errors)
@@ -109,35 +109,30 @@ function getSessionIDFromEvent(event) {
   return "";
 }
 
-function getSessionIDFromToolHook(input, output) {
-  const candidates = [
-    output?.sessionID,
-    output?.sessionId,
-    output?.id,
-    input?.sessionID,
-    input?.sessionId,
-    input?.id,
-    output?.args?.sessionID,
-    output?.args?.sessionId,
-    input?.args?.sessionID,
-    input?.args?.sessionId,
-  ];
-  for (const candidate of candidates) {
-    const sessionID = toNonEmptyString(candidate);
-    if (sessionID) return sessionID;
-  }
-  return "";
-}
-
 function isIdleStatusEvent(event) {
   return event?.type === "session.status" && event?.properties?.status?.type === "idle";
 }
 
-function isActivityEvent(event) {
-  if (!event?.type) return false;
-  if (event.type === "session.idle") return false;
-  if (isIdleStatusEvent(event)) return false;
-  return true;
+function isIdleEvent(event) {
+  return event?.type === "session.idle" || isIdleStatusEvent(event);
+}
+
+async function shouldNotifyCompletion(client, sessionID) {
+  try {
+    const response = await client.session.status();
+    const statusMap = response?.data;
+    if (!statusMap || typeof statusMap !== "object") return true;
+
+    const status = statusMap[sessionID];
+    if (!status || typeof status !== "object") {
+      return true;
+    }
+
+    return status.type === "idle";
+  } catch (error) {
+    console.error("[gotify] session.status check failed:", error?.message || error);
+    return true;
+  }
 }
 
 function summarizerConfig() {
@@ -303,7 +298,6 @@ async function isChildSession(client, sessionID) {
 
 export const GotifyNotify = async ({ client }) => {
    const lastSent = new Map();
-   const activityVersion = new Map();
    const pendingIdleTimers = new Map();
 
    function clearPendingIdle(sessionID) {
@@ -312,12 +306,6 @@ export const GotifyNotify = async ({ client }) => {
        clearTimeout(timer);
        pendingIdleTimers.delete(sessionID);
      }
-   }
-
-   function markActivity(sessionID) {
-     if (!sessionID) return;
-     clearPendingIdle(sessionID);
-     activityVersion.set(sessionID, (activityVersion.get(sessionID) || 0) + 1);
    }
 
     async function sendLatestAssistant(sessionID) {
@@ -357,12 +345,7 @@ export const GotifyNotify = async ({ client }) => {
      event: async ({ event }) => {
        if (!event?.type) return;
 
-       const relatedSessionID = getSessionIDFromEvent(event);
-       if (relatedSessionID && isActivityEvent(event)) {
-         markActivity(relatedSessionID);
-       }
-
-       if (event.type === "session.idle") {
+       if (isIdleEvent(event)) {
          const sessionID = getSessionIDFromEvent(event);
          if (!sessionID) return;
 
@@ -374,19 +357,21 @@ export const GotifyNotify = async ({ client }) => {
               }
            } else {
              if (NOTIFY_COMPLETE) {
-               const scheduledVersion = activityVersion.get(sessionID) || 0;
                clearPendingIdle(sessionID);
 
-               if (IDLE_CONFIRM_MS <= 0) {
+               const notifyWhenReady = async () => {
+                 const stillIdle = await shouldNotifyCompletion(client, sessionID);
+                 if (!stillIdle) return;
                  await sendLatestAssistant(sessionID);
+               };
+
+               if (IDLE_CONFIRM_MS <= 0) {
+                 await notifyWhenReady();
                } else {
                  const timer = setTimeout(async () => {
                    pendingIdleTimers.delete(sessionID);
-                   if ((activityVersion.get(sessionID) || 0) !== scheduledVersion) {
-                     return;
-                   }
                    try {
-                     await sendLatestAssistant(sessionID);
+                     await notifyWhenReady();
                    } catch (err) {
                      console.error("[gotify] delayed idle notify failed:", err?.message || err);
                    }
@@ -396,10 +381,10 @@ export const GotifyNotify = async ({ client }) => {
              }
            }
          } catch (e) {
-           console.error("[gotify] session.idle failed:", e?.message || e);
-         }
-         return;
-       }
+            console.error("[gotify] idle completion check failed:", e?.message || e);
+          }
+          return;
+        }
 
         if (event.type === "session.error") {
           if (NOTIFY_ERROR) {
@@ -427,34 +412,17 @@ export const GotifyNotify = async ({ client }) => {
         }
      },
 
-      "permission.ask": async (input) => {
-        const sessionID = getSessionIDFromToolHook(input, undefined);
-        if (sessionID) {
-          markActivity(sessionID);
-        }
-
+      "permission.ask": async () => {
         if (NOTIFY_PERMISSION) {
           await gotifyPush("🔐 Permission request");
         }
       },
 
        "tool.execute.before": async (input, output) => {
-         const sessionID = getSessionIDFromToolHook(input, output);
-         if (sessionID) {
-           markActivity(sessionID);
-         }
-
          if (input?.tool === "question" && NOTIFY_QUESTION) {
            const firstQuestion = output?.args?.questions?.[0];
            const questionText = firstQuestion?.question || firstQuestion?.header || "Question";
            await gotifyPush("❓ " + escapeMarkdown(preview(questionText, HEAD, TAIL)));
-         }
-       },
-
-       "tool.execute.after": async (input, output) => {
-         const sessionID = getSessionIDFromToolHook(input, output);
-         if (sessionID) {
-           markActivity(sessionID);
          }
        },
     };
