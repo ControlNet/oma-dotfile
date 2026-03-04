@@ -1,0 +1,6 @@
+{
+  "$schema": "https://opencode.ai/tui.json",
+  "keybinds": {
+    "variant_cycle": "ctrl+y"
+  }
+}

@@ -104,7 +104,9 @@ def timestamp() -> str:
 
 
 def warn_missing_required_env_vars() -> None:
-    missing = [name for name in REQUIRED_ENV_VARS if not os.environ.get(name, "").strip()]
+    missing = [
+        name for name in REQUIRED_ENV_VARS if not os.environ.get(name, "").strip()
+    ]
     if not missing:
         info("All required environment variables are present")
         return
@@ -210,9 +212,13 @@ def backup_file_if_exists(path: Path, stamp: str) -> None:
 
 def render_omp_models(content: str, codex_base_url: str) -> tuple[str, bool]:
     """Render omp_models.yaml by inlining CODEX_BASE_URL placeholder."""
-    pattern = re.compile(r'^(\s*baseUrl:\s*)(["\']?)CODEX_BASE_URL\2(\s*(?:#.*)?)$', re.MULTILINE)
+    pattern = re.compile(
+        r'^(\s*baseUrl:\s*)(["\']?)CODEX_BASE_URL\2(\s*(?:#.*)?)$', re.MULTILINE
+    )
     quoted_url = json.dumps(codex_base_url)
-    rendered, count = pattern.subn(lambda m: f"{m.group(1)}{quoted_url}{m.group(3)}", content)
+    rendered, count = pattern.subn(
+        lambda m: f"{m.group(1)}{quoted_url}{m.group(3)}", content
+    )
     return rendered, count > 0
 
 
@@ -369,6 +375,7 @@ def main():
         config_files = [
             ("opencode.jsonc", "opencode.jsonc"),
             ("oh-my-opencode.jsonc", "oh-my-opencode.jsonc"),
+            ("tui.json", "tui.json"),
             ("_AGENTS.md", "AGENTS.md"),
         ]
         for src_name, dst_name in config_files:
