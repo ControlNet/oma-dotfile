@@ -2,16 +2,16 @@
   "$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-opencode/master/assets/oh-my-opencode.schema.json",
   "agents": {
     "sisyphus": {
-      "model": "codex/gpt-5.3-codex",
+      "model": "codex/gpt-5.4",
       "variant": "xhigh"
     },
     "hephaestus": {
-      "model": "codex/gpt-5.3-codex",
+      "model": "codex/gpt-5.4",
       "variant": "xhigh"
     },
     "oracle": {
-      "model": "codex/gpt-5.2",
-      "variant": "high"
+      "model": "codex/gpt-5.4",
+      "variant": "xhigh"
     },
     "librarian": {
       "model": "codex/gpt-5.1-codex-mini"
@@ -20,53 +20,53 @@
       "model": "codex/gpt-5.1-codex-mini"
     },
     "multimodal-looker": {
-      "model": "codex/gpt-5.2"
+      "model": "codex/gpt-5.4"
     },
     "prometheus": {
-      "model": "codex/gpt-5.3-codex",
+      "model": "codex/gpt-5.4",
       "variant": "xhigh"
     },
     "metis": {
-      "model": "codex/gpt-5.3-codex",
+      "model": "codex/gpt-5.4",
       "variant": "xhigh"
     },
     "momus": {
-      "model": "codex/gpt-5.2",
-      "variant": "medium"
+      "model": "codex/gpt-5.4",
+      "variant": "xhigh"
     },
     "atlas": {
-      "model": "codex/gpt-5.3-codex"
+      "model": "codex/gpt-5.4"
     }
   },
   "categories": {
     "visual-engineering": {
-      "model": "codex/gpt-5.3-codex",
+      "model": "codex/gpt-5.4",
       "variant": "high"
     },
     "ultrabrain": {
-      "model": "codex/gpt-5.3-codex",
+      "model": "codex/gpt-5.4",
       "variant": "xhigh"
     },
     "deep": {
-      "model": "codex/gpt-5.3-codex",
+      "model": "codex/gpt-5.4",
       "variant": "xhigh"
     },
     "artistry": {
-      "model": "codex/gpt-5.3-codex",
+      "model": "codex/gpt-5.4",
       "variant": "high"
     },
     "quick": {
       "model": "codex/gpt-5.1-codex-mini"
     },
     "unspecified-low": {
-      "model": "codex/gpt-5.3-codex"
+      "model": "codex/gpt-5.4"
     },
     "unspecified-high": {
-      "model": "codex/gpt-5.3-codex",
+      "model": "codex/gpt-5.4",
       "variant": "high"
     },
     "writing": {
-      "model": "codex/gpt-5.3-codex"
+      "model": "codex/gpt-5.4"
     }
   },
   "git_master": {
