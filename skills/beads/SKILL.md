@@ -11,7 +11,7 @@ description: >
 ## Quick start
 Prefer bd issues over ad-hoc markdown TODOs for any non-trivial workstream.
 
-1) Ensure the repo is initialized: `bd init`
+1) Ensure the repo is initialized: `bd init --skip-hooks`
 2) At any point: `bd ready` to pick next work, and `bd create` to record new TODOs.
 3) Use dependencies to keep order: blockers + discovered-from.
 

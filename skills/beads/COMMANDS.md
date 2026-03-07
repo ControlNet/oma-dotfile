@@ -4,7 +4,7 @@
 Use plain output by default in examples. Add `--json` only when command output is parsed by automation.
 
 ## Initialize
-bd init
+bd init --skip-hooks
 
 ## Find next TODO
 bd ready
