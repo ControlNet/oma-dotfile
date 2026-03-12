@@ -13,10 +13,10 @@ Prefer bd issues over ad-hoc markdown TODOs for any non-trivial workstream.
 
 1) Ensure the repo is initialized:
    - Fresh clone / repair path: `bd bootstrap --dry-run --json`, then `bd bootstrap`
-   - Standard repo: `bd init --skip-hooks`
+   - Human developer leading repo: `bd init --contributor --skip-hooks`
+   - AI developer leading repo: `bd init --skip-hooks`
+   - Human team collaboration repo workflow: `bd init --team --skip-hooks`
    - Legacy `.beads/issues.jsonl` repo: `bd init --from-jsonl --skip-hooks`
-   - OSS fork workflow: `bd init --contributor --skip-hooks`
-   - Team/shared-branch workflow: `bd init --team --skip-hooks`
 2) Load the live workflow context: `bd prime`
 3) Find ready work with `bd ready --json`, and record new work with explicit context: `bd create "Short title" --description="Why this work exists" -t task -p 2 --json`
 4) When you begin work on an issue, claim it atomically: `bd update <id> --claim --json`
