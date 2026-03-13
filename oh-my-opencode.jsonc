@@ -3,15 +3,15 @@
   "agents": {
     "sisyphus": {
       "model": "codex/gpt-5.4",
-      "variant": "xhigh"
+      "variant": "high"
     },
     "hephaestus": {
       "model": "codex/gpt-5.4",
-      "variant": "xhigh"
+      "variant": "high"
     },
     "oracle": {
       "model": "codex/gpt-5.4",
-      "variant": "xhigh"
+      "variant": "high"
     },
     "librarian": {
       "model": "codex/gpt-5.1-codex-mini"
@@ -20,22 +20,24 @@
       "model": "codex/gpt-5.1-codex-mini"
     },
     "multimodal-looker": {
-      "model": "codex/gpt-5.4"
+      "model": "codex/gpt-5.4",
+      "variant": "medium"
     },
     "prometheus": {
       "model": "codex/gpt-5.4",
-      "variant": "xhigh"
+      "variant": "high"
     },
     "metis": {
       "model": "codex/gpt-5.4",
-      "variant": "xhigh"
+      "variant": "high"
     },
     "momus": {
       "model": "codex/gpt-5.4",
       "variant": "xhigh"
     },
     "atlas": {
-      "model": "codex/gpt-5.4"
+      "model": "codex/gpt-5.4",
+      "variant": "medium"
     }
   },
   "categories": {
@@ -49,7 +51,7 @@
     },
     "deep": {
       "model": "codex/gpt-5.4",
-      "variant": "xhigh"
+      "variant": "high"
     },
     "artistry": {
       "model": "codex/gpt-5.4",
@@ -59,14 +61,16 @@
       "model": "codex/gpt-5.1-codex-mini"
     },
     "unspecified-low": {
-      "model": "codex/gpt-5.4"
+      "model": "codex/gpt-5.4",
+      "variant": "medium"
     },
     "unspecified-high": {
       "model": "codex/gpt-5.4",
       "variant": "high"
     },
     "writing": {
-      "model": "codex/gpt-5.4"
+      "model": "codex/gpt-5.4",
+      "variant": "medium"
     }
   },
   "git_master": {
