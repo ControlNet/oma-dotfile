@@ -14,10 +14,10 @@
       "variant": "high"
     },
     "librarian": {
-      "model": "codex/gpt-5.1-codex-mini"
+      "model": "codex/gpt-5.4-mini"
     },
     "explore": {
-      "model": "codex/gpt-5.1-codex-mini"
+      "model": "codex/gpt-5.4-mini"
     },
     "multimodal-looker": {
       "model": "codex/gpt-5.4",
@@ -58,7 +58,7 @@
       "variant": "high"
     },
     "quick": {
-      "model": "codex/gpt-5.1-codex-mini"
+      "model": "codex/gpt-5.4-mini"
     },
     "unspecified-low": {
       "model": "codex/gpt-5.4",
