@@ -6,7 +6,6 @@
 - Never use `git clean` which will causes untended changes.
 - Prefer minimal, reviewable patches; avoid large refactors unless asked.
 - For non-trivial changes: include exact verification commands (lint/test/run) and expected outcome/signals (what should pass / what to look for).
-- For non-trivial implementation work, load the beads skill and track execution in Beads (bd): run `bd prime` for current workflow context, create or continue an issue, keep current progress + next step in the issue, and close/update it with verification notes before ending the session. If beads is not initialized in the current repository, use `bd init --skip-hooks`; if the repo still has a legacy `.beads/issues.jsonl` setup, import it with `bd init --from-jsonl --skip-hooks`. If the current project requires git tracking for beads, install or refresh hooks with `bd hooks install` when you want automatic git track for beads.
 - Warn before any destructive action (delete/overwrite/migration/force push).
 - Only modify project-level AGENTS.md when explicitly asked to change project rules.
 - Use pixi or conda to manage Python environments, unless the use of Python does not involve the 3rd-party packages. Prevent installing packages to system-level Python.
