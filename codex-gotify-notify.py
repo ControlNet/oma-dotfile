@@ -15,6 +15,7 @@ Optional:
   CODEX_NOTIFY_HEAD (default: 50)
   CODEX_NOTIFY_TAIL (default: 50)
   CODEX_NOTIFY_COMPLETE (default: true)
+  CODEX_NOTIFY_NONINTERACTIVE (default: false)
   CODEX_NOTIFY_SUBAGENT (default: false)
   CODEX_NOTIFY_PERMISSION (default: true)
   CODEX_NOTIFY_ERROR (default: true)
@@ -492,7 +493,7 @@ def _sessions_root_path() -> Path:
     return Path.home() / ".codex" / "sessions"
 
 
-def _load_thread_source_cache() -> dict[str, bool]:
+def _load_thread_source_cache() -> dict[str, dict[str, bool]]:
     path = _thread_source_cache_path()
     try:
         if not path.exists():
@@ -504,18 +505,23 @@ def _load_thread_source_cache() -> dict[str, bool]:
     except (OSError, json.JSONDecodeError):
         return {}
 
-    out: dict[str, bool] = {}
+    out: dict[str, dict[str, bool]] = {}
     for key, value in data.items():
         if not isinstance(key, str):
             continue
         if isinstance(value, bool):
-            out[key] = value
-        elif isinstance(value, dict) and isinstance(value.get("is_subagent"), bool):
-            out[key] = value["is_subagent"]
+            out[key] = {"is_subagent": value}
+        elif isinstance(value, dict):
+            entry: dict[str, bool] = {}
+            for field in ("is_subagent", "is_noninteractive_root", "source_checked"):
+                if isinstance(value.get(field), bool):
+                    entry[field] = value[field]
+            if entry:
+                out[key] = entry
     return out
 
 
-def _save_thread_source_cache(cache: dict[str, bool]) -> None:
+def _save_thread_source_cache(cache: dict[str, dict[str, bool]]) -> None:
     path = _thread_source_cache_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -546,7 +552,14 @@ def _source_is_subagent(source: object) -> bool:
     return False
 
 
-def _detect_subagent_from_sessions(thread_id: str) -> bool | None:
+def _source_is_root_codex_session(source: object) -> bool:
+    if not isinstance(source, str):
+        return False
+    normalized = source.strip().lower().replace("_", "-")
+    return normalized in {"cli", "exec"}
+
+
+def _detect_thread_source_flags_from_sessions(thread_id: str) -> dict[str, bool] | None:
     sessions_root = _sessions_root_path()
     if not sessions_root.exists():
         return None
@@ -558,45 +571,78 @@ def _detect_subagent_from_sessions(thread_id: str) -> bool | None:
 
     for file_path in candidates[:3]:
         try:
+            session_meta_payload: dict[str, object] | None = None
+            approval_policy = ""
             with file_path.open("r", encoding="utf-8") as fp:
-                first_line = fp.readline().strip()
-            if not first_line:
+                for raw_line in fp:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    parsed = json.loads(line)
+                    if not isinstance(parsed, dict):
+                        continue
+                    payload = parsed.get("payload")
+                    if not isinstance(payload, dict):
+                        continue
+                    if parsed.get("type") == "session_meta" and session_meta_payload is None:
+                        session_meta_payload = payload
+                    if not approval_policy and isinstance(payload.get("approval_policy"), str):
+                        approval_policy = payload["approval_policy"].strip().lower()
+                    if session_meta_payload is not None and approval_policy:
+                        break
+            if session_meta_payload is None:
                 continue
-            parsed = json.loads(first_line)
-            if not isinstance(parsed, dict):
-                continue
-            payload = parsed.get("payload")
-            if not isinstance(payload, dict):
-                continue
-            source = _payload_get(payload, "source")
+            source = _payload_get(session_meta_payload, "source")
             if source is None:
                 continue
-            return _source_is_subagent(source)
+            is_subagent = _source_is_subagent(source)
+            is_root_cli = _source_is_root_codex_session(source)
+            return {
+                "is_subagent": is_subagent,
+                "is_noninteractive_root": bool(
+                    not is_subagent and is_root_cli and approval_policy == "never"
+                ),
+            }
         except (OSError, json.JSONDecodeError):
             continue
     return None
 
 
-def _is_subagent_thread(thread_id: str) -> bool:
+def _thread_source_flags(thread_id: str) -> dict[str, bool]:
     thread_id = thread_id.strip()
     if not thread_id:
-        return False
+        return {}
 
     cache = _load_thread_source_cache()
     if thread_id in cache:
-        if cache[thread_id]:
-            _log_line(f"subagent_detected source=cache thread_id={thread_id}")
-        return cache[thread_id]
+        cached = cache[thread_id]
+        if cached.get("source_checked"):
+            if cached.get("is_subagent"):
+                _log_line(f"subagent_detected source=cache thread_id={thread_id}")
+            if cached.get("is_noninteractive_root"):
+                _log_line(f"noninteractive_root_detected source=cache thread_id={thread_id}")
+            return cached
 
-    detected = _detect_subagent_from_sessions(thread_id)
+    detected = _detect_thread_source_flags_from_sessions(thread_id)
     if detected is None:
-        return False
+        return {}
 
+    detected["source_checked"] = True
     cache[thread_id] = detected
     _save_thread_source_cache(cache)
-    if detected:
+    if detected.get("is_subagent"):
         _log_line(f"subagent_detected source=sessions thread_id={thread_id}")
+    if detected.get("is_noninteractive_root"):
+        _log_line(f"noninteractive_root_detected source=sessions thread_id={thread_id}")
     return detected
+
+
+def _is_subagent_thread(thread_id: str) -> bool:
+    return _thread_source_flags(thread_id).get("is_subagent", False)
+
+
+def _is_noninteractive_root_thread(thread_id: str) -> bool:
+    return _thread_source_flags(thread_id).get("is_noninteractive_root", False)
 
 
 def _is_true_like(value: object) -> bool:
@@ -867,6 +913,13 @@ def main() -> int:
     event_type = _event_type(payload) or "unknown"
     thread_id = _payload_thread_id(payload) or _payload_session_id(payload) or "-"
     _log_line(f"payload_loaded event={event_type} thread_id={thread_id}")
+
+    notify_noninteractive = _is_true(
+        _env_first("CODEX_NOTIFY_NONINTERACTIVE", "OPENCODE_NOTIFY_NONINTERACTIVE", default="false")
+    )
+    if not notify_noninteractive and thread_id != "-" and _is_noninteractive_root_thread(thread_id):
+        _log_line(f"run_skip reason=noninteractive_root_session event={event_type} thread_id={thread_id}")
+        return 0
 
     gotify_url = _normalize_base(_env("GOTIFY_URL"))
     gotify_token = _env("GOTIFY_TOKEN_FOR_CODEX") or _env("GOTIFY_TOKEN_FOR_OPENCODE")
