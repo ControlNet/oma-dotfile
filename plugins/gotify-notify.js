@@ -109,12 +109,26 @@ function getSessionIDFromEvent(event) {
   return "";
 }
 
+function getStatusTypeFromEvent(event) {
+  const statusType = toNonEmptyString(event?.properties?.status?.type);
+  if (statusType) return statusType;
+  if (event?.type === "session.idle") return "idle";
+  if (event?.type === "session.busy") return "busy";
+  return "";
+}
+
 function isIdleStatusEvent(event) {
-  return event?.type === "session.status" && event?.properties?.status?.type === "idle";
+  return event?.type === "session.status" && getStatusTypeFromEvent(event) === "idle";
 }
 
 function isIdleEvent(event) {
   return event?.type === "session.idle" || isIdleStatusEvent(event);
+}
+
+function isNonIdleStatusEvent(event) {
+  if (event?.type !== "session.status" && event?.type !== "session.busy") return false;
+  const statusType = getStatusTypeFromEvent(event);
+  return !!statusType && statusType !== "idle";
 }
 
 async function shouldNotifyCompletion(client, sessionID) {
@@ -298,18 +312,117 @@ async function isChildSession(client, sessionID) {
 
 export const GotifyNotify = async ({ client }) => {
    const lastSent = new Map();
-   const pendingIdleTimers = new Map();
+    const pendingIdleTimers = new Map();
+    const sessionParentCache = new Map();
+    const sessionRootCache = new Map();
 
-   function clearPendingIdle(sessionID) {
-     const timer = pendingIdleTimers.get(sessionID);
-     if (timer) {
-       clearTimeout(timer);
-       pendingIdleTimers.delete(sessionID);
-     }
-   }
+    function clearPendingIdle(sessionID) {
+      const pending = pendingIdleTimers.get(sessionID);
+      if (pending) {
+        pending.cancelled = true;
+        clearTimeout(pending.timer);
+        pendingIdleTimers.delete(sessionID);
+      }
+    }
 
-    async function sendLatestAssistant(sessionID) {
-      const resp = await client.session.messages({ path: { id: sessionID } });
+    async function getParentSessionID(sessionID) {
+      if (sessionParentCache.has(sessionID)) {
+        return sessionParentCache.get(sessionID);
+      }
+
+      try {
+        const response = await client.session.get({ path: { id: sessionID } });
+        const parentID = toNonEmptyString(response?.data?.parentID);
+        sessionParentCache.set(sessionID, parentID);
+        return parentID;
+      } catch {
+        return "";
+      }
+    }
+
+    async function getRootSessionID(sessionID) {
+      if (!sessionID) return "";
+      if (sessionRootCache.has(sessionID)) {
+        return sessionRootCache.get(sessionID);
+      }
+
+      const chain = [];
+      const visited = new Set();
+      let currentID = sessionID;
+
+      while (currentID && !visited.has(currentID)) {
+        if (sessionRootCache.has(currentID)) {
+          const cachedRootID = sessionRootCache.get(currentID);
+          for (const id of chain) sessionRootCache.set(id, cachedRootID);
+          return cachedRootID;
+        }
+
+        visited.add(currentID);
+        chain.push(currentID);
+
+        const parentID = await getParentSessionID(currentID);
+        if (!parentID) {
+          for (const id of chain) sessionRootCache.set(id, currentID);
+          return currentID;
+        }
+
+        currentID = parentID;
+      }
+
+      for (const id of chain) sessionRootCache.set(id, sessionID);
+      return sessionID;
+    }
+
+    async function hasRunningSubagentForRoot(rootSessionID) {
+      try {
+        const response = await client.session.status();
+        const statusMap = response?.data;
+        if (!statusMap || typeof statusMap !== "object") return false;
+
+        for (const [sessionID, status] of Object.entries(statusMap)) {
+          if (!sessionID || sessionID === rootSessionID) continue;
+          if (!status || typeof status !== "object" || status.type === "idle") continue;
+
+          const resolvedRootID = await getRootSessionID(sessionID);
+          if (resolvedRootID === rootSessionID) {
+            return true;
+          }
+        }
+
+        return false;
+      } catch (error) {
+        console.error("[gotify] subagent status check failed:", error?.message || error);
+        return false;
+      }
+    }
+
+    function scheduleIdleCheck(sessionID, state, delayMs) {
+      state.timer = setTimeout(async () => {
+        if (state.cancelled) return;
+
+        try {
+          const hasRunningSubagent = await hasRunningSubagentForRoot(sessionID);
+          if (state.cancelled) return;
+
+          if (hasRunningSubagent) {
+            scheduleIdleCheck(sessionID, state, IDLE_CONFIRM_MS);
+            return;
+          }
+
+          pendingIdleTimers.delete(sessionID);
+
+          const stillIdle = await shouldNotifyCompletion(client, sessionID);
+          if (!stillIdle || state.cancelled) return;
+          await sendLatestAssistant(sessionID);
+        } catch (err) {
+          pendingIdleTimers.delete(sessionID);
+          console.error("[gotify] delayed idle notify failed:", err?.message || err);
+        }
+      }, Math.max(0, delayMs));
+    }
+
+     async function sendLatestAssistant(sessionID) {
+       const resp = await client.session.messages({ path: { id: sessionID } });
       const list = resp?.data || [];
       if (!Array.isArray(list) || list.length === 0) return;
 
@@ -341,12 +454,20 @@ export const GotifyNotify = async ({ client }) => {
       lastSent.set(sessionID, msgID);
     }
 
-   return {
-     event: async ({ event }) => {
-       if (!event?.type) return;
+    return {
+      event: async ({ event }) => {
+        if (!event?.type) return;
 
-       if (isIdleEvent(event)) {
-         const sessionID = getSessionIDFromEvent(event);
+        if (isNonIdleStatusEvent(event)) {
+          const sessionID = getSessionIDFromEvent(event);
+          if (sessionID) {
+            clearPendingIdle(sessionID);
+          }
+          return;
+        }
+
+        if (isIdleEvent(event)) {
+          const sessionID = getSessionIDFromEvent(event);
          if (!sessionID) return;
 
          try {
@@ -355,32 +476,19 @@ export const GotifyNotify = async ({ client }) => {
             if (NOTIFY_SUBAGENT) {
                 await gotifyPush("✅ Subagent task completed");
               }
-           } else {
-             if (NOTIFY_COMPLETE) {
-               clearPendingIdle(sessionID);
+            } else {
+              if (NOTIFY_COMPLETE) {
+                clearPendingIdle(sessionID);
 
-               const notifyWhenReady = async () => {
-                 const stillIdle = await shouldNotifyCompletion(client, sessionID);
-                 if (!stillIdle) return;
-                 await sendLatestAssistant(sessionID);
-               };
-
-               if (IDLE_CONFIRM_MS <= 0) {
-                 await notifyWhenReady();
-               } else {
-                 const timer = setTimeout(async () => {
-                   pendingIdleTimers.delete(sessionID);
-                   try {
-                     await notifyWhenReady();
-                   } catch (err) {
-                     console.error("[gotify] delayed idle notify failed:", err?.message || err);
-                   }
-                 }, IDLE_CONFIRM_MS);
-                 pendingIdleTimers.set(sessionID, timer);
-               }
-             }
-           }
-         } catch (e) {
+                const pending = {
+                  cancelled: false,
+                  timer: null,
+                };
+                pendingIdleTimers.set(sessionID, pending);
+                scheduleIdleCheck(sessionID, pending, IDLE_CONFIRM_MS);
+              }
+            }
+          } catch (e) {
             console.error("[gotify] idle completion check failed:", e?.message || e);
           }
           return;
