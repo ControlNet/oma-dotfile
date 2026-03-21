@@ -1,6 +1,6 @@
 # Secret Pattern Catalog
 
-Patterns used by `scripts/scan_secrets.py`. Extend by editing the `CONTENT_PATTERNS` and `SENSITIVE_FILES` lists in the script.
+Patterns used by `<skill-dir>/scripts/scan_secrets.py`, where `<skill-dir>` is the directory containing this skill's `SKILL.md`. Extend the scanner by editing the `CONTENT_PATTERNS` and `SENSITIVE_FILES` lists in that script.
 
 ## Sensitive File Patterns
 
@@ -91,7 +91,7 @@ Patterns used by `scripts/scan_secrets.py`. Extend by editing the `CONTENT_PATTE
 
 ## Adding Custom Patterns
 
-Edit `scripts/scan_secrets.py`:
+Edit `<skill-dir>/scripts/scan_secrets.py`:
 
 - **File patterns**: add to the `SENSITIVE_FILES` list (Python regex strings)
 - **Content patterns**: add to `CONTENT_PATTERNS` as a `("Label", r"regex")` tuple

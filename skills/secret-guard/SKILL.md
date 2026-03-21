@@ -15,12 +15,16 @@ description: >
 
 Prevent secret leakage via git. Cross-platform, Python stdlib only (no pip install).
 
+Before running any bundled script, resolve `<skill-dir>` as the directory containing this `SKILL.md`. Do **not** assume the current working directory is the skill folder.
+
+For `staged`, `tracked`, and `gitignore` modes, run the command with the current working directory set to the target git repository you want to audit.
+
 ## Pre-Commit Check (DEFAULT)
 
 Run before ANY commit that touches config, env, auth, or infra files:
 
-```
-python scripts/scan_secrets.py staged
+```bash
+python "<skill-dir>/scripts/scan_secrets.py" staged
 ```
 
 Exit 0 = clean, exit 1 = findings. If findings exist, **do NOT commit** — remove or move secrets to env vars first.
@@ -29,16 +33,16 @@ Exit 0 = clean, exit 1 = findings. If findings exist, **do NOT commit** — remo
 
 Scan all tracked files:
 
-```
-python scripts/scan_secrets.py tracked
+```bash
+python "<skill-dir>/scripts/scan_secrets.py" tracked
 ```
 
 ## Gitignore Coverage Audit
 
 Verify .gitignore covers common sensitive file patterns:
 
-```
-python scripts/scan_secrets.py gitignore
+```bash
+python "<skill-dir>/scripts/scan_secrets.py" gitignore
 ```
 
 Reports which patterns (.env, *.pem, *.key, credentials.json, etc.) are NOT covered.
@@ -47,8 +51,8 @@ Reports which patterns (.env, *.pem, *.key, credentials.json, etc.) are NOT cove
 
 If the user discusses API keys, tokens, passwords, or sensitive config:
 
-1. Run `python scripts/scan_secrets.py staged` to check if anything sensitive is staged
-2. Run `python scripts/scan_secrets.py gitignore` to verify .gitignore coverage
+1. Resolve `<skill-dir>` from this `SKILL.md`, then run `python "<skill-dir>/scripts/scan_secrets.py" staged`
+2. Run `python "<skill-dir>/scripts/scan_secrets.py" gitignore` to verify .gitignore coverage
 3. If findings: list them clearly with remediation steps
 4. If clean: confirm no secrets detected
 
@@ -60,7 +64,7 @@ When secrets are found:
 2. **Move secret to env var**: replace hardcoded value with `os.environ["KEY"]` / `process.env.KEY` etc.
 3. **Add to .gitignore** if the file is inherently sensitive (.env, *.pem, credentials.json)
 4. **If already committed**: warn the user that the secret is in git history and suggest `git filter-repo` or rotating the credential
-5. Re-scan: `python scripts/scan_secrets.py staged`
+5. Re-scan: `python "<skill-dir>/scripts/scan_secrets.py" staged`
 
 ## What Gets Detected
 
