@@ -12,6 +12,9 @@ Windows (PowerShell):
 (Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/ControlNet/oma-dotfile/master/pull.py' -UseBasicParsing).Content | python
 ```
 
+Recommended environment variables:
+- `OPENCODE_DISABLE_CLAUDE_CODE=1` (disable claude-code support for opencode)
+
 Optional environment variables:
 - `CODEX_BASE_URL` (with `/v1`, required if you want to use codex provider)
 - `CODEX_API_KEY` (required if you want to use codex provider)

@@ -79,5 +79,12 @@
   },
   "background_task": {
     "maxDescendants": 300
+  },
+  "claude_code": {
+    "skills": false,
+    "commands": false,
+    "mcp": false,
+    "agents": false,
+    "hooks": false
   }
 }
