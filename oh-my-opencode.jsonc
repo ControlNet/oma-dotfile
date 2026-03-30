@@ -85,6 +85,7 @@
     "commands": false,
     "mcp": false,
     "agents": false,
-    "hooks": false
+    "hooks": false,
+    "plugins": false
   }
 }
