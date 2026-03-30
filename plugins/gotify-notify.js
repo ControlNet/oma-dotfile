@@ -325,6 +325,28 @@ export const GotifyNotify = async ({ client }) => {
       }
     }
 
+    async function shouldIgnoreSession(sessionID) {
+      if (!sessionID) return false;
+      return isChildSession(client, sessionID);
+    }
+
+    function getErrorName(error) {
+      return toNonEmptyString(error?.name);
+    }
+
+    function getErrorMessage(error) {
+      const candidates = [
+        error?.message,
+        error?.data?.message,
+        error?.error?.message,
+      ];
+      for (const candidate of candidates) {
+        const text = toNonEmptyString(candidate);
+        if (text) return text;
+      }
+      return toNonEmptyString(String(error || ""));
+    }
+
     async function getParentSessionID(sessionID) {
       if (sessionParentCache.has(sessionID)) {
         return sessionParentCache.get(sessionID);
@@ -471,23 +493,17 @@ export const GotifyNotify = async ({ client }) => {
          if (!sessionID) return;
 
          try {
-           const isChild = await isChildSession(client, sessionID);
-           if (isChild) {
-            if (NOTIFY_SUBAGENT) {
-                await gotifyPush("✅ Subagent task completed");
-              }
-            } else {
-              if (NOTIFY_COMPLETE) {
-                clearPendingIdle(sessionID);
+           if (await shouldIgnoreSession(sessionID)) return;
+           if (NOTIFY_COMPLETE) {
+             clearPendingIdle(sessionID);
 
-                const pending = {
-                  cancelled: false,
-                  timer: null,
-                };
-                pendingIdleTimers.set(sessionID, pending);
-                scheduleIdleCheck(sessionID, pending, IDLE_CONFIRM_MS);
-              }
-            }
+             const pending = {
+               cancelled: false,
+               timer: null,
+             };
+             pendingIdleTimers.set(sessionID, pending);
+             scheduleIdleCheck(sessionID, pending, IDLE_CONFIRM_MS);
+           }
           } catch (e) {
             console.error("[gotify] idle completion check failed:", e?.message || e);
           }
@@ -500,19 +516,18 @@ export const GotifyNotify = async ({ client }) => {
             const error = event?.properties?.error;
 
             // Skip abort errors (normal cancellation, e.g. background_cancel)
-            const errorName = error?.name || "";
-            const errorMsg = String(error?.message || error || "");
-            if (errorName === "AbortedError" || errorMsg.includes("aborted")) {
+            const errorName = getErrorName(error);
+            const errorMsg = getErrorMessage(error).toLowerCase();
+            if (
+              errorName === "AbortedError" ||
+              errorName === "AbortError" ||
+              errorName === "MessageAbortedError" ||
+              errorMsg.includes("aborted")
+            ) {
               return;
             }
 
-            // Skip child session errors (subagent/summarizer)
-            if (sessionID) {
-              try {
-                const isChild = await isChildSession(client, sessionID);
-                if (isChild) return;
-              } catch {}
-            }
+            if (await shouldIgnoreSession(sessionID)) return;
 
             await gotifyPush("❌ Session encountered an error");
           }
@@ -520,14 +535,16 @@ export const GotifyNotify = async ({ client }) => {
         }
      },
 
-      "permission.ask": async () => {
+      "permission.ask": async (input) => {
         if (NOTIFY_PERMISSION) {
+          if (await shouldIgnoreSession(input?.sessionID)) return;
           await gotifyPush("🔐 Permission request");
         }
       },
 
        "tool.execute.before": async (input, output) => {
          if (input?.tool === "question" && NOTIFY_QUESTION) {
+           if (await shouldIgnoreSession(input?.sessionID)) return;
            const firstQuestion = output?.args?.questions?.[0];
            const questionText = firstQuestion?.question || firstQuestion?.header || "Question";
            await gotifyPush("❓ " + escapeMarkdown(preview(questionText, HEAD, TAIL)));
