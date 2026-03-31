@@ -54,6 +54,31 @@ function preview(s, head = 50, tail = 50) {
   return `${t.slice(0, head)}…${t.slice(-tail)}`;
 }
 
+function formatErrorNotification(error) {
+  const errorName = normalizeText(error?.name || "");
+  const errorMessage = normalizeText(
+    typeof error?.message === "string"
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : ""
+  );
+
+  if (errorName && errorMessage) {
+    return `❌ ${escapeMarkdown(errorName)}: ${escapeMarkdown(errorMessage)}`;
+  }
+
+  if (errorMessage) {
+    return `❌ ${escapeMarkdown(errorMessage)}`;
+  }
+
+  if (errorName) {
+    return `❌ ${escapeMarkdown(errorName)}`;
+  }
+
+  return "❌ Session encountered an error";
+}
+
 function extractAssistantText(msg) {
   const parts = msg?.parts || [];
   return normalizeText(
@@ -514,7 +539,7 @@ export const GotifyNotify = async ({ client }) => {
               } catch {}
             }
 
-            await gotifyPush("❌ Session encountered an error");
+            await gotifyPush(formatErrorNotification(error));
           }
           return;
         }
