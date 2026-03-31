@@ -38,6 +38,10 @@
     "atlas": {
       "model": "codex/gpt-5.4",
       "variant": "medium"
+    },
+    "sisyphus-junior": {
+      "model": "codex/gpt-5.4",
+      "variant": "high"
     }
   },
   "categories": {
