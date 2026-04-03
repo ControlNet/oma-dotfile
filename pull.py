@@ -149,7 +149,8 @@ def get_omp_agent_dir() -> Path:
     return Path.home() / ".omp" / "agent"
 
 
-MAX_BACKUPS = 5
+MAX_BACKUPS = int(os.environ.get("MAX_BACKUPS", "1"))
+MAX_BACKUPS = max(1, MAX_BACKUPS)
 
 
 def cleanup_old_backups(file_path: Path) -> None:
@@ -177,6 +178,7 @@ def rename_json_if_exists(json_path: Path, stamp: str) -> None:
         if backup_path.exists():
             backup_path = backup_path.with_suffix(f".bak-{stamp}-{os.getpid()}")
         json_path.rename(backup_path)
+        cleanup_old_backups(json_path)
 
 
 def copy_directory(src_dir: Path, dst_dir: Path) -> None:
@@ -452,7 +454,7 @@ def main():
     success("Installation complete!")
     info(f"Timestamp: {stamp}")
     if not NO_BACKUP:
-        info(f"Backups: *.bak-{stamp}")
+        info(f"Backups: *.bak-{stamp} (keep last {MAX_BACKUPS} per file)")
 
 
 if __name__ == "__main__":
