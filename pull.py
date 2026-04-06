@@ -152,6 +152,19 @@ def get_omp_agent_dir() -> Path:
 MAX_BACKUPS = int(os.environ.get("MAX_BACKUPS", "1"))
 MAX_BACKUPS = max(1, MAX_BACKUPS)
 
+OPENCODE_CONFIG_FILES = [
+    ("opencode.jsonc", "opencode.jsonc"),
+    ("oh-my-openagent.jsonc", "oh-my-openagent.jsonc"),
+    ("tui.json", "tui.json"),
+    ("_AGENTS.md", "AGENTS.md"),
+]
+
+LEGACY_OPENAGENT_CONFIG_NAMES = [
+    "oh-my-opencode.json",
+    "oh-my-opencode.jsonc",
+    "oh-my-openagent.json",
+]
+
 
 def cleanup_old_backups(file_path: Path) -> None:
     pattern = f"{file_path.name}.bak-*"
@@ -171,14 +184,31 @@ def backup_and_install(src: Path, dst: Path, stamp: str) -> None:
     shutil.copy2(src, dst)
 
 
-def rename_json_if_exists(json_path: Path, stamp: str) -> None:
-    """Rename .json to .json.bak if exists."""
-    if json_path.exists():
-        backup_path = json_path.with_suffix(f".json.bak-{stamp}")
+def rename_path_if_exists(path: Path, stamp: str) -> None:
+    """Rename an existing file to a timestamped backup."""
+    if path.exists():
+        if path.suffix:
+            backup_path = path.with_suffix(f"{path.suffix}.bak-{stamp}")
+        else:
+            backup_path = path.with_name(f"{path.name}.bak-{stamp}")
         if backup_path.exists():
             backup_path = backup_path.with_suffix(f".bak-{stamp}-{os.getpid()}")
-        json_path.rename(backup_path)
-        cleanup_old_backups(json_path)
+        path.rename(backup_path)
+        cleanup_old_backups(path)
+
+
+def install_opencode_config_files(repo_path: Path, config_dir: Path, stamp: str) -> None:
+    for src_name, dst_name in OPENCODE_CONFIG_FILES:
+        src = repo_path / src_name
+        dst = config_dir / dst_name
+        if src.exists():
+            print(f"         - {src_name}")
+            backup_and_install(src, dst, stamp)
+
+
+def retire_legacy_openagent_files(config_dir: Path, stamp: str) -> None:
+    for name in LEGACY_OPENAGENT_CONFIG_NAMES:
+        rename_path_if_exists(config_dir / name, stamp)
 
 
 def copy_directory(src_dir: Path, dst_dir: Path) -> None:
@@ -374,18 +404,7 @@ def main():
             sys.exit(1)
 
         info(f"[2/7] Installing OpenCode config files to: {config_dir}")
-        config_files = [
-            ("opencode.jsonc", "opencode.jsonc"),
-            ("oh-my-opencode.jsonc", "oh-my-opencode.jsonc"),
-            ("tui.json", "tui.json"),
-            ("_AGENTS.md", "AGENTS.md"),
-        ]
-        for src_name, dst_name in config_files:
-            src = repo_path / src_name
-            dst = config_dir / dst_name
-            if src.exists():
-                print(f"         - {src_name}")
-                backup_and_install(src, dst, stamp)
+        install_opencode_config_files(repo_path, config_dir, stamp)
 
         info("[3/7] Installing OpenCode plugins and skills...")
         for dir_name in ["plugins", "skills"]:
@@ -440,9 +459,9 @@ def main():
             print("         - skills/ (merge)")
             copy_directory_merge(codex_skills_src, codex_skills_dst)
 
-        info("[6/7] Renaming legacy .json (if exists) so only .jsonc remains active")
-        rename_json_if_exists(config_dir / "opencode.json", stamp)
-        rename_json_if_exists(config_dir / "oh-my-opencode.json", stamp)
+        info("[6/7] Retiring legacy OpenAgent config names so only current .jsonc remains active")
+        rename_path_if_exists(config_dir / "opencode.json", stamp)
+        retire_legacy_openagent_files(config_dir, stamp)
 
         info("[7/7] Optionally configuring Codex notify hook")
         if SETUP_NOTIFY_HOOKS:
