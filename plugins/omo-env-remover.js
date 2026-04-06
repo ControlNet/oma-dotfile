@@ -1,5 +1,5 @@
 /**
- * Remove oh-my-opencode dynamic <omo-env> block from system prompts.
+ * Remove oh-my-openagent dynamic <omo-env> block from system prompts.
  * Helps stabilize prompt prefix for better cache hit rates.
  *
  * @type {import('@opencode-ai/plugin').Plugin}
