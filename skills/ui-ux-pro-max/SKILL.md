@@ -1,41 +1,28 @@
 ---
 name: ui-ux-pro-max
-description: UI/UX design intelligence with searchable database
+description: >
+  UI/UX design system and implementation guidance for web and mobile products, with searchable
+  recommendations for styles, color palettes, typography, UX rules, charts, icons, and
+  stack-specific best practices. Use when users ask to design, build, review, improve, or fix
+  interfaces such as landing pages, dashboards, product pages, forms, mobile screens, or design
+  systems, especially when fast guidance is needed for HTML/Tailwind, React, Next.js, Astro, Vue,
+  Nuxt, Svelte, SwiftUI, React Native, Flutter, shadcn/ui, Nuxt UI, or Jetpack Compose.
 ---
 # ui-ux-pro-max
 
 Comprehensive design guide for web and mobile applications. Contains 67 styles, 96 color palettes, 57 font pairings, 99 UX guidelines, and 25 chart types across 13 technology stacks. Searchable database with priority-based recommendations.
 
-## Prerequisites
+## Runtime
 
-Check if Python is installed:
+Assume `python3` is available. The bundled scripts use only the Python standard library, so no extra package installation is required.
 
-```bash
-python3 --version || python --version
-```
+In the commands below, replace `<skill-dir>` with the absolute path to this skill folder. The commands are written this way so they work from any current working directory.
 
-If Python is not installed, install it based on user's OS:
+If `--output-dir` is omitted, persisted files are written under the current working directory.
 
-**macOS:**
-```bash
-brew install python3
-```
+## Workflow
 
-**Ubuntu/Debian:**
-```bash
-sudo apt update && sudo apt install python3
-```
-
-**Windows:**
-```powershell
-winget install Python.Python.3.12
-```
-
----
-
-## How to Use This Skill
-
-When user requests UI/UX work (design, build, create, implement, review, fix, improve), follow this workflow:
+Follow this workflow after the skill triggers:
 
 ### Step 1: Analyze User Requirements
 
@@ -50,18 +37,18 @@ Extract key information from user request:
 **Always start with `--design-system`** to get comprehensive recommendations with reasoning:
 
 ```bash
-python3 skills/ui-ux-pro-max/scripts/search.py "<product_type> <industry> <keywords>" --design-system [-p "Project Name"]
+python3 "<skill-dir>/scripts/search.py" "<product_type> <industry> <keywords>" --design-system [-p "Project Name"]
 ```
 
 This command:
-1. Searches 5 domains in parallel (product, style, color, landing, typography)
+1. Searches across 5 domains (product, style, color, landing, typography)
 2. Applies reasoning rules from `ui-reasoning.csv` to select best matches
 3. Returns complete design system: pattern, style, colors, typography, effects
 4. Includes anti-patterns to avoid
 
 **Example:**
 ```bash
-python3 skills/ui-ux-pro-max/scripts/search.py "beauty spa wellness service" --design-system -p "Serenity Spa"
+python3 "<skill-dir>/scripts/search.py" "beauty spa wellness service" --design-system -p "Serenity Spa"
 ```
 
 ### Step 2b: Persist Design System (Master + Overrides Pattern)
@@ -69,32 +56,32 @@ python3 skills/ui-ux-pro-max/scripts/search.py "beauty spa wellness service" --d
 To save the design system for hierarchical retrieval across sessions, add `--persist`:
 
 ```bash
-python3 skills/ui-ux-pro-max/scripts/search.py "<query>" --design-system --persist -p "Project Name"
+python3 "<skill-dir>/scripts/search.py" "<query>" --design-system --persist -p "Project Name" [--output-dir "<project-root>"]
 ```
 
 This creates:
-- `design-system/MASTER.md` — Global Source of Truth with all design rules
-- `design-system/pages/` — Folder for page-specific overrides
+- `<output-dir>/design-system/<project-slug>/MASTER.md` — Global Source of Truth with all design rules
+- `<output-dir>/design-system/<project-slug>/pages/` — Folder for page-specific overrides
 
 **With page-specific override:**
 ```bash
-python3 skills/ui-ux-pro-max/scripts/search.py "<query>" --design-system --persist -p "Project Name" --page "dashboard"
+python3 "<skill-dir>/scripts/search.py" "<query>" --design-system --persist -p "Project Name" --page "dashboard" [--output-dir "<project-root>"]
 ```
 
 This also creates:
-- `design-system/pages/dashboard.md` — Page-specific deviations from Master
+- `<output-dir>/design-system/<project-slug>/pages/dashboard.md` — Page-specific deviations from Master
 
 **How hierarchical retrieval works:**
-1. When building a specific page (e.g., "Checkout"), first check `design-system/pages/checkout.md`
+1. When building a specific page (e.g., "Checkout"), first check `<output-dir>/design-system/<project-slug>/pages/checkout.md`
 2. If the page file exists, its rules **override** the Master file
-3. If not, use `design-system/MASTER.md` exclusively
+3. If not, use `<output-dir>/design-system/<project-slug>/MASTER.md` exclusively
 
 ### Step 3: Supplement with Detailed Searches (as needed)
 
 After getting the design system, use domain searches to get additional details:
 
 ```bash
-python3 skills/ui-ux-pro-max/scripts/search.py "<keyword>" --domain <domain> [-n <max_results>]
+python3 "<skill-dir>/scripts/search.py" "<keyword>" --domain <domain> [-n <max_results>]
 ```
 
 **When to use detailed searches:**
@@ -112,10 +99,10 @@ python3 skills/ui-ux-pro-max/scripts/search.py "<keyword>" --domain <domain> [-n
 Get implementation-specific best practices. If user doesn't specify a stack, **default to `html-tailwind`**.
 
 ```bash
-python3 skills/ui-ux-pro-max/scripts/search.py "<keyword>" --stack html-tailwind
+python3 "<skill-dir>/scripts/search.py" "<keyword>" --stack html-tailwind
 ```
 
-Available stacks: `html-tailwind`, `react`, `nextjs`, `vue`, `svelte`, `swiftui`, `react-native`, `flutter`, `shadcn`, `jetpack-compose`
+Available stacks: `html-tailwind`, `react`, `nextjs`, `astro`, `vue`, `nuxtjs`, `nuxt-ui`, `svelte`, `swiftui`, `react-native`, `flutter`, `shadcn`, `jetpack-compose`
 
 ---
 
@@ -132,6 +119,7 @@ Available stacks: `html-tailwind`, `react`, `nextjs`, `vue`, `svelte`, `swiftui`
 | `landing` | Page structure, CTA strategies | hero, hero-centric, testimonial, pricing, social-proof |
 | `chart` | Chart types, library recommendations | trend, comparison, timeline, funnel, pie |
 | `ux` | Best practices, anti-patterns | animation, accessibility, z-index, loading |
+| `icons` | Icon libraries and usage guidance | lucide, heroicons, svg, logo, symbol |
 | `react` | React/Next.js performance | waterfall, bundle, suspense, memo, rerender, cache |
 | `web` | Web interface guidelines | aria, focus, keyboard, semantic, virtualize |
 | `prompt` | AI prompts, CSS keywords | (style name) |
@@ -143,7 +131,10 @@ Available stacks: `html-tailwind`, `react`, `nextjs`, `vue`, `svelte`, `swiftui`
 | `html-tailwind` | Tailwind utilities, responsive, a11y (DEFAULT) |
 | `react` | State, hooks, performance, patterns |
 | `nextjs` | SSR, routing, images, API routes |
+| `astro` | Islands, content collections, server/client boundaries |
 | `vue` | Composition API, Pinia, Vue Router |
+| `nuxtjs` | Nuxt routing, layouts, middleware, SSR |
+| `nuxt-ui` | Nuxt UI components, theming, forms, patterns |
 | `svelte` | Runes, stores, SvelteKit |
 | `swiftui` | Views, State, Navigation, Animation |
 | `react-native` | Components, Navigation, Lists |
@@ -155,7 +146,7 @@ Available stacks: `html-tailwind`, `react`, `nextjs`, `vue`, `svelte`, `swiftui`
 
 ## Example Workflow
 
-**User request:** "Làm landing page cho dịch vụ chăm sóc da chuyên nghiệp"
+**User request:** "Build a landing page for a professional skincare service"
 
 ### Step 1: Analyze Requirements
 - Product type: Beauty/Spa service
@@ -166,7 +157,7 @@ Available stacks: `html-tailwind`, `react`, `nextjs`, `vue`, `svelte`, `swiftui`
 ### Step 2: Generate Design System (REQUIRED)
 
 ```bash
-python3 skills/ui-ux-pro-max/scripts/search.py "beauty spa wellness service elegant" --design-system -p "Serenity Spa"
+python3 "<skill-dir>/scripts/search.py" "beauty spa wellness service elegant" --design-system -p "Serenity Spa"
 ```
 
 **Output:** Complete design system with pattern, style, colors, typography, effects, and anti-patterns.
@@ -175,16 +166,16 @@ python3 skills/ui-ux-pro-max/scripts/search.py "beauty spa wellness service eleg
 
 ```bash
 # Get UX guidelines for animation and accessibility
-python3 skills/ui-ux-pro-max/scripts/search.py "animation accessibility" --domain ux
+python3 "<skill-dir>/scripts/search.py" "animation accessibility" --domain ux
 
 # Get alternative typography options if needed
-python3 skills/ui-ux-pro-max/scripts/search.py "elegant luxury serif" --domain typography
+python3 "<skill-dir>/scripts/search.py" "elegant luxury serif" --domain typography
 ```
 
 ### Step 4: Stack Guidelines
 
 ```bash
-python3 skills/ui-ux-pro-max/scripts/search.py "layout responsive form" --stack html-tailwind
+python3 "<skill-dir>/scripts/search.py" "layout responsive form" --stack html-tailwind
 ```
 
 **Then:** Synthesize design system + detailed searches and implement the design.
@@ -197,10 +188,10 @@ The `--design-system` flag supports two output formats:
 
 ```bash
 # ASCII box (default) - best for terminal display
-python3 skills/ui-ux-pro-max/scripts/search.py "fintech crypto" --design-system
+python3 "<skill-dir>/scripts/search.py" "fintech crypto" --design-system
 
 # Markdown - best for documentation
-python3 skills/ui-ux-pro-max/scripts/search.py "fintech crypto" --design-system -f markdown
+python3 "<skill-dir>/scripts/search.py" "fintech crypto" --design-system -f markdown
 ```
 
 ---
