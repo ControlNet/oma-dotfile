@@ -1,10 +1,10 @@
 defaultThinkingLevel: high
 modelRoles: 
-  default: codex/gpt-5.3-codex
-  smol: codex/gpt-5.1-codex-mini
-  slow: codex/gpt-5.3-codex
-  plan: codex/gpt-5.3-codex
-  commit: codex/gpt-5.1-codex-mini
+  default: codex/gpt-5.5:medium
+  smol: codex/gpt-5.4-mini
+  slow: codex/gpt-5.5:high
+  plan: codex/gpt-5.5:high
+  commit: codex/gpt-5.4-mini
 disabledProviders: 
   - claude
   - gemini
@@ -13,10 +13,9 @@ disabledProviders:
   - github
   - windsurf
   - vscode
-  - codex
 task: 
   agentModelOverrides: 
-    designer: codex/gpt-5.3-codex
+    designer: codex/gpt-5.5:high
 memories: 
   enabled: false
 collapseChangelog: true
