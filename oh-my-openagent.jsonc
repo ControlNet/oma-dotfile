@@ -2,15 +2,15 @@
   "$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-openagent/master/assets/oh-my-opencode.schema.json",
   "agents": {
     "sisyphus": {
-      "model": "codex/gpt-5.4",
-      "variant": "high"
+      "model": "codex/gpt-5.5",
+      "variant": "medium"
     },
     "hephaestus": {
-      "model": "codex/gpt-5.4",
-      "variant": "high"
+      "model": "codex/gpt-5.5",
+      "variant": "medium"
     },
     "oracle": {
-      "model": "codex/gpt-5.4",
+      "model": "codex/gpt-5.5",
       "variant": "high"
     },
     "librarian": {
@@ -20,60 +20,60 @@
       "model": "codex/gpt-5.4-mini"
     },
     "multimodal-looker": {
-      "model": "codex/gpt-5.4",
+      "model": "codex/gpt-5.5",
       "variant": "medium"
     },
     "prometheus": {
-      "model": "codex/gpt-5.4",
+      "model": "codex/gpt-5.5",
       "variant": "high"
     },
     "metis": {
-      "model": "codex/gpt-5.4",
+      "model": "codex/gpt-5.5",
       "variant": "high"
     },
     "momus": {
-      "model": "codex/gpt-5.4",
+      "model": "codex/gpt-5.5",
       "variant": "xhigh"
     },
     "atlas": {
-      "model": "codex/gpt-5.4",
+      "model": "codex/gpt-5.5",
       "variant": "medium"
     },
     "sisyphus-junior": {
-      "model": "codex/gpt-5.4",
-      "variant": "high"
+      "model": "codex/gpt-5.5",
+      "variant": "medium"
     }
   },
   "categories": {
     "visual-engineering": {
-      "model": "codex/gpt-5.4",
+      "model": "codex/gpt-5.5",
       "variant": "high"
     },
     "ultrabrain": {
-      "model": "codex/gpt-5.4",
+      "model": "codex/gpt-5.5",
       "variant": "xhigh"
     },
     "deep": {
-      "model": "codex/gpt-5.4",
-      "variant": "high"
+      "model": "codex/gpt-5.5",
+      "variant": "medium"
     },
     "artistry": {
-      "model": "codex/gpt-5.4",
+      "model": "codex/gpt-5.5",
       "variant": "high"
     },
     "quick": {
       "model": "codex/gpt-5.4-mini"
     },
     "unspecified-low": {
-      "model": "codex/gpt-5.4",
+      "model": "codex/gpt-5.3-codex",
       "variant": "medium"
     },
     "unspecified-high": {
-      "model": "codex/gpt-5.4",
+      "model": "codex/gpt-5.5",
       "variant": "high"
     },
     "writing": {
-      "model": "codex/gpt-5.4",
+      "model": "codex/gpt-5.5",
       "variant": "medium"
     }
   },
