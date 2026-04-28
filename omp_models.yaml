@@ -7,7 +7,7 @@
 # - api: openai-codex-responses is the Codex/Responses API (not openai-completions)
 
 providers:
-  codex:
+  oma-codex:
     baseUrl: CODEX_BASE_URL
     apiKey: CODEX_API_KEY
     api: openai-responses
