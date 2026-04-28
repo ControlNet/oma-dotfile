@@ -10,7 +10,6 @@ disabledProviders:
   - claude-plugins
   - codex
   - gemini
-  - opencode
   - cursor
   - cline
   - github
