@@ -91,5 +91,8 @@
     "agents": false,
     "hooks": false,
     "plugins": false
+  },
+  "team_mode": {
+    "enabled": true
   }
 }
