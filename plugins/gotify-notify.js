@@ -47,6 +47,18 @@ function normalizeText(s) {
   return String(s || "").replace(/\s+/g, " ").trim();
 }
 
+function stripThoughtBlocks(s) {
+  const raw = String(s || "");
+  if (!raw.trim()) return "";
+
+  const withoutBlocks = raw.replace(/<thought>[\s\S]*?<\/thought>/gi, " ");
+  const cleaned = normalizeText(withoutBlocks);
+  if (cleaned) return cleaned;
+
+  const withoutTags = raw.replace(/<\/?thought>/gi, " ");
+  return normalizeText(withoutTags);
+}
+
 function preview(s, head = 50, tail = 50) {
   const t = normalizeText(s);
   if (!t) return "";
@@ -194,7 +206,7 @@ function extractOpenAIText(payload) {
 
   const outputText = payload.output_text;
   if (typeof outputText === "string" && outputText.trim()) {
-    return normalizeText(outputText);
+    return stripThoughtBlocks(outputText);
   }
 
   const output = payload.output;
@@ -206,7 +218,7 @@ function extractOpenAIText(payload) {
       for (const part of content) {
         if (!part || typeof part !== "object") continue;
         if (typeof part.text === "string" && part.text.trim()) {
-          return normalizeText(part.text);
+          return stripThoughtBlocks(part.text);
         }
       }
     }
@@ -219,7 +231,7 @@ function extractOpenAIText(payload) {
       const message = choice.message;
       if (!message || typeof message !== "object") continue;
       if (typeof message.content === "string" && message.content.trim()) {
-        return normalizeText(message.content);
+        return stripThoughtBlocks(message.content);
       }
     }
   }
@@ -227,7 +239,12 @@ function extractOpenAIText(payload) {
   return "";
 }
 
-async function postJSON(url, body, headers, timeoutMs) {
+function logSummarizerError(stage, message, detail = "") {
+  const suffix = detail ? ` ${preview(detail, 120, 120)}` : "";
+  console.error(`[gotify] summarizer ${stage} ${message}${suffix}`);
+}
+
+async function postJSON(url, body, headers, timeoutMs, stage) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -240,11 +257,29 @@ async function postJSON(url, body, headers, timeoutMs) {
       body: JSON.stringify(body),
       signal: controller.signal,
     });
-    if (!response.ok) return null;
-    const data = await response.json().catch(() => null);
-    if (!data || typeof data !== "object") return null;
+    const rawText = await response.text().catch(() => "");
+    if (!response.ok) {
+      logSummarizerError(stage, `HTTP ${response.status} ${response.statusText}`, rawText);
+      return null;
+    }
+
+    if (!rawText) {
+      logSummarizerError(stage, "returned empty response body");
+      return null;
+    }
+
+    const data = JSON.parse(rawText);
+    if (!data || typeof data !== "object") {
+      logSummarizerError(stage, "returned non-object JSON", rawText);
+      return null;
+    }
     return data;
   } catch (e) {
+    if (e?.name === "AbortError") {
+      logSummarizerError(stage, `timed out after ${timeoutMs}ms`);
+    } else {
+      logSummarizerError(stage, e?.message || "request failed");
+    }
     return null;
   } finally {
     clearTimeout(timeout);
@@ -277,10 +312,20 @@ async function summarizeWithLLM(text) {
     chatBody,
     headers,
     SUMMARIZER_TIMEOUT,
+    "chat/completions",
   );
   if (chatData) {
     const summary = extractOpenAIText(chatData);
     if (summary && summary.length <= 200) return summary;
+    if (!summary) {
+      logSummarizerError("chat/completions", "returned no extractable summary");
+    } else {
+      logSummarizerError(
+        "chat/completions",
+        `returned summary longer than 200 chars (${summary.length})`,
+        summary,
+      );
+    }
   }
 
   const responsesBody = {
@@ -299,10 +344,22 @@ async function summarizeWithLLM(text) {
     responsesBody,
     headers,
     SUMMARIZER_TIMEOUT,
+    "responses",
   );
   if (!responsesData) return null;
   const summary = extractOpenAIText(responsesData);
-  if (!summary || summary.length > 200) return null;
+  if (!summary) {
+    logSummarizerError("responses", "returned no extractable summary");
+    return null;
+  }
+  if (summary.length > 200) {
+    logSummarizerError(
+      "responses",
+      `returned summary longer than 200 chars (${summary.length})`,
+      summary,
+    );
+    return null;
+  }
   return summary;
 }
 
