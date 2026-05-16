@@ -1,3 +1,6 @@
+import os from "node:os";
+import path from "node:path";
+
 // omp-gotify-notify.js
 //
 // oh-my-pi extension that sends Gotify notifications for key agent events.
@@ -10,7 +13,7 @@
 //   GOTIFY_TOKEN_FOR_OMP (fallback: GOTIFY_TOKEN_FOR_OPENCODE, GOTIFY_TOKEN_FOR_CODEX)
 //
 // Optional:
-//   OMP_NOTIFY_TITLE                  default "OMP"
+//   OMP_NOTIFY_TITLE                  override default "OMP :: <project>@<hostname>"
 //   OMP_NOTIFY_MAX_CHARS              default 280
 //   OMP_NOTIFY_HEAD                   default 50
 //   OMP_NOTIFY_TAIL                   default 50
@@ -45,6 +48,24 @@ function envBool(name, fallback) {
 function envInt(name, fallback) {
 	const parsed = Number.parseInt(env(name), 10);
 	return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function hostname() {
+	return normalizeText(os.hostname() || process.env.HOSTNAME || "unknown-host");
+}
+
+function projectNameFromPath(cwd) {
+	const text = normalizeText(cwd);
+	if (!text) return "unknown-project";
+	const normalized = path.normalize(text);
+	const base = path.basename(normalized);
+	return normalizeText(base || normalized || "unknown-project");
+}
+
+function buildNotifyTitle(agentName, cwd) {
+	const override = env("OMP_NOTIFY_TITLE");
+	if (override) return override;
+	return `${agentName} :: ${projectNameFromPath(cwd)}@${hostname()}`;
 }
 
 function normalizeBase(url) {
@@ -257,7 +278,6 @@ async function pushGotify(title, message) {
 export default function OmpGotifyNotify(pi) {
 	const sentCache = new Map();
 
-	const title = env("OMP_NOTIFY_TITLE", "OMP");
 	const maxChars = Math.max(1, envInt("OMP_NOTIFY_MAX_CHARS", DEFAULT_MAX_CHARS));
 	const head = Math.max(0, envInt("OMP_NOTIFY_HEAD", DEFAULT_HEAD));
 	const tail = Math.max(0, envInt("OMP_NOTIFY_TAIL", DEFAULT_TAIL));
@@ -281,7 +301,26 @@ export default function OmpGotifyNotify(pi) {
 		return true;
 	}
 
-	async function send(sessionId, eventName, message, summarizeSource = "") {
+	async function resolveContextCwd(ctx) {
+		const direct = normalizeText(ctx?.cwd || "");
+		if (direct) return direct;
+
+		const sessionManager = ctx?.sessionManager;
+		const getCwd = sessionManager?.getCwd;
+		if (typeof getCwd === "function") {
+			try {
+				const cwd = await Promise.resolve(getCwd.call(sessionManager));
+				const text = normalizeText(cwd || "");
+				if (text) return text;
+			} catch {
+				// Fall through to process cwd; notifier must never break agent flow.
+			}
+		}
+
+		return process.cwd();
+	}
+
+	async function send(sessionId, eventName, message, summarizeSource = "", cwd = "") {
 		if (!message) return;
 		if (!shouldSend(sessionId, eventName, message)) return;
 
@@ -293,7 +332,7 @@ export default function OmpGotifyNotify(pi) {
 			}
 		}
 
-		await pushGotify(title, truncate(finalMessage, maxChars));
+		await pushGotify(buildNotifyTitle("OMP", cwd), truncate(finalMessage, maxChars));
 	}
 
 	function findLastAssistantMessage(messages) {
@@ -310,16 +349,17 @@ export default function OmpGotifyNotify(pi) {
 	pi.on("agent_end", async (event, ctx) => {
 		try {
 			const sessionId = String(ctx?.sessionManager?.getSessionId?.() || "-");
+			const cwd = await resolveContextCwd(ctx);
 			const message = findLastAssistantMessage(event?.messages);
 			if (!message) {
 				if (!notifyComplete) return;
-				await send(sessionId, "agent_complete", "✅ Agent turn completed");
+				await send(sessionId, "agent_complete", "✅ Agent turn completed", "", cwd);
 				return;
 			}
 
 			if (message.stopReason === "error") {
 				if (!notifyError) return;
-				await send(sessionId, "agent_error", "❌ Agent turn failed");
+				await send(sessionId, "agent_error", "❌ Agent turn failed", "", cwd);
 				return;
 			}
 
@@ -331,9 +371,10 @@ export default function OmpGotifyNotify(pi) {
 					"agent_complete",
 					`✅ ${escapeMarkdown(preview(assistantText, head, tail))}`,
 					assistantText,
+					cwd,
 				);
 			} else {
-				await send(sessionId, "agent_complete", "✅ Agent turn completed");
+				await send(sessionId, "agent_complete", "✅ Agent turn completed", "", cwd);
 			}
 		} catch {
 			// Never fail the host runtime due to notifier errors.
@@ -346,9 +387,10 @@ export default function OmpGotifyNotify(pi) {
 			if (!event || event.toolName !== "ask") return;
 
 			const sessionId = String(ctx?.sessionManager?.getSessionId?.() || "-");
+			const cwd = await resolveContextCwd(ctx);
 			const question = extractAskQuestion(event.input);
 			const body = question ? `❓ ${escapeMarkdown(preview(question, head, tail))}` : "❓ Waiting for input";
-			await send(sessionId, "ask_waiting", body);
+			await send(sessionId, "ask_waiting", body, "", cwd);
 		} catch {
 			// Never fail the host runtime due to notifier errors.
 		}
@@ -360,9 +402,10 @@ export default function OmpGotifyNotify(pi) {
 			if (!event || event.success) return;
 
 			const sessionId = String(ctx?.sessionManager?.getSessionId?.() || "-");
+			const cwd = await resolveContextCwd(ctx);
 			const reason = normalizeText(event.finalError || "");
 			const body = reason ? `❌ Retry failed: ${escapeMarkdown(preview(reason, head, tail))}` : "❌ Retry failed";
-			await send(sessionId, "auto_retry_end", body);
+			await send(sessionId, "auto_retry_end", body, "", cwd);
 		} catch {
 			// Never fail the host runtime due to notifier errors.
 		}
