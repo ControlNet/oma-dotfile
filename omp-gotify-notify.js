@@ -103,11 +103,18 @@ function extractAskQuestion(input) {
 	return normalizeText(first.question || first.header || "");
 }
 
-function extractOpenAIText(payload) {
+function stripThoughtBlocks(text) {
+	const withoutPairedBlocks = String(text || "").replace(/<thought\b[^>]*>.*?<\/thought>/gis, "");
+	const withoutLeadingUnclosedBlock = withoutPairedBlocks.replace(/^\s*<thought\b[^>]*>.*$/is, "");
+	return normalizeText(withoutLeadingUnclosedBlock);
+}
+
+export function extractOpenAIText(payload) {
 	if (!payload || typeof payload !== "object") return "";
 
 	if (typeof payload.output_text === "string" && payload.output_text.trim()) {
-		return normalizeText(payload.output_text);
+		const cleaned = stripThoughtBlocks(payload.output_text);
+		if (cleaned) return cleaned;
 	}
 
 	if (Array.isArray(payload.output)) {
@@ -115,7 +122,8 @@ function extractOpenAIText(payload) {
 			if (!item || typeof item !== "object" || !Array.isArray(item.content)) continue;
 			for (const part of item.content) {
 				if (part && typeof part.text === "string" && part.text.trim()) {
-					return normalizeText(part.text);
+					const cleaned = stripThoughtBlocks(part.text);
+					if (cleaned) return cleaned;
 				}
 			}
 		}
@@ -126,7 +134,8 @@ function extractOpenAIText(payload) {
 			if (!choice || typeof choice !== "object") continue;
 			const message = choice.message;
 			if (message && typeof message === "object" && typeof message.content === "string" && message.content.trim()) {
-				return normalizeText(message.content);
+				const cleaned = stripThoughtBlocks(message.content);
+				if (cleaned) return cleaned;
 			}
 		}
 	}
