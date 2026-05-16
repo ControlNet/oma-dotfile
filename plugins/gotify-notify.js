@@ -64,20 +64,27 @@ function projectNameFromPath(cwd) {
   if (!text) return "unknown-project";
   const normalized = path.normalize(text);
   const base = path.basename(normalized);
-  return normalizeText(base || normalized || "unknown-project");
+  return normalizeText(base || "unknown-project");
+}
+
+function isProjectPathCandidate(cwd) {
+  const text = toNonEmptyString(cwd);
+  if (!text) return false;
+  return projectNameFromPath(text) !== "unknown-project";
 }
 
 function getOpenCodeCwd({ directory, worktree, project } = {}) {
   const candidates = [
-    typeof worktree === "string" ? worktree : worktree?.path,
     typeof directory === "string" ? directory : directory?.path,
-    typeof project === "string" ? project : project?.directory || project?.path || project?.root,
+    typeof project === "string" ? project : project?.directory,
+    typeof worktree === "string" ? worktree : worktree?.path,
+    typeof project === "string" ? project : project?.path || project?.root || project?.worktree,
     process.cwd(),
   ];
 
   for (const candidate of candidates) {
     const cwd = toNonEmptyString(candidate);
-    if (cwd) return cwd;
+    if (isProjectPathCandidate(cwd)) return cwd;
   }
   return "";
 }
@@ -481,11 +488,12 @@ async function isChildSession(client, sessionID) {
 }
 
 export const GotifyNotify = async ({ client, directory, worktree, project }) => {
-    const notifyTitle = buildNotifyTitle("OpenCode", getOpenCodeCwd({ directory, worktree, project }));
+    const defaultCwd = getOpenCodeCwd({ directory, worktree, project });
    const lastSent = new Map();
     const pendingIdleTimers = new Map();
     const sessionParentCache = new Map();
     const sessionRootCache = new Map();
+    const sessionDirectoryCache = new Map();
 
     function clearPendingIdle(sessionID) {
       const pending = pendingIdleTimers.get(sessionID);
@@ -509,6 +517,33 @@ export const GotifyNotify = async ({ client, directory, worktree, project }) => 
       } catch {
         return "";
       }
+    }
+
+    async function getSessionDirectory(sessionID) {
+      if (!sessionID) return "";
+      if (sessionDirectoryCache.has(sessionID)) {
+        return sessionDirectoryCache.get(sessionID);
+      }
+
+      try {
+        const response = await client.session.get({ path: { id: sessionID } });
+        const session = response?.data;
+        const cwd = getOpenCodeCwd({
+          directory: session?.directory,
+          worktree: session?.worktree,
+          project: session?.project,
+        });
+        sessionDirectoryCache.set(sessionID, cwd);
+        return cwd;
+      } catch {
+        sessionDirectoryCache.set(sessionID, "");
+        return "";
+      }
+    }
+
+    async function notifyTitleForSession(sessionID) {
+      const sessionDirectory = await getSessionDirectory(sessionID);
+      return buildNotifyTitle("OpenCode", sessionDirectory || defaultCwd);
     }
 
     async function getRootSessionID(sessionID) {
@@ -621,7 +656,7 @@ export const GotifyNotify = async ({ client, directory, worktree, project }) => 
       }
       
       if (!body) return;
-      await gotifyPush(notifyTitle, "✅ " + escapeMarkdown(body));
+      await gotifyPush(await notifyTitleForSession(sessionID), "✅ " + escapeMarkdown(body));
       lastSent.set(sessionID, msgID);
     }
 
@@ -645,7 +680,7 @@ export const GotifyNotify = async ({ client, directory, worktree, project }) => 
            const isChild = await isChildSession(client, sessionID);
            if (isChild) {
             if (NOTIFY_SUBAGENT) {
-                await gotifyPush(notifyTitle, "✅ Subagent task completed");
+                await gotifyPush(await notifyTitleForSession(sessionID), "✅ Subagent task completed");
               }
             } else {
               if (NOTIFY_COMPLETE) {
@@ -685,15 +720,15 @@ export const GotifyNotify = async ({ client, directory, worktree, project }) => 
               } catch {}
             }
 
-            await gotifyPush(notifyTitle, formatErrorNotification(error));
+            await gotifyPush(await notifyTitleForSession(sessionID), formatErrorNotification(error));
           }
           return;
         }
      },
 
-      "permission.ask": async () => {
+      "permission.ask": async (permission) => {
         if (NOTIFY_PERMISSION) {
-          await gotifyPush(notifyTitle, "🔐 Permission request");
+          await gotifyPush(await notifyTitleForSession(permission?.sessionID), "🔐 Permission request");
         }
       },
 
@@ -701,7 +736,7 @@ export const GotifyNotify = async ({ client, directory, worktree, project }) => 
          if (input?.tool === "question" && NOTIFY_QUESTION) {
            const firstQuestion = output?.args?.questions?.[0];
            const questionText = firstQuestion?.question || firstQuestion?.header || "Question";
-           await gotifyPush(notifyTitle, "❓ " + escapeMarkdown(preview(questionText, HEAD, TAIL)));
+           await gotifyPush(await notifyTitleForSession(input?.sessionID), "❓ " + escapeMarkdown(preview(questionText, HEAD, TAIL)));
          }
        },
     };
