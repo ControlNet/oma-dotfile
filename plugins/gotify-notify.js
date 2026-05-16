@@ -1,3 +1,6 @@
+import os from "node:os";
+import path from "node:path";
+
 // ~/.config/opencode/plugins/gotify-notify.js
 //
 // Env (Required):
@@ -5,6 +8,7 @@
 //   GOTIFY_TOKEN_FOR_OPENCODE
 //
 // Optional:
+//   OPENCODE_NOTIFY_TITLE             override default "OpenCode :: <project>@<hostname>"
 //   OPENCODE_NOTIFY_HEAD              default 50
 //   OPENCODE_NOTIFY_TAIL              default 50
 //   OPENCODE_NOTIFY_COMPLETE          default true (notify on root session completion)
@@ -49,6 +53,39 @@ function notifyUserAgent() {
   const custom = (process.env.OPENCODE_NOTIFY_USER_AGENT || "").trim();
   if (custom) return custom;
   return "Mozilla/5.0 (X11; Linux x86_64) OpenCodeGotifyNotify/1.0";
+}
+
+function hostname() {
+  return normalizeText(os.hostname() || process.env.HOSTNAME || "unknown-host");
+}
+
+function projectNameFromPath(cwd) {
+  const text = toNonEmptyString(cwd);
+  if (!text) return "unknown-project";
+  const normalized = path.normalize(text);
+  const base = path.basename(normalized);
+  return normalizeText(base || normalized || "unknown-project");
+}
+
+function getOpenCodeCwd({ directory, worktree, project } = {}) {
+  const candidates = [
+    typeof worktree === "string" ? worktree : worktree?.path,
+    typeof directory === "string" ? directory : directory?.path,
+    typeof project === "string" ? project : project?.directory || project?.path || project?.root,
+    process.cwd(),
+  ];
+
+  for (const candidate of candidates) {
+    const cwd = toNonEmptyString(candidate);
+    if (cwd) return cwd;
+  }
+  return "";
+}
+
+function buildNotifyTitle(agentName, cwd) {
+  const override = toNonEmptyString(process.env.OPENCODE_NOTIFY_TITLE);
+  if (override) return override;
+  return `${agentName} :: ${projectNameFromPath(cwd)}@${hostname()}`;
 }
 
 function normalizeBase(url) {
@@ -406,7 +443,7 @@ async function summarizeWithLLM(text) {
   return summary;
 }
 
-async function gotifyPush(message) {
+async function gotifyPush(title, message) {
    const base = normalizeBase(process.env.GOTIFY_URL);
    const token = (process.env.GOTIFY_TOKEN_FOR_OPENCODE || "").trim();
    if (!base || !token || !message) return;
@@ -418,7 +455,7 @@ async function gotifyPush(message) {
         "X-Gotify-Key": token,
         "User-Agent": notifyUserAgent(),
       },
-      body: JSON.stringify({ title: "OpenCode", message: truncateText(message, MAX_CHARS), priority: 5 }),
+      body: JSON.stringify({ title, message: truncateText(message, MAX_CHARS), priority: 5 }),
     });
 
    if (!res.ok) {
@@ -443,7 +480,8 @@ async function isChildSession(client, sessionID) {
    }
 }
 
-export const GotifyNotify = async ({ client }) => {
+export const GotifyNotify = async ({ client, directory, worktree, project }) => {
+    const notifyTitle = buildNotifyTitle("OpenCode", getOpenCodeCwd({ directory, worktree, project }));
    const lastSent = new Map();
     const pendingIdleTimers = new Map();
     const sessionParentCache = new Map();
@@ -583,7 +621,7 @@ export const GotifyNotify = async ({ client }) => {
       }
       
       if (!body) return;
-      await gotifyPush("✅ " + escapeMarkdown(body));
+      await gotifyPush(notifyTitle, "✅ " + escapeMarkdown(body));
       lastSent.set(sessionID, msgID);
     }
 
@@ -607,7 +645,7 @@ export const GotifyNotify = async ({ client }) => {
            const isChild = await isChildSession(client, sessionID);
            if (isChild) {
             if (NOTIFY_SUBAGENT) {
-                await gotifyPush("✅ Subagent task completed");
+                await gotifyPush(notifyTitle, "✅ Subagent task completed");
               }
             } else {
               if (NOTIFY_COMPLETE) {
@@ -647,7 +685,7 @@ export const GotifyNotify = async ({ client }) => {
               } catch {}
             }
 
-            await gotifyPush(formatErrorNotification(error));
+            await gotifyPush(notifyTitle, formatErrorNotification(error));
           }
           return;
         }
@@ -655,7 +693,7 @@ export const GotifyNotify = async ({ client }) => {
 
       "permission.ask": async () => {
         if (NOTIFY_PERMISSION) {
-          await gotifyPush("🔐 Permission request");
+          await gotifyPush(notifyTitle, "🔐 Permission request");
         }
       },
 
@@ -663,7 +701,7 @@ export const GotifyNotify = async ({ client }) => {
          if (input?.tool === "question" && NOTIFY_QUESTION) {
            const firstQuestion = output?.args?.questions?.[0];
            const questionText = firstQuestion?.question || firstQuestion?.header || "Question";
-           await gotifyPush("❓ " + escapeMarkdown(preview(questionText, HEAD, TAIL)));
+           await gotifyPush(notifyTitle, "❓ " + escapeMarkdown(preview(questionText, HEAD, TAIL)));
          }
        },
     };

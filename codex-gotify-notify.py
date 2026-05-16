@@ -10,7 +10,7 @@ Environment variables:
   GOTIFY_TOKEN_FOR_CODEX (required; falls back to GOTIFY_TOKEN_FOR_OPENCODE)
 
 Optional:
-  CODEX_NOTIFY_TITLE (default: "Codex")
+  CODEX_NOTIFY_TITLE (override default: "Codex :: <project>@<hostname>")
   CODEX_NOTIFY_MAX_CHARS (default: 280)
   CODEX_NOTIFY_HEAD (default: 50)
   CODEX_NOTIFY_TAIL (default: 50)
@@ -35,9 +35,11 @@ Execution log:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import json
 import os
 import re
+import socket
 import sys
 import time
 import urllib.error
@@ -80,6 +82,45 @@ def _env_first(*names: str, default: str = "") -> str:
         if value is not None:
             return value.strip()
     return default
+
+
+def _hostname() -> str:
+    try:
+        host = socket.gethostname().strip()
+    except OSError:
+        host = ""
+    return _normalize_text(host or os.environ.get("HOSTNAME", "") or "unknown-host")
+
+
+def _project_name_from_cwd(cwd: str) -> str:
+    text = str(cwd or "").strip()
+    if not text:
+        return "unknown-project"
+    try:
+        name = Path(text).expanduser().resolve().name
+    except OSError:
+        name = Path(text).expanduser().name
+    return _normalize_text(name or text or "unknown-project")
+
+
+def _payload_cwd(payload: dict[str, object]) -> str:
+    cwd = _payload_get(payload, "cwd", "current_working_directory", "working_directory")
+    if cwd is None:
+        hook_event = _hook_event_payload(payload)
+        cwd = _payload_get(hook_event, "cwd", "current_working_directory", "working_directory")
+    if isinstance(cwd, str) and cwd.strip():
+        return cwd.strip()
+    try:
+        return str(Path.cwd())
+    except OSError:
+        return ""
+
+
+def _build_notify_title(agent_name: str, payload: dict[str, object]) -> str:
+    override = _env_first("CODEX_NOTIFY_TITLE", "OPENCODE_NOTIFY_TITLE")
+    if override:
+        return override
+    return f"{agent_name} :: {_project_name_from_cwd(_payload_cwd(payload))}@{_hostname()}"
 
 
 def _notify_user_agent() -> str:
@@ -198,8 +239,8 @@ def _join_endpoint(base_url: str, path: str) -> str:
 
 def _json_post(
     url: str,
-    body: dict[str, object],
-    headers: dict[str, str],
+    body: Mapping[str, object],
+    headers: Mapping[str, str],
     timeout_sec: float,
 ) -> dict[str, object] | None:
     request_data = json.dumps(body, ensure_ascii=False).encode("utf-8")
@@ -1079,7 +1120,7 @@ def main() -> int:
     if not _should_send(payload, message):
         _log_line("run_skip reason=dedup")
         return 0
-    title = _env_first("CODEX_NOTIFY_TITLE", "OPENCODE_NOTIFY_TITLE", default="Codex")
+    title = _build_notify_title("Codex", payload)
     message = _truncate(message, max_chars)
 
     try:
