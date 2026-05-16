@@ -13,12 +13,19 @@
 //   OPENCODE_NOTIFY_PERMISSION        default true (notify on permission requests)
 //   OPENCODE_NOTIFY_ERROR             default true (notify on session errors)
 //   OPENCODE_NOTIFY_QUESTION          default true (notify on question tool calls)
+//   OPENCODE_NOTIFY_MAX_CHARS         default 280
+//   OPENCODE_NOTIFY_USER_AGENT        optional; default mimics browser UA
 //   GOTIFY_NOTIFY_SUMMARIZER_MODEL    e.g. "gpt-5-nano"
 //   GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT OpenAI-compatible endpoint, e.g. "https://api.openai.com/v1"
 //   GOTIFY_NOTIFY_SUMMARIZER_API_KEY  API key for endpoint auth
+//   GOTIFY_NOTIFY_SUMMARIZER_RESPONSES default false for Google AI Studio, true otherwise
 
 const HEAD = Number.parseInt(process.env.OPENCODE_NOTIFY_HEAD || "50", 10);
 const TAIL = Number.parseInt(process.env.OPENCODE_NOTIFY_TAIL || "50", 10);
+const MAX_CHARS_RAW = Number.parseInt(process.env.OPENCODE_NOTIFY_MAX_CHARS || "280", 10);
+const MAX_CHARS = Number.isFinite(MAX_CHARS_RAW) && MAX_CHARS_RAW > 0
+  ? MAX_CHARS_RAW
+  : 280;
 const IDLE_CONFIRM_MS_RAW = Number.parseInt(process.env.OPENCODE_NOTIFY_IDLE_CONFIRM_MS || "10000", 10);
 const IDLE_CONFIRM_MS = Number.isFinite(IDLE_CONFIRM_MS_RAW)
   ? Math.max(0, IDLE_CONFIRM_MS_RAW)
@@ -37,6 +44,12 @@ const SUMMARIZER_ENDPOINT = normalizeBase(process.env.GOTIFY_NOTIFY_SUMMARIZER_E
 const SUMMARIZER_API_KEY = (process.env.GOTIFY_NOTIFY_SUMMARIZER_API_KEY || "").trim();
 const SUMMARIZER_TIMEOUT = 120000; // 120 seconds
 const MAX_INPUT_LENGTH = 5000; // Truncate before sending to LLM
+
+function notifyUserAgent() {
+  const custom = (process.env.OPENCODE_NOTIFY_USER_AGENT || "").trim();
+  if (custom) return custom;
+  return "Mozilla/5.0 (X11; Linux x86_64) OpenCodeGotifyNotify/1.0";
+}
 
 function normalizeBase(url) {
   const u = (url || "").trim();
@@ -201,6 +214,33 @@ function endpointJoin(base, path) {
   return `${base}${path}`;
 }
 
+function isGoogleAIStudioEndpoint(endpoint) {
+  try {
+    const host = new URL(endpoint).hostname.toLowerCase();
+    return host === "generativelanguage.googleapis.com" || host.endsWith(".generativelanguage.googleapis.com");
+  } catch {
+    return endpoint.toLowerCase().includes("generativelanguage.googleapis.com");
+  }
+}
+
+function shouldTryResponsesEndpoint(endpoint) {
+  const override = (process.env.GOTIFY_NOTIFY_SUMMARIZER_RESPONSES || "").trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(override)) return true;
+  if (["0", "false", "no", "off"].includes(override)) return false;
+  return !isGoogleAIStudioEndpoint(endpoint);
+}
+
+function summarizerHeaders(endpoint, apiKey) {
+  if (isGoogleAIStudioEndpoint(endpoint)) {
+    return { Authorization: `Bearer ${apiKey}` };
+  }
+
+  return {
+    Authorization: `Bearer ${apiKey}`,
+    "api-key": apiKey,
+  };
+}
+
 function extractOpenAIText(payload) {
   if (!payload || typeof payload !== "object") return "";
 
@@ -252,6 +292,7 @@ async function postJSON(url, body, headers, timeoutMs, stage) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "User-Agent": notifyUserAgent(),
         ...headers,
       },
       body: JSON.stringify(body),
@@ -295,10 +336,7 @@ async function summarizeWithLLM(text) {
     : text;
 
   const prompt = `You are a concise summarizer. Output plain text only.\nUse the same language as the input text.\nSummarize this in ONE short sentence (max 80 chars). No markdown, no quotes, just plain text:\n\n${input}`;
-  const headers = {
-    Authorization: `Bearer ${config.apiKey}`,
-    "api-key": config.apiKey,
-  };
+  const headers = summarizerHeaders(config.endpoint, config.apiKey);
 
   const chatBody = {
     model: config.model,
@@ -326,6 +364,11 @@ async function summarizeWithLLM(text) {
         summary,
       );
     }
+  }
+
+  if (!shouldTryResponsesEndpoint(config.endpoint)) {
+    logSummarizerError("responses", "skipped because endpoint does not advertise OpenAI Responses compatibility");
+    return null;
   }
 
   const responsesBody = {
@@ -370,17 +413,25 @@ async function gotifyPush(message) {
 
    const res = await fetch(`${base}/message`, {
      method: "POST",
-     headers: {
-       "Content-Type": "application/json",
-       "X-Gotify-Key": token,
-     },
-     body: JSON.stringify({ title: "OpenCode", message, priority: 5 }),
-   });
+      headers: {
+        "Content-Type": "application/json",
+        "X-Gotify-Key": token,
+        "User-Agent": notifyUserAgent(),
+      },
+      body: JSON.stringify({ title: "OpenCode", message: truncateText(message, MAX_CHARS), priority: 5 }),
+    });
 
    if (!res.ok) {
      const text = await res.text().catch(() => "");
      console.error(`[gotify] HTTP ${res.status} ${res.statusText} ${text}`);
    }
+}
+
+function truncateText(text, limit) {
+  const value = String(text || "");
+  if (limit <= 0 || value.length <= limit) return value;
+  if (limit <= 3) return value.slice(0, limit);
+  return value.slice(0, limit - 3) + "...";
 }
 
 async function isChildSession(client, sessionID) {
