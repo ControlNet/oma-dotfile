@@ -100,7 +100,7 @@ def _project_name_from_cwd(cwd: str) -> str:
         name = Path(text).expanduser().resolve().name
     except OSError:
         name = Path(text).expanduser().name
-    return _normalize_text(name or text or "unknown-project")
+    return _normalize_text(name or "unknown-project")
 
 
 def _payload_cwd(payload: dict[str, object]) -> str:
