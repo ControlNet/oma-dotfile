@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -235,10 +236,18 @@ def _json_post(
     return None
 
 
+def _strip_thought_blocks(text: str) -> str:
+    cleaned = re.sub(r"<thought\b[^>]*>.*?</thought>", "", text, flags=re.IGNORECASE | re.DOTALL)
+    cleaned = re.sub(r"^\s*<thought\b[^>]*>.*\Z", "", cleaned, flags=re.IGNORECASE | re.DOTALL)
+    return _normalize_text(cleaned)
+
+
 def _extract_openai_text(response: dict[str, object]) -> str:
     output_text = response.get("output_text")
     if isinstance(output_text, str) and output_text.strip():
-        return _normalize_text(output_text)
+        cleaned = _strip_thought_blocks(output_text)
+        if cleaned:
+            return cleaned
 
     output = response.get("output")
     if isinstance(output, list):
@@ -253,7 +262,9 @@ def _extract_openai_text(response: dict[str, object]) -> str:
                     continue
                 text = part.get("text")
                 if isinstance(text, str) and text.strip():
-                    return _normalize_text(text)
+                    cleaned = _strip_thought_blocks(text)
+                    if cleaned:
+                        return cleaned
 
     choices = response.get("choices")
     if isinstance(choices, list):
@@ -265,7 +276,9 @@ def _extract_openai_text(response: dict[str, object]) -> str:
                 continue
             content = message.get("content")
             if isinstance(content, str) and content.strip():
-                return _normalize_text(content)
+                cleaned = _strip_thought_blocks(content)
+                if cleaned:
+                    return cleaned
 
     return ""
 
