@@ -59,7 +59,7 @@ function projectNameFromPath(cwd) {
 	if (!text) return "unknown-project";
 	const normalized = path.normalize(text);
 	const base = path.basename(normalized);
-	return normalizeText(base || normalized || "unknown-project");
+	return normalizeText(base || "unknown-project");
 }
 
 function buildNotifyTitle(agentName, cwd) {
