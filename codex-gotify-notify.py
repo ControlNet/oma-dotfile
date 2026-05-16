@@ -513,7 +513,12 @@ def _load_thread_source_cache() -> dict[str, dict[str, bool]]:
             out[key] = {"is_subagent": value}
         elif isinstance(value, dict):
             entry: dict[str, bool] = {}
-            for field in ("is_subagent", "is_noninteractive_root", "source_checked"):
+            for field in (
+                "is_subagent",
+                "is_auto_approval",
+                "is_noninteractive_root",
+                "source_checked",
+            ):
                 if isinstance(value.get(field), bool):
                     entry[field] = value[field]
             if entry:
@@ -559,6 +564,34 @@ def _source_is_root_codex_session(source: object) -> bool:
     return normalized in {"cli", "exec"}
 
 
+def _looks_like_auto_approval_text(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    normalized = value.strip().lower().replace("_", "-").replace(" ", "-")
+    return any(
+        marker in normalized
+        for marker in (
+            "auto-approval",
+            "auto-approve",
+            "approval-reviewer",
+            "approvals-reviewer",
+            "permission-reviewer",
+            "permission-review",
+        )
+    )
+
+
+def _source_is_auto_approval(source: object) -> bool:
+    if isinstance(source, dict):
+        for key, value in source.items():
+            if _looks_like_auto_approval_text(key) or _source_is_auto_approval(value):
+                return True
+        return False
+    if isinstance(source, list):
+        return any(_source_is_auto_approval(item) for item in source)
+    return _looks_like_auto_approval_text(source)
+
+
 def _detect_thread_source_flags_from_sessions(thread_id: str) -> dict[str, bool] | None:
     sessions_root = _sessions_root_path()
     if not sessions_root.exists():
@@ -593,12 +626,15 @@ def _detect_thread_source_flags_from_sessions(thread_id: str) -> dict[str, bool]
             if session_meta_payload is None:
                 continue
             source = _payload_get(session_meta_payload, "source")
+            thread_source = _payload_get(session_meta_payload, "thread_source", "threadSource")
             if source is None:
                 continue
             is_subagent = _source_is_subagent(source)
             is_root_cli = _source_is_root_codex_session(source)
             return {
                 "is_subagent": is_subagent,
+                "is_auto_approval": _source_is_auto_approval(source)
+                or _source_is_auto_approval(thread_source),
                 "is_noninteractive_root": bool(
                     not is_subagent and is_root_cli and approval_policy == "never"
                 ),
@@ -619,6 +655,8 @@ def _thread_source_flags(thread_id: str) -> dict[str, bool]:
         if cached.get("source_checked"):
             if cached.get("is_subagent"):
                 _log_line(f"subagent_detected source=cache thread_id={thread_id}")
+            if cached.get("is_auto_approval"):
+                _log_line(f"auto_approval_detected source=cache thread_id={thread_id}")
             if cached.get("is_noninteractive_root"):
                 _log_line(f"noninteractive_root_detected source=cache thread_id={thread_id}")
             return cached
@@ -632,6 +670,8 @@ def _thread_source_flags(thread_id: str) -> dict[str, bool]:
     _save_thread_source_cache(cache)
     if detected.get("is_subagent"):
         _log_line(f"subagent_detected source=sessions thread_id={thread_id}")
+    if detected.get("is_auto_approval"):
+        _log_line(f"auto_approval_detected source=sessions thread_id={thread_id}")
     if detected.get("is_noninteractive_root"):
         _log_line(f"noninteractive_root_detected source=sessions thread_id={thread_id}")
     return detected
@@ -643,6 +683,10 @@ def _is_subagent_thread(thread_id: str) -> bool:
 
 def _is_noninteractive_root_thread(thread_id: str) -> bool:
     return _thread_source_flags(thread_id).get("is_noninteractive_root", False)
+
+
+def _is_auto_approval_thread(thread_id: str) -> bool:
+    return _thread_source_flags(thread_id).get("is_auto_approval", False)
 
 
 def _is_true_like(value: object) -> bool:
@@ -741,6 +785,70 @@ def _is_subagent_event(payload: dict[str, object], event_lower: str) -> bool:
     return False
 
 
+def _container_indicates_auto_approval(container: dict[str, object]) -> bool:
+    for key, value in container.items():
+        if _looks_like_auto_approval_text(key):
+            if not isinstance(value, (bool, int, float, str)) or _is_true_like(value):
+                return True
+            if _looks_like_auto_approval_text(value):
+                return True
+        if key in (
+            "session_type",
+            "sessionType",
+            "agent_type",
+            "agentType",
+            "kind",
+            "source",
+            "thread_source",
+            "threadSource",
+            "purpose",
+            "role",
+            "agent_role",
+            "agentRole",
+        ) and _looks_like_auto_approval_text(value):
+            return True
+    return False
+
+
+def _approval_reviewer_prompt_seen(payload: dict[str, object]) -> bool:
+    prompt_texts: list[str] = []
+    for message in _payload_input_messages(payload):
+        if isinstance(message, dict):
+            role = str(message.get("role") or "").strip().lower()
+            if role not in {"developer", "system"}:
+                continue
+        text = _extract_text_candidate(message)
+        if text:
+            prompt_texts.append(text)
+    prompt = " ".join(prompt_texts).lower()
+    if not prompt:
+        return False
+    return (
+        ("approval reviewer" in prompt or "approvals reviewer" in prompt)
+        and ("approval request" in prompt or "escalation request" in prompt)
+    ) or ("permission reviewer" in prompt and "permission request" in prompt)
+
+
+def _is_auto_approval_event(payload: dict[str, object]) -> bool:
+    thread_id = _payload_thread_id(payload)
+    if thread_id and _is_auto_approval_thread(thread_id):
+        return True
+
+    containers: list[dict[str, object]] = [payload]
+    hook_event = _hook_event_payload(payload)
+    if hook_event is not None:
+        containers.append(hook_event)
+    for key in ("properties", "session", "metadata", "data", "source"):
+        nested = payload.get(key)
+        if isinstance(nested, dict):
+            containers.append(nested)
+
+    if any(_container_indicates_auto_approval(container) for container in containers):
+        return True
+
+    return _approval_reviewer_prompt_seen(payload)
+
+
 def _extract_message(payload: dict[str, object], include_prompt: bool) -> tuple[str, str]:
     event_type = _event_type(payload)
     event_lower = event_type.lower()
@@ -753,6 +861,9 @@ def _extract_message(payload: dict[str, object], include_prompt: bool) -> tuple[
     notify_error = _is_true(_env_first("CODEX_NOTIFY_ERROR", "OPENCODE_NOTIFY_ERROR", default="true"))
     notify_question = _is_true(_env_first("CODEX_NOTIFY_QUESTION", "OPENCODE_NOTIFY_QUESTION", default="true"))
     is_subagent = _is_subagent_event(payload, event_lower)
+
+    if _is_auto_approval_event(payload):
+        return "", ""
 
     if "permission" in event_lower and ("ask" in event_lower or "request" in event_lower):
         if notify_permission:
