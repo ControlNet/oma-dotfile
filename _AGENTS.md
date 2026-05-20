@@ -13,3 +13,5 @@
 - Test-driven development is preferred.
 - Always check available skills before delegating or performing tasks directly. Use `load_skills=["skill-name"]` when delegating tasks that match a skill's domain (e.g., `github-cli` for GitHub inspection, `git-master` for git operations, `playwright` for browser automation).
 - For UI/UX design work, prefer the `ui-ux-pro-max` skill and load it when designing, building, reviewing, improving, or fixing landing pages, dashboards, product pages, forms, mobile screens, design systems, accessibility, or stack-specific interface guidance.
+- When you do anything valuable and get the useful knowledge, save the knowledge in `.sisphyus/knowledges/*.md`.
+- If you need to retrieve knowledge, find it in the `.sisphyus/knowledges/*.md` and other documentations.
