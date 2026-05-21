@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -34,6 +35,7 @@ const IDLE_CONFIRM_MS_RAW = Number.parseInt(process.env.OPENCODE_NOTIFY_IDLE_CON
 const IDLE_CONFIRM_MS = Number.isFinite(IDLE_CONFIRM_MS_RAW)
   ? Math.max(0, IDLE_CONFIRM_MS_RAW)
   : 10000;
+const DIAGNOSTIC_TOAST_WINDOW_MS = 60000;
 
 // Event notification toggles
 const NOTIFY_COMPLETE = process.env.OPENCODE_NOTIFY_COMPLETE !== "false";
@@ -53,6 +55,26 @@ function notifyUserAgent() {
   const custom = (process.env.OPENCODE_NOTIFY_USER_AGENT || "").trim();
   if (custom) return custom;
   return "Mozilla/5.0 (X11; Linux x86_64) OpenCodeGotifyNotify/1.0";
+}
+
+function diagnosticLogFile() {
+  return path.join(os.homedir(), ".local", "share", "opencode", "gotify-notify.log");
+}
+
+function formatDiagnostic(scope, message, detail = "") {
+  const suffix = detail ? ` ${preview(detail, 120, 120)}` : "";
+  return `[gotify] ${scope} ${message}${suffix}`;
+}
+
+async function writeDiagnostic(scope, message, detail = "") {
+  const line = `${new Date().toISOString()} ${formatDiagnostic(scope, message, detail)}\n`;
+  try {
+    const file = diagnosticLogFile();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.appendFileSync(file, line, "utf8");
+  } catch {
+    // Notifier diagnostics must never break agent flow.
+  }
 }
 
 function hostname() {
@@ -225,7 +247,7 @@ function isNonIdleStatusEvent(event) {
   return !!statusType && statusType !== "idle";
 }
 
-async function shouldNotifyCompletion(client, sessionID) {
+async function shouldNotifyCompletion(client, sessionID, reportDiagnostic = writeDiagnostic) {
   try {
     const response = await client.session.status();
     const statusMap = response?.data;
@@ -238,7 +260,7 @@ async function shouldNotifyCompletion(client, sessionID) {
 
     return status.type === "idle";
   } catch (error) {
-    console.error("[gotify] session.status check failed:", error?.message || error);
+    await reportDiagnostic("session.status", "check failed", error?.message || error, { toast: false });
     return true;
   }
 }
@@ -323,12 +345,11 @@ function extractOpenAIText(payload) {
   return "";
 }
 
-function logSummarizerError(stage, message, detail = "") {
-  const suffix = detail ? ` ${preview(detail, 120, 120)}` : "";
-  console.error(`[gotify] summarizer ${stage} ${message}${suffix}`);
+async function logSummarizerError(stage, message, detail = "", reportDiagnostic = writeDiagnostic) {
+  await reportDiagnostic("summarizer", `${stage} ${message}`, detail);
 }
 
-async function postJSON(url, body, headers, timeoutMs, stage) {
+async function postJSON(url, body, headers, timeoutMs, stage, reportDiagnostic = writeDiagnostic) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -344,26 +365,26 @@ async function postJSON(url, body, headers, timeoutMs, stage) {
     });
     const rawText = await response.text().catch(() => "");
     if (!response.ok) {
-      logSummarizerError(stage, `HTTP ${response.status} ${response.statusText}`, rawText);
+      await logSummarizerError(stage, `HTTP ${response.status} ${response.statusText}`, rawText, reportDiagnostic);
       return null;
     }
 
     if (!rawText) {
-      logSummarizerError(stage, "returned empty response body");
+      await logSummarizerError(stage, "returned empty response body", "", reportDiagnostic);
       return null;
     }
 
     const data = JSON.parse(rawText);
     if (!data || typeof data !== "object") {
-      logSummarizerError(stage, "returned non-object JSON", rawText);
+      await logSummarizerError(stage, "returned non-object JSON", rawText, reportDiagnostic);
       return null;
     }
     return data;
   } catch (e) {
     if (e?.name === "AbortError") {
-      logSummarizerError(stage, `timed out after ${timeoutMs}ms`);
+      await logSummarizerError(stage, `timed out after ${timeoutMs}ms`, "", reportDiagnostic);
     } else {
-      logSummarizerError(stage, e?.message || "request failed");
+      await logSummarizerError(stage, e?.message || "request failed", "", reportDiagnostic);
     }
     return null;
   } finally {
@@ -371,7 +392,7 @@ async function postJSON(url, body, headers, timeoutMs, stage) {
   }
 }
 
-async function summarizeWithLLM(text) {
+async function summarizeWithLLM(text, reportDiagnostic = writeDiagnostic) {
   const config = summarizerConfig();
   if (!config || !text || !text.trim()) return null;
 
@@ -394,23 +415,25 @@ async function summarizeWithLLM(text) {
     headers,
     SUMMARIZER_TIMEOUT,
     "chat/completions",
+    reportDiagnostic,
   );
   if (chatData) {
     const summary = extractOpenAIText(chatData);
     if (summary && summary.length <= 200) return summary;
     if (!summary) {
-      logSummarizerError("chat/completions", "returned no extractable summary");
+      await logSummarizerError("chat/completions", "returned no extractable summary", "", reportDiagnostic);
     } else {
-      logSummarizerError(
+      await logSummarizerError(
         "chat/completions",
         `returned summary longer than 200 chars (${summary.length})`,
         summary,
+        reportDiagnostic,
       );
     }
   }
 
   if (!shouldTryResponsesEndpoint(config.endpoint)) {
-    logSummarizerError("responses", "skipped because endpoint does not advertise OpenAI Responses compatibility");
+    await logSummarizerError("responses", "skipped because endpoint does not advertise OpenAI Responses compatibility", "", reportDiagnostic);
     return null;
   }
 
@@ -431,42 +454,48 @@ async function summarizeWithLLM(text) {
     headers,
     SUMMARIZER_TIMEOUT,
     "responses",
+    reportDiagnostic,
   );
   if (!responsesData) return null;
   const summary = extractOpenAIText(responsesData);
   if (!summary) {
-    logSummarizerError("responses", "returned no extractable summary");
+    await logSummarizerError("responses", "returned no extractable summary", "", reportDiagnostic);
     return null;
   }
   if (summary.length > 200) {
-    logSummarizerError(
+    await logSummarizerError(
       "responses",
       `returned summary longer than 200 chars (${summary.length})`,
       summary,
+      reportDiagnostic,
     );
     return null;
   }
   return summary;
 }
 
-async function gotifyPush(title, message) {
+async function gotifyPush(title, message, reportDiagnostic = writeDiagnostic) {
    const base = normalizeBase(process.env.GOTIFY_URL);
    const token = (process.env.GOTIFY_TOKEN_FOR_OPENCODE || "").trim();
    if (!base || !token || !message) return;
 
-   const res = await fetch(`${base}/message`, {
-     method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Gotify-Key": token,
-        "User-Agent": notifyUserAgent(),
-      },
-      body: JSON.stringify({ title, message: truncateText(message, MAX_CHARS), priority: 5 }),
-    });
+   try {
+     const res = await fetch(`${base}/message`, {
+       method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Gotify-Key": token,
+          "User-Agent": notifyUserAgent(),
+        },
+        body: JSON.stringify({ title, message: truncateText(message, MAX_CHARS), priority: 5 }),
+      });
 
-   if (!res.ok) {
-     const text = await res.text().catch(() => "");
-     console.error(`[gotify] HTTP ${res.status} ${res.statusText} ${text}`);
+     if (!res.ok) {
+       const text = await res.text().catch(() => "");
+       await reportDiagnostic("delivery", `HTTP ${res.status} ${res.statusText}`, text);
+     }
+   } catch (error) {
+     await reportDiagnostic("delivery", error?.message || "request failed");
    }
 }
 
@@ -493,6 +522,43 @@ export const GotifyNotify = async ({ client, directory, worktree, project }) => 
     const sessionParentCache = new Map();
     const sessionRootCache = new Map();
     const sessionDirectoryCache = new Map();
+    const diagnosticToastLastSent = new Map();
+
+    async function showDiagnosticToast(message) {
+      const showToast = client?.tui?.showToast;
+      if (typeof showToast !== "function") return;
+
+      const toast = {
+        title: "Gotify notifier",
+        message: truncateText(message, 180),
+        variant: "warning",
+        duration: 5000,
+      };
+
+      try {
+        await showToast({ body: toast });
+      } catch {
+        try {
+          await showToast(toast);
+        } catch {
+          // Toast support is optional; diagnostics are already written to file.
+        }
+      }
+    }
+
+    async function reportDiagnostic(scope, message, detail = "", { toast = true } = {}) {
+      await writeDiagnostic(scope, message, detail);
+
+      if (!toast) return;
+
+      const key = `${scope}:${message}`;
+      const now = Date.now();
+      const lastToastAt = diagnosticToastLastSent.get(key) || 0;
+      if (now - lastToastAt < DIAGNOSTIC_TOAST_WINDOW_MS) return;
+      diagnosticToastLastSent.set(key, now);
+
+      await showDiagnosticToast(formatDiagnostic(scope, message, detail));
+    }
 
     function clearPendingIdle(sessionID) {
       const pending = pendingIdleTimers.get(sessionID);
@@ -596,7 +662,7 @@ export const GotifyNotify = async ({ client, directory, worktree, project }) => 
 
         return false;
       } catch (error) {
-        console.error("[gotify] subagent status check failed:", error?.message || error);
+        await reportDiagnostic("subagent.status", "check failed", error?.message || error, { toast: false });
         return false;
       }
     }
@@ -616,12 +682,12 @@ export const GotifyNotify = async ({ client, directory, worktree, project }) => 
 
           pendingIdleTimers.delete(sessionID);
 
-          const stillIdle = await shouldNotifyCompletion(client, sessionID);
+          const stillIdle = await shouldNotifyCompletion(client, sessionID, reportDiagnostic);
           if (!stillIdle || state.cancelled) return;
           await sendLatestAssistant(sessionID);
         } catch (err) {
           pendingIdleTimers.delete(sessionID);
-          console.error("[gotify] delayed idle notify failed:", err?.message || err);
+          await reportDiagnostic("idle.notify", "delayed notify failed", err?.message || err);
         }
       }, Math.max(0, delayMs));
     }
@@ -649,13 +715,13 @@ export const GotifyNotify = async ({ client, directory, worktree, project }) => 
       const text = extractAssistantText(last);
       
       // Try LLM summary first, fallback to preview
-      let body = await summarizeWithLLM(text);
+      let body = await summarizeWithLLM(text, reportDiagnostic);
       if (!body) {
         body = preview(text, HEAD, TAIL);
       }
       
       if (!body) return;
-      await gotifyPush(await notifyTitleForSession(sessionID), "✅ " + escapeMarkdown(body));
+      await gotifyPush(await notifyTitleForSession(sessionID), "✅ " + escapeMarkdown(body), reportDiagnostic);
       lastSent.set(sessionID, msgID);
     }
 
@@ -679,7 +745,7 @@ export const GotifyNotify = async ({ client, directory, worktree, project }) => 
            const isChild = await isChildSession(client, sessionID);
            if (isChild) {
             if (NOTIFY_SUBAGENT) {
-                await gotifyPush(await notifyTitleForSession(sessionID), "✅ Subagent task completed");
+                await gotifyPush(await notifyTitleForSession(sessionID), "✅ Subagent task completed", reportDiagnostic);
               }
             } else {
               if (NOTIFY_COMPLETE) {
@@ -694,7 +760,7 @@ export const GotifyNotify = async ({ client, directory, worktree, project }) => 
               }
             }
           } catch (e) {
-            console.error("[gotify] idle completion check failed:", e?.message || e);
+            await reportDiagnostic("idle.complete", "check failed", e?.message || e);
           }
           return;
         }
@@ -719,7 +785,7 @@ export const GotifyNotify = async ({ client, directory, worktree, project }) => 
               } catch {}
             }
 
-            await gotifyPush(await notifyTitleForSession(sessionID), formatErrorNotification(error));
+            await gotifyPush(await notifyTitleForSession(sessionID), formatErrorNotification(error), reportDiagnostic);
           }
           return;
         }
@@ -727,7 +793,7 @@ export const GotifyNotify = async ({ client, directory, worktree, project }) => 
 
       "permission.ask": async (permission) => {
         if (NOTIFY_PERMISSION) {
-          await gotifyPush(await notifyTitleForSession(permission?.sessionID), "🔐 Permission request");
+          await gotifyPush(await notifyTitleForSession(permission?.sessionID), "🔐 Permission request", reportDiagnostic);
         }
       },
 
@@ -735,7 +801,7 @@ export const GotifyNotify = async ({ client, directory, worktree, project }) => 
          if (input?.tool === "question" && NOTIFY_QUESTION) {
            const firstQuestion = output?.args?.questions?.[0];
            const questionText = firstQuestion?.question || firstQuestion?.header || "Question";
-           await gotifyPush(await notifyTitleForSession(input?.sessionID), "❓ " + escapeMarkdown(preview(questionText, HEAD, TAIL)));
+            await gotifyPush(await notifyTitleForSession(input?.sessionID), "❓ " + escapeMarkdown(preview(questionText, HEAD, TAIL)), reportDiagnostic);
          }
        },
     };
