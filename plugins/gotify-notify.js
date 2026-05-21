@@ -387,7 +387,6 @@ async function summarizeWithLLM(text) {
     messages: [
       { role: "user", content: prompt },
     ],
-    max_tokens: 80,
   };
   const chatData = await postJSON(
     endpointJoin(config.endpoint, "/chat/completions"),
