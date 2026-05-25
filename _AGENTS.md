@@ -15,3 +15,4 @@
 - For UI/UX design work, prefer the `ui-ux-pro-max` skill and load it when designing, building, reviewing, improving, or fixing landing pages, dashboards, product pages, forms, mobile screens, design systems, accessibility, or stack-specific interface guidance.
 - When you do anything valuable and get the useful knowledge, save the knowledge in `<GIT_REPO_ROOT>/.omo/knowledges/*.md`.
 - If you need to retrieve knowledge, find it in the `<GIT_REPO_ROOT>/.omo/knowledges/*.md` and other documentations.
+- Not allowed to use any dummy placeholders for source code, implementations, models, documentations, etc. If you want to use any dummy things for testing purpose, you must highlight it to user.
