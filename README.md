@@ -59,6 +59,7 @@ SETUP_NOTIFY_HOOKS=1 python3 pull.py
 ```
 
 Current Codex `notify` payload is completion-focused (`agent-turn-complete`), so this hook notifies when a turn completes.
+Auto approval reviewer turns are filtered out; if Codex does not write session metadata for those turns, the hook falls back to scanning recent `~/.codex/log/codex-tui.log` lines for `model=codex-auto-review`. Override that path with `CODEX_NOTIFY_TUI_LOG_FILE` if needed.
 If all `GOTIFY_NOTIFY_SUMMARIZER_MODEL`, `GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT`, and `GOTIFY_NOTIFY_SUMMARIZER_API_KEY` are set, the hook asks the configured LLM for a one-line summary before sending to Gotify. If any one of them is missing, summarization is skipped and the preview fallback is used.
 
 ## oh-my-pi support
