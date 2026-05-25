@@ -22,6 +22,7 @@ Optional:
   CODEX_NOTIFY_QUESTION (default: true)
   CODEX_NOTIFY_INCLUDE_PROMPT (default: false)
   CODEX_NOTIFY_DEDUP_WINDOW_SEC (default: 15)
+  CODEX_NOTIFY_TUI_LOG_FILE (optional; default: ~/.codex/log/codex-tui.log)
   GOTIFY_NOTIFY_SUMMARIZER_MODEL (e.g. "gpt-5-nano")
   GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT (OpenAI-compatible, e.g. "https://api.openai.com/v1")
   GOTIFY_NOTIFY_SUMMARIZER_API_KEY
@@ -54,6 +55,7 @@ DEFAULT_SUMMARIZER_TIMEOUT_SEC = 120.0
 DEFAULT_SUMMARIZER_MAX_INPUT_CHARS = 5000
 DEFAULT_DEDUP_WINDOW_SEC = 15
 DEFAULT_THREAD_SOURCE_CACHE_MAX_ENTRIES = 512
+DEFAULT_TUI_LOG_SCAN_BYTES = 8 * 1024 * 1024
 NOTIFY_LOG_FILE = Path.home() / ".codex" / "log" / "gotify-notify.log"
 
 
@@ -547,6 +549,26 @@ def _sessions_root_path() -> Path:
     return Path.home() / ".codex" / "sessions"
 
 
+def _tui_log_path() -> Path:
+    custom = _env("CODEX_NOTIFY_TUI_LOG_FILE")
+    if custom:
+        return Path(custom).expanduser()
+    return Path.home() / ".codex" / "log" / "codex-tui.log"
+
+
+def _read_recent_text(path: Path, max_bytes: int) -> str:
+    if max_bytes <= 0:
+        return ""
+    try:
+        with path.open("rb") as fp:
+            fp.seek(0, os.SEEK_END)
+            size = fp.tell()
+            fp.seek(max(0, size - max_bytes))
+            return fp.read().decode("utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
 def _load_thread_source_cache() -> dict[str, dict[str, bool]]:
     path = _thread_source_cache_path()
     try:
@@ -698,6 +720,32 @@ def _detect_thread_source_flags_from_sessions(thread_id: str) -> dict[str, bool]
     return None
 
 
+def _detect_thread_source_flags_from_tui_log(thread_id: str) -> dict[str, bool] | None:
+    log_text = _read_recent_text(_tui_log_path(), DEFAULT_TUI_LOG_SCAN_BYTES)
+    if not log_text or thread_id not in log_text:
+        return None
+
+    matching_lines = [line for line in log_text.splitlines() if thread_id in line]
+    if not matching_lines:
+        return None
+
+    is_auto_approval = any(
+        "model=codex-auto-review" in line
+        or "codex-auto-review" in line
+        or "approval reviewer" in line.lower()
+        or "approvals reviewer" in line.lower()
+        for line in matching_lines
+    )
+    if not is_auto_approval:
+        return None
+
+    return {
+        "is_subagent": False,
+        "is_auto_approval": True,
+        "is_noninteractive_root": False,
+    }
+
+
 def _thread_source_flags(thread_id: str) -> dict[str, bool]:
     thread_id = thread_id.strip()
     if not thread_id:
@@ -716,6 +764,10 @@ def _thread_source_flags(thread_id: str) -> dict[str, bool]:
             return cached
 
     detected = _detect_thread_source_flags_from_sessions(thread_id)
+    source_name = "sessions"
+    if detected is None:
+        detected = _detect_thread_source_flags_from_tui_log(thread_id)
+        source_name = "tui_log"
     if detected is None:
         return {}
 
@@ -723,11 +775,11 @@ def _thread_source_flags(thread_id: str) -> dict[str, bool]:
     cache[thread_id] = detected
     _save_thread_source_cache(cache)
     if detected.get("is_subagent"):
-        _log_line(f"subagent_detected source=sessions thread_id={thread_id}")
+        _log_line(f"subagent_detected source={source_name} thread_id={thread_id}")
     if detected.get("is_auto_approval"):
-        _log_line(f"auto_approval_detected source=sessions thread_id={thread_id}")
+        _log_line(f"auto_approval_detected source={source_name} thread_id={thread_id}")
     if detected.get("is_noninteractive_root"):
-        _log_line(f"noninteractive_root_detected source=sessions thread_id={thread_id}")
+        _log_line(f"noninteractive_root_detected source={source_name} thread_id={thread_id}")
     return detected
 
 
