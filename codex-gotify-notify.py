@@ -56,6 +56,8 @@ DEFAULT_SUMMARIZER_MAX_INPUT_CHARS = 5000
 DEFAULT_DEDUP_WINDOW_SEC = 15
 DEFAULT_THREAD_SOURCE_CACHE_MAX_ENTRIES = 512
 DEFAULT_TUI_LOG_SCAN_BYTES = 8 * 1024 * 1024
+DEFAULT_SESSION_SCAN_BYTES = 2 * 1024 * 1024
+DEFAULT_AUTO_APPROVAL_SCAN_DEPTH = 20
 NOTIFY_LOG_FILE = Path.home() / ".codex" / "log" / "gotify-notify.log"
 
 
@@ -657,15 +659,58 @@ def _looks_like_auto_approval_text(value: object) -> bool:
     )
 
 
-def _source_is_auto_approval(source: object) -> bool:
+def _source_is_auto_approval(source: object, depth: int = DEFAULT_AUTO_APPROVAL_SCAN_DEPTH) -> bool:
+    if depth <= 0:
+        return False
     if isinstance(source, dict):
         for key, value in source.items():
-            if _looks_like_auto_approval_text(key) or _source_is_auto_approval(value):
+            if _looks_like_auto_approval_text(key) or _source_is_auto_approval(value, depth - 1):
                 return True
         return False
     if isinstance(source, list):
-        return any(_source_is_auto_approval(item) for item in source)
+        return any(_source_is_auto_approval(item, depth - 1) for item in source)
     return _looks_like_auto_approval_text(source)
+
+
+def _model_is_auto_approval(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    return value.strip().lower().replace("_", "-") == "codex-auto-review"
+
+
+def _object_mentions_auto_approval(value: object, depth: int = DEFAULT_AUTO_APPROVAL_SCAN_DEPTH) -> bool:
+    if depth <= 0:
+        return False
+    if isinstance(value, dict):
+        for key, item in value.items():
+            normalized_key = str(key).strip().lower().replace("_", "-")
+            if normalized_key == "model" and _model_is_auto_approval(item):
+                return True
+            if _source_is_auto_approval(key) and (
+                not isinstance(item, (bool, int, float, str)) or _is_true_like(item) or _source_is_auto_approval(item)
+            ):
+                return True
+            if normalized_key in {
+                "session-type",
+                "agent-type",
+                "kind",
+                "source",
+                "thread-source",
+                "purpose",
+                "role",
+                "agent-role",
+            } and _source_is_auto_approval(item):
+                return True
+            if isinstance(item, (dict, list)) and _object_mentions_auto_approval(item, depth - 1):
+                return True
+        return False
+    if isinstance(value, list):
+        return any(_object_mentions_auto_approval(item, depth - 1) for item in value)
+    return False
+
+
+def _payload_mentions_auto_approval(payload: dict[str, object]) -> bool:
+    return _object_mentions_auto_approval(payload) or _approval_reviewer_prompt_seen(payload)
 
 
 def _detect_thread_source_flags_from_sessions(thread_id: str) -> dict[str, bool] | None:
@@ -682,8 +727,13 @@ def _detect_thread_source_flags_from_sessions(thread_id: str) -> dict[str, bool]
         try:
             session_meta_payload: dict[str, object] | None = None
             approval_policy = ""
+            is_auto_approval = False
+            scanned_bytes = 0
             with file_path.open("r", encoding="utf-8") as fp:
                 for raw_line in fp:
+                    scanned_bytes += len(raw_line.encode("utf-8", errors="replace"))
+                    if scanned_bytes > DEFAULT_SESSION_SCAN_BYTES:
+                        break
                     line = raw_line.strip()
                     if not line:
                         continue
@@ -693,23 +743,30 @@ def _detect_thread_source_flags_from_sessions(thread_id: str) -> dict[str, bool]
                     payload = parsed.get("payload")
                     if not isinstance(payload, dict):
                         continue
+                    if not is_auto_approval and _payload_mentions_auto_approval(payload):
+                        is_auto_approval = True
                     if parsed.get("type") == "session_meta" and session_meta_payload is None:
                         session_meta_payload = payload
                     if not approval_policy and isinstance(payload.get("approval_policy"), str):
                         approval_policy = payload["approval_policy"].strip().lower()
-                    if session_meta_payload is not None and approval_policy:
+                    if session_meta_payload is not None and approval_policy and is_auto_approval:
                         break
             if session_meta_payload is None:
+                if is_auto_approval:
+                    return {
+                        "is_subagent": False,
+                        "is_auto_approval": True,
+                        "is_noninteractive_root": False,
+                    }
                 continue
             source = _payload_get(session_meta_payload, "source")
             thread_source = _payload_get(session_meta_payload, "thread_source", "threadSource")
-            if source is None:
-                continue
             is_subagent = _source_is_subagent(source)
             is_root_cli = _source_is_root_codex_session(source)
             return {
                 "is_subagent": is_subagent,
-                "is_auto_approval": _source_is_auto_approval(source)
+                "is_auto_approval": is_auto_approval
+                or _source_is_auto_approval(source)
                 or _source_is_auto_approval(thread_source),
                 "is_noninteractive_root": bool(
                     not is_subagent and is_root_cli and approval_policy == "never"
@@ -938,6 +995,8 @@ def _approval_reviewer_prompt_seen(payload: dict[str, object]) -> bool:
 def _is_auto_approval_event(payload: dict[str, object]) -> bool:
     thread_id = _payload_thread_id(payload)
     if thread_id and _is_auto_approval_thread(thread_id):
+        return True
+    if _payload_mentions_auto_approval(payload):
         return True
 
     containers: list[dict[str, object]] = [payload]
