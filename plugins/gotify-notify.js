@@ -289,6 +289,17 @@ function isGoogleAIStudioEndpoint(endpoint) {
   }
 }
 
+function googleAIStudioBase(endpoint) {
+  const base = normalizeBase(endpoint);
+  return base.replace(/\/openai$/i, "");
+}
+
+function googleGenerateContentURL(endpoint, model) {
+  const modelName = String(model || "").trim().replace(/^models\//, "");
+  if (!modelName) return "";
+  return `${googleAIStudioBase(endpoint)}/models/${encodeURIComponent(modelName)}:generateContent`;
+}
+
 function shouldTryResponsesEndpoint(endpoint) {
   const override = (process.env.GOTIFY_NOTIFY_SUMMARIZER_RESPONSES || "").trim().toLowerCase();
   if (["1", "true", "yes", "on"].includes(override)) return true;
@@ -305,6 +316,10 @@ function summarizerHeaders(endpoint, apiKey) {
     Authorization: `Bearer ${apiKey}`,
     "api-key": apiKey,
   };
+}
+
+function googleGenerateContentHeaders(apiKey) {
+  return { "x-goog-api-key": apiKey };
 }
 
 function extractOpenAIText(payload) {
@@ -340,6 +355,27 @@ function extractOpenAIText(payload) {
         return stripThoughtBlocks(message.content);
       }
     }
+  }
+
+  return "";
+}
+
+function extractGoogleGenerateContentText(payload) {
+  if (!payload || typeof payload !== "object") return "";
+  const candidates = payload.candidates;
+  if (!Array.isArray(candidates)) return "";
+
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const content = candidate.content;
+    if (!content || typeof content !== "object") continue;
+    const parts = content.parts;
+    if (!Array.isArray(parts)) continue;
+    const text = parts
+      .map((part) => typeof part?.text === "string" ? part.text : "")
+      .join("");
+    const cleaned = stripThoughtBlocks(text);
+    if (cleaned) return cleaned;
   }
 
   return "";
@@ -392,6 +428,46 @@ async function postJSON(url, body, headers, timeoutMs, stage, reportDiagnostic =
   }
 }
 
+async function summarizeWithGoogleGenerateContent(prompt, config, reportDiagnostic = writeDiagnostic) {
+  const url = googleGenerateContentURL(config.endpoint, config.model);
+  if (!url) return null;
+
+  const data = await postJSON(
+    url,
+    {
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: prompt }],
+        },
+      ],
+      generationConfig: {
+        maxOutputTokens: 80,
+        temperature: 0,
+      },
+    },
+    googleGenerateContentHeaders(config.apiKey),
+    SUMMARIZER_TIMEOUT,
+    "generateContent",
+    reportDiagnostic,
+  );
+  if (!data) return null;
+
+  const summary = extractGoogleGenerateContentText(data);
+  if (summary && summary.length <= 200) return summary;
+  if (!summary) {
+    await logSummarizerError("generateContent", "returned no extractable summary", "", reportDiagnostic);
+  } else {
+    await logSummarizerError(
+      "generateContent",
+      `returned summary longer than 200 chars (${summary.length})`,
+      summary,
+      reportDiagnostic,
+    );
+  }
+  return null;
+}
+
 async function summarizeWithLLM(text, reportDiagnostic = writeDiagnostic) {
   const config = summarizerConfig();
   if (!config || !text || !text.trim()) return null;
@@ -430,6 +506,11 @@ async function summarizeWithLLM(text, reportDiagnostic = writeDiagnostic) {
         reportDiagnostic,
       );
     }
+  }
+
+  if (isGoogleAIStudioEndpoint(config.endpoint)) {
+    const googleSummary = await summarizeWithGoogleGenerateContent(prompt, config, reportDiagnostic);
+    if (googleSummary) return googleSummary;
   }
 
   if (!shouldTryResponsesEndpoint(config.endpoint)) {
