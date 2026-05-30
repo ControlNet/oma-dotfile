@@ -442,7 +442,6 @@ async function summarizeWithGoogleGenerateContent(prompt, config, reportDiagnost
         },
       ],
       generationConfig: {
-        maxOutputTokens: 80,
         temperature: 0,
       },
     },
