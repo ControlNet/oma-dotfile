@@ -12,8 +12,6 @@ Env:
   OMP_AGENT_DIR=<optional override for ~/.omp/agent>
   PI_CODING_AGENT_DIR=<oh-my-pi native override; used when OMP_AGENT_DIR is not set>
   NO_BACKUP=1 (optional)
-  SETUP_NOTIFY_HOOKS=0 (optional; disable auto-configure Codex notify hook)
-  SETUP_NOTIFY_HOOKS_FORCE=1 (optional; replace existing Codex notify line; default off)
 """
 
 import os
@@ -34,9 +32,6 @@ CONFIG_DIR_ENV = os.environ.get("CONFIG_DIR", "")
 CODEX_DIR_ENV = os.environ.get("CODEX_DIR", "")
 OMP_AGENT_DIR_ENV = os.environ.get("OMP_AGENT_DIR", "").strip()
 NO_BACKUP = os.environ.get("NO_BACKUP", "0") == "1"
-SETUP_NOTIFY_HOOKS = os.environ.get("SETUP_NOTIFY_HOOKS", "1") == "1"
-SETUP_NOTIFY_HOOKS_FORCE = os.environ.get("SETUP_NOTIFY_HOOKS_FORCE", "0") == "1"
-
 REQUIRED_ENV_VARS = [
     "CODEX_BASE_URL",
     "CODEX_API_KEY",
@@ -149,8 +144,7 @@ def get_omp_agent_dir() -> Path:
     return Path.home() / ".omp" / "agent"
 
 
-MAX_BACKUPS = int(os.environ.get("MAX_BACKUPS", "1"))
-MAX_BACKUPS = max(1, MAX_BACKUPS)
+MAX_BACKUPS = max(1, int(os.environ.get("MAX_BACKUPS", "1")))
 
 OPENCODE_CONFIG_FILES = [
     ("opencode.jsonc", "opencode.jsonc"),
@@ -179,9 +173,9 @@ def backup_and_install(src: Path, dst: Path, stamp: str) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
     if not NO_BACKUP and dst.exists():
         backup_path = dst.with_suffix(f"{dst.suffix}.bak-{stamp}")
-        shutil.copy2(dst, backup_path)
+        _ = shutil.copy2(dst, backup_path)
         cleanup_old_backups(dst)
-    shutil.copy2(src, dst)
+    _ = shutil.copy2(src, dst)
 
 
 def rename_path_if_exists(path: Path, stamp: str) -> None:
@@ -193,7 +187,7 @@ def rename_path_if_exists(path: Path, stamp: str) -> None:
             backup_path = path.with_name(f"{path.name}.bak-{stamp}")
         if backup_path.exists():
             backup_path = backup_path.with_suffix(f".bak-{stamp}-{os.getpid()}")
-        path.rename(backup_path)
+        _ = path.rename(backup_path)
         cleanup_old_backups(path)
 
 
@@ -217,7 +211,7 @@ def copy_directory(src_dir: Path, dst_dir: Path) -> None:
         return
     if dst_dir.exists():
         shutil.rmtree(dst_dir)
-    shutil.copytree(src_dir, dst_dir)
+    _ = shutil.copytree(src_dir, dst_dir)
 
 
 def copy_directory_merge(src_dir: Path, dst_dir: Path) -> None:
@@ -229,16 +223,16 @@ def copy_directory_merge(src_dir: Path, dst_dir: Path) -> None:
     for entry in src_dir.iterdir():
         target = dst_dir / entry.name
         if entry.is_dir():
-            shutil.copytree(entry, target, dirs_exist_ok=True)
+            _ = shutil.copytree(entry, target, dirs_exist_ok=True)
         else:
-            shutil.copy2(entry, target)
+            _ = shutil.copy2(entry, target)
 
 
 def backup_file_if_exists(path: Path, stamp: str) -> None:
     if NO_BACKUP or not path.exists():
         return
     backup_path = path.with_suffix(f"{path.suffix}.bak-{stamp}")
-    shutil.copy2(path, backup_path)
+    _ = shutil.copy2(path, backup_path)
     cleanup_old_backups(path)
 
 
@@ -270,99 +264,156 @@ def backup_and_install_omp_models(src: Path, dst: Path, stamp: str) -> None:
         else:
             warn("No `baseUrl: CODEX_BASE_URL` placeholder found in omp_models.yaml")
     else:
-        warn(
-            "CODEX_BASE_URL is not set; leaving `baseUrl: CODEX_BASE_URL` in omp models.yml. "
-            "oh-my-pi will not auto-expand it."
-        )
+        warn("CODEX_BASE_URL is not set; leaving `baseUrl: CODEX_BASE_URL` in omp models.yml. oh-my-pi will not auto-expand it.")
 
     dst.parent.mkdir(parents=True, exist_ok=True)
     if not NO_BACKUP and dst.exists():
         backup_path = dst.with_suffix(f"{dst.suffix}.bak-{stamp}")
-        shutil.copy2(dst, backup_path)
+        _ = shutil.copy2(dst, backup_path)
         cleanup_old_backups(dst)
     try:
-        dst.write_text(content, encoding="utf-8")
+        _ = dst.write_text(content, encoding="utf-8")
     except OSError as exc:
         warn(f"Failed to write {dst}: {exc}")
 
 
-def ensure_codex_notify_config(codex_dir: Path, stamp: str) -> None:
-    config_path = codex_dir / "config.toml"
-    python_bin = sys.executable or "python3"
-    script_path = codex_dir / "codex-gotify-notify.py"
-    desired_line = f'notify = ["{python_bin}", "{script_path}"]'
-
-    if not config_path.exists():
-        config_path.write_text(desired_line + "\n", encoding="utf-8")
-        success(f"Created Codex notify config: {config_path}")
-        return
-
-    try:
-        content = config_path.read_text(encoding="utf-8")
-    except OSError as exc:
-        warn(f"Failed to read {config_path}: {exc}")
-        return
-
-    if "codex-gotify-notify.py" in content:
-        # Might still be in a non-top-level section from old installer logic.
-        # Continue and normalize location instead of early return.
-        pass
-
-    lines = content.splitlines()
-    first_section_idx = None
+def find_first_toml_section_idx(lines: list[str]) -> int | None:
     for idx, line in enumerate(lines):
         stripped = line.strip()
         if stripped.startswith("[") and stripped.endswith("]"):
-            first_section_idx = idx
+            return idx
+    return None
+
+
+def ensure_top_level_config_line(lines: list[str], desired_line: str, key: str) -> list[str]:
+    first_section_idx = find_first_toml_section_idx(lines)
+    key_pattern = re.compile(rf"^\s*{re.escape(key)}\s*=")
+    matching_indexes = [
+        idx
+        for idx, line in enumerate(lines)
+        if key_pattern.match(line) and (first_section_idx is None or idx < first_section_idx)
+    ]
+
+    if matching_indexes:
+        matching_set = set(matching_indexes)
+        new_lines: list[str] = []
+        wrote_line = False
+        for idx, line in enumerate(lines):
+            if idx in matching_set:
+                if not wrote_line:
+                    new_lines.append(desired_line)
+                    wrote_line = True
+                continue
+            new_lines.append(line)
+        return new_lines
+
+    insert_idx = first_section_idx if first_section_idx is not None else len(lines)
+    return [*lines[:insert_idx], desired_line, *lines[insert_idx:]]
+
+
+def replace_toml_section(lines: list[str], section_name: str, section_lines: list[str]) -> list[str]:
+    section_header = f"[{section_name}]"
+    section_start = None
+    for idx, line in enumerate(lines):
+        if line.strip() == section_header:
+            section_start = idx
             break
 
-    top_notify_idx = None
-    any_notify_idx = []
-    notify_with_codex_idx = []
+    if section_start is None:
+        if lines and lines[-1].strip():
+            return [*lines, "", *section_lines]
+        return [*lines, *section_lines]
+
+    section_end = len(lines)
+    for idx in range(section_start + 1, len(lines)):
+        stripped = lines[idx].strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section_end = idx
+            break
+
+    return [*lines[:section_start], *section_lines, *lines[section_end:]]
+
+
+def ensure_codex_api_provider_config(lines: list[str]) -> list[str]:
+    codex_base_url = os.environ.get("CODEX_BASE_URL", "").strip()
+    if not codex_base_url:
+        warn("CODEX_BASE_URL is not set; skip Codex model provider config in config.toml.")
+        return lines
+
+    lines = ensure_top_level_config_line(
+        lines,
+        'model_provider = "codex_api"',
+        "model_provider",
+    )
+    return replace_toml_section(
+        lines,
+        "model_providers.codex_api",
+        [
+            "[model_providers.codex_api]",
+            'name = "codex_api"',
+            f"base_url = {json.dumps(codex_base_url)}",
+            'env_key = "CODEX_API_KEY"',
+            'wire_api = "responses"',
+        ],
+    )
+
+
+def ensure_codex_notify_config_lines(lines: list[str], codex_dir: Path) -> list[str]:
+    python_bin = sys.executable or "python3"
+    script_path = codex_dir / "codex-gotify-notify.py"
+    desired_line = f'notify = ["{python_bin}", "{script_path}"]'
+    first_section_idx = find_first_toml_section_idx(lines)
+    any_notify_idx: list[int] = []
     for idx, line in enumerate(lines):
         if re.match(r"^\s*notify\s*=", line):
             any_notify_idx.append(idx)
-            if "codex-gotify-notify.py" in line:
-                notify_with_codex_idx.append(idx)
-            if first_section_idx is None or idx < first_section_idx:
-                top_notify_idx = idx
 
-    if top_notify_idx is not None:
-        top_line = lines[top_notify_idx].strip()
-        if top_line == desired_line:
-            info("Codex notify hook already configured; skip")
-            return
-        if not SETUP_NOTIFY_HOOKS_FORCE:
-            warn(
-                "Codex config already has top-level notify=. "
-                "Set SETUP_NOTIFY_HOOKS_FORCE=1 to replace automatically."
-            )
-            return
-        lines[top_notify_idx] = desired_line
-        backup_file_if_exists(config_path, stamp)
-        config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        success("Replaced existing top-level Codex notify configuration")
-        return
+    if any_notify_idx:
+        notify_idx_set = set(any_notify_idx)
+        new_lines: list[str] = []
+        wrote_top_notify = False
+        for idx, line in enumerate(lines):
+            if idx in notify_idx_set:
+                is_top_level = first_section_idx is None or idx < first_section_idx
+                if is_top_level and not wrote_top_notify:
+                    new_lines.append(desired_line)
+                    wrote_top_notify = True
+                continue
+            new_lines.append(line)
 
-    # Remove misplaced codex notify entries (e.g. inserted inside a table).
-    if notify_with_codex_idx:
-        for idx in reversed(notify_with_codex_idx):
-            lines.pop(idx)
-
-    # If user has notify entries elsewhere and they're not our codex line, be conservative.
-    has_foreign_notify = len(any_notify_idx) > len(notify_with_codex_idx)
-    if has_foreign_notify and not SETUP_NOTIFY_HOOKS_FORCE:
-        warn(
-            "Codex config has existing notify entries in non-top-level context. "
-            "Set SETUP_NOTIFY_HOOKS_FORCE=1 to insert top-level notify automatically."
-        )
-        return
+        if not wrote_top_notify:
+            insert_idx = find_first_toml_section_idx(new_lines)
+            if insert_idx is None:
+                insert_idx = len(new_lines)
+            new_lines.insert(insert_idx, desired_line)
+        return new_lines
 
     insert_idx = first_section_idx if first_section_idx is not None else len(lines)
-    lines.insert(insert_idx, desired_line)
+    return [*lines[:insert_idx], desired_line, *lines[insert_idx:]]
+
+
+def ensure_codex_config(codex_dir: Path, stamp: str) -> None:
+    config_path = codex_dir / "config.toml"
+    if config_path.exists():
+        try:
+            content = config_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            warn(f"Failed to read {config_path}: {exc}")
+            return
+        lines = content.splitlines()
+    else:
+        lines = []
+
+    new_lines = ensure_codex_notify_config_lines(lines, codex_dir)
+    new_lines = ensure_codex_api_provider_config(new_lines)
+
+    if new_lines == lines:
+        info("Codex config already configured; skip")
+        return
+
     backup_file_if_exists(config_path, stamp)
-    config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    success("Inserted top-level Codex notify configuration")
+    _ = config_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    success(f"Configured Codex config: {config_path}")
 
 
 def main():
@@ -463,11 +514,8 @@ def main():
         rename_path_if_exists(config_dir / "opencode.json", stamp)
         retire_legacy_openagent_files(config_dir, stamp)
 
-        info("[7/7] Optionally configuring Codex notify hook")
-        if SETUP_NOTIFY_HOOKS:
-            ensure_codex_notify_config(codex_dir, stamp)
-        else:
-            info("SETUP_NOTIFY_HOOKS=0; skip hook auto-setup")
+        info("[7/7] Configuring Codex config")
+        ensure_codex_config(codex_dir, stamp)
 
     print()
     success("Installation complete!")
