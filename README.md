@@ -34,8 +34,6 @@ Other optional environment variables:
 - `GOTIFY_NOTIFY_SUMMARIZER_MODEL` (e.g., `gpt-5-nano`)
 - `GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT` (OpenAI-compatible endpoint, e.g., `https://api.openai.com/v1`)
 - `GOTIFY_NOTIFY_SUMMARIZER_API_KEY` (API key used by summarizer requests)
-- `SETUP_NOTIFY_HOOKS=0` (optional; disable auto-configure Codex notify hook during `pull.py`; default is enabled)
-- `SETUP_NOTIFY_HOOKS_FORCE=1` (optional; replace existing `notify = ...` in Codex `config.toml`; default is disabled)
 
 Codex notify hook execution logs are written to:
 - `~/.codex/log/gotify-notify.log`
@@ -47,16 +45,31 @@ Codex notify hook execution logs are written to:
 - `skills/` (merge-copy, preserves unrelated existing skills)
 - `codex-gotify-notify.py`
 
-Enable Gotify notification in `~/.codex/config.toml`:
+`pull.py` also configures `~/.codex/config.toml` with the Codex API provider and Gotify notify hook.
+It writes the current `CODEX_BASE_URL` value directly into `base_url` because Codex does not expand environment variables there.
+
+Generated provider config:
+
+```toml
+model_provider = "codex_api"
+
+[model_providers.codex_api]
+name = "codex_api"
+base_url = "<CODEX_BASE_URL value>"
+env_key = "CODEX_API_KEY"
+wire_api = "responses"
+```
+
+Generated Gotify notification hook:
 
 ```toml
 notify = ["python3", "/absolute/path/to/.codex/codex-gotify-notify.py"]
 ```
 
-Or let `pull.py` auto-configure it:
+Run the installer to auto-configure these entries:
 
 ```bash
-SETUP_NOTIFY_HOOKS=1 python3 pull.py
+python3 pull.py
 ```
 
 Current Codex `notify` payload is completion-focused (`agent-turn-complete`), so this hook notifies when a turn completes.
