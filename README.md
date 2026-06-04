@@ -18,10 +18,6 @@ Recommended environment variables:
 Optional environment variables:
 - `CODEX_BASE_URL` (with `/v1`, required if you want to use codex provider)
 - `CODEX_API_KEY` (required if you want to use codex provider)
-- `ANTHROPIC_BASE_URL` (without `/v1`, required if you want to use azure-anthropic provider)
-- `ANTHROPIC_AUTH_TOKEN` (required if you want to use azure-anthropic provider)
-- `AZURE_OPENAI_API_KEY` (required if you want to use azure-openai provider)
-- `AZURE_OPENAI_BASE_URL` (with `/openai/v1`, required if you want to use azure-openai provider)
 - `GITHUB_PERSONAL_ACCESS_TOKEN` (used for gh tools)
 - `NOTION_API_TOKEN` (used by the notion-api skill for Notion REST API calls)
 
