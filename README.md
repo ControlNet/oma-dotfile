@@ -34,6 +34,11 @@ Other optional environment variables:
 Codex notify hook execution logs are written to:
 - `~/.codex/log/gotify-notify.log`
 
+## OpenCode support
+
+`pull.py` installs OpenCode config into `~/.config/opencode` (or `$CONFIG_DIR` if set).
+For local `plugins/` and `skills/`, it replaces only same-named items shipped by this repo and preserves unrelated existing plugins/skills that users added locally.
+
 ## Codex support
 
 `pull.py` installs shared Codex assets into `~/.codex` (or `$CODEX_DIR` if set):

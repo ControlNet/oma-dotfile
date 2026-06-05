@@ -224,6 +224,24 @@ def copy_directory_merge(src_dir: Path, dst_dir: Path) -> None:
             _ = shutil.copy2(entry, target)
 
 
+def copy_directory_items_replace(src_dir: Path, dst_dir: Path) -> None:
+    if not src_dir.exists():
+        warn(f"Source directory not found: {src_dir}")
+        return
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    for entry in src_dir.iterdir():
+        target = dst_dir / entry.name
+        if target.exists() or target.is_symlink():
+            if target.is_dir() and not target.is_symlink():
+                shutil.rmtree(target)
+            else:
+                target.unlink()
+        if entry.is_dir():
+            _ = shutil.copytree(entry, target)
+        else:
+            _ = shutil.copy2(entry, target)
+
+
 def backup_file_if_exists(path: Path, stamp: str) -> None:
     if NO_BACKUP or not path.exists():
         return
@@ -458,8 +476,8 @@ def main():
             src_dir = repo_path / dir_name
             dst_dir = config_dir / dir_name
             if src_dir.exists():
-                print(f"         - {dir_name}/")
-                copy_directory(src_dir, dst_dir)
+                print(f"         - {dir_name}/ (replace managed items)")
+                copy_directory_items_replace(src_dir, dst_dir)
 
         info(f"[4/7] Installing oh-my-pi config files to: {omp_agent_dir}")
         omp_config_files = [
