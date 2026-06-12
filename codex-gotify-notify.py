@@ -639,7 +639,7 @@ def _source_is_root_codex_session(source: object) -> bool:
     if not isinstance(source, str):
         return False
     normalized = source.strip().lower().replace("_", "-")
-    return normalized in {"cli", "exec"}
+    return normalized == "exec"
 
 
 def _looks_like_auto_approval_text(value: object) -> bool:
