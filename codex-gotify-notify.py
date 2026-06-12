@@ -54,7 +54,6 @@ DEFAULT_TAIL = 50
 DEFAULT_SUMMARIZER_TIMEOUT_SEC = 120.0
 DEFAULT_SUMMARIZER_MAX_INPUT_CHARS = 5000
 DEFAULT_DEDUP_WINDOW_SEC = 15
-DEFAULT_THREAD_SOURCE_CACHE_MAX_ENTRIES = 512
 DEFAULT_TUI_LOG_SCAN_BYTES = 8 * 1024 * 1024
 DEFAULT_SESSION_SCAN_BYTES = 2 * 1024 * 1024
 DEFAULT_AUTO_APPROVAL_SCAN_DEPTH = 20
@@ -540,10 +539,6 @@ def _event_type(payload: dict[str, object]) -> str:
     return ""
 
 
-def _thread_source_cache_path() -> Path:
-    return Path.home() / ".codex" / ".gotify-notify-thread-source-cache.json"
-
-
 def _sessions_root_path() -> Path:
     custom = _env("CODEX_NOTIFY_SESSIONS_DIR")
     if custom:
@@ -569,53 +564,6 @@ def _read_recent_text(path: Path, max_bytes: int) -> str:
             return fp.read().decode("utf-8", errors="replace")
     except OSError:
         return ""
-
-
-def _load_thread_source_cache() -> dict[str, dict[str, bool]]:
-    path = _thread_source_cache_path()
-    try:
-        if not path.exists():
-            return {}
-        raw = path.read_text(encoding="utf-8")
-        data = json.loads(raw)
-        if not isinstance(data, dict):
-            return {}
-    except (OSError, json.JSONDecodeError):
-        return {}
-
-    out: dict[str, dict[str, bool]] = {}
-    for key, value in data.items():
-        if not isinstance(key, str):
-            continue
-        if isinstance(value, bool):
-            out[key] = {"is_subagent": value}
-        elif isinstance(value, dict):
-            entry: dict[str, bool] = {}
-            for field in (
-                "is_subagent",
-                "is_auto_approval",
-                "is_noninteractive_root",
-                "source_checked",
-            ):
-                if isinstance(value.get(field), bool):
-                    entry[field] = value[field]
-            if entry:
-                out[key] = entry
-    return out
-
-
-def _save_thread_source_cache(cache: dict[str, dict[str, bool]]) -> None:
-    path = _thread_source_cache_path()
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if len(cache) > DEFAULT_THREAD_SOURCE_CACHE_MAX_ENTRIES:
-            keys = list(cache.keys())
-            overflow = len(cache) - DEFAULT_THREAD_SOURCE_CACHE_MAX_ENTRIES
-            for key in keys[:overflow]:
-                cache.pop(key, None)
-        path.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
-    except OSError:
-        return
 
 
 def _source_is_subagent(source: object) -> bool:
@@ -808,18 +756,6 @@ def _thread_source_flags(thread_id: str) -> dict[str, bool]:
     if not thread_id:
         return {}
 
-    cache = _load_thread_source_cache()
-    if thread_id in cache:
-        cached = cache[thread_id]
-        if cached.get("source_checked"):
-            if cached.get("is_subagent"):
-                _log_line(f"subagent_detected source=cache thread_id={thread_id}")
-            if cached.get("is_auto_approval"):
-                _log_line(f"auto_approval_detected source=cache thread_id={thread_id}")
-            if cached.get("is_noninteractive_root"):
-                _log_line(f"noninteractive_root_detected source=cache thread_id={thread_id}")
-            return cached
-
     detected = _detect_thread_source_flags_from_sessions(thread_id)
     source_name = "sessions"
     if detected is None:
@@ -828,9 +764,6 @@ def _thread_source_flags(thread_id: str) -> dict[str, bool]:
     if detected is None:
         return {}
 
-    detected["source_checked"] = True
-    cache[thread_id] = detected
-    _save_thread_source_cache(cache)
     if detected.get("is_subagent"):
         _log_line(f"subagent_detected source={source_name} thread_id={thread_id}")
     if detected.get("is_auto_approval"):
