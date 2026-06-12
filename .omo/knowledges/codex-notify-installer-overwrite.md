@@ -13,6 +13,8 @@ removed.
   writes one top-level Codex notify line.
 - If no `notify = ...` exists, it inserts one before the first TOML section, or
   at EOF when there are no sections.
+- Replacement is TOML assignment-aware: multi-line `notify = [` arrays are
+  removed as a whole instead of deleting only the first line.
 
 Manual verification command used:
 
@@ -40,5 +42,39 @@ with tempfile.TemporaryDirectory() as tmp:
     assert 'model = "old-model"' in content, content
     assert 'approval_policy = "on-request"' in content, content
 print('codex notify overwrite behavior: ok')
+PY
+```
+
+Regression for multi-line arrays:
+
+```bash
+python3 - <<'PY'
+import importlib.util
+import tempfile
+import tomllib
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location('pull', 'pull.py')
+module = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+spec.loader.exec_module(module)
+
+with tempfile.TemporaryDirectory() as tmp:
+    codex_dir = Path(tmp) / '.codex'
+    codex_dir.mkdir()
+    config = codex_dir / 'config.toml'
+    config.write_text('notify = [\n  "old-python",\n  "old-hook",\n]\nmodel = "old-model"\n\n[profile.default]\nnotify = [\n  "nested-python",\n  "nested-hook",\n]\napproval_policy = "never"\n', encoding='utf-8')
+    module.ensure_codex_config(codex_dir, 'manualqa')
+    content = config.read_text(encoding='utf-8')
+    parsed = tomllib.loads(content)
+    assert 'old-python' not in content
+    assert 'old-hook' not in content
+    assert 'nested-python' not in content
+    assert 'nested-hook' not in content
+    assert content.count('notify = ') == 1, content
+    assert parsed['notify'][1].endswith('codex-gotify-notify.py')
+    assert parsed['model'] == 'old-model'
+    assert parsed['profile']['default']['approval_policy'] == 'never'
+print('multiline notify overwrite: ok')
 PY
 ```

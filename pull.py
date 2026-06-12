@@ -14,14 +14,15 @@ Env:
   NO_BACKUP=1 (optional)
 """
 
-import os
 import json
+import os
 import re
-import sys
 import shutil
+import sys
+import tomllib
 import subprocess
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 from tempfile import TemporaryDirectory
 
 # Config from environment
@@ -325,6 +326,39 @@ def ensure_top_level_config_line(lines: list[str], desired_line: str, key: str) 
     return [*lines[:insert_idx], desired_line, *lines[insert_idx:]]
 
 
+def find_toml_key_assignment_end_idx(lines: list[str], start_idx: int, key: str) -> int:
+    key_pattern = re.compile(rf"^\s*{re.escape(key)}\s*=(.*)$")
+    match = key_pattern.match(lines[start_idx])
+    if match is None:
+        return start_idx + 1
+
+    value_lines = [match.group(1)]
+    for end_idx in range(start_idx + 1, len(lines) + 1):
+        candidate = f"{key} = " + "\n".join(value_lines) + "\n"
+        try:
+            _ = tomllib.loads(candidate)
+            return end_idx
+        except tomllib.TOMLDecodeError:
+            if end_idx == len(lines):
+                return end_idx
+            value_lines.append(lines[end_idx])
+    return len(lines)
+
+
+def find_toml_key_assignment_ranges(lines: list[str], key: str) -> list[tuple[int, int]]:
+    key_pattern = re.compile(rf"^\s*{re.escape(key)}\s*=")
+    ranges: list[tuple[int, int]] = []
+    idx = 0
+    while idx < len(lines):
+        if key_pattern.match(lines[idx]):
+            end_idx = find_toml_key_assignment_end_idx(lines, idx, key)
+            ranges.append((idx, end_idx))
+            idx = end_idx
+            continue
+        idx += 1
+    return ranges
+
+
 def replace_toml_section(lines: list[str], section_name: str, section_lines: list[str]) -> list[str]:
     section_header = f"[{section_name}]"
     section_start = None
@@ -377,23 +411,20 @@ def ensure_codex_notify_config_lines(lines: list[str], codex_dir: Path) -> list[
     script_path = codex_dir / "codex-gotify-notify.py"
     desired_line = f'notify = ["{python_bin}", "{script_path}"]'
     first_section_idx = find_first_toml_section_idx(lines)
-    any_notify_idx: list[int] = []
-    for idx, line in enumerate(lines):
-        if re.match(r"^\s*notify\s*=", line):
-            any_notify_idx.append(idx)
+    notify_ranges = find_toml_key_assignment_ranges(lines, "notify")
 
-    if any_notify_idx:
-        notify_idx_set = set(any_notify_idx)
+    if notify_ranges:
         new_lines: list[str] = []
         wrote_top_notify = False
-        for idx, line in enumerate(lines):
-            if idx in notify_idx_set:
-                is_top_level = first_section_idx is None or idx < first_section_idx
-                if is_top_level and not wrote_top_notify:
-                    new_lines.append(desired_line)
-                    wrote_top_notify = True
-                continue
-            new_lines.append(line)
+        idx = 0
+        for start_idx, end_idx in notify_ranges:
+            new_lines.extend(lines[idx:start_idx])
+            is_top_level = first_section_idx is None or start_idx < first_section_idx
+            if is_top_level and not wrote_top_notify:
+                new_lines.append(desired_line)
+                wrote_top_notify = True
+            idx = end_idx
+        new_lines.extend(lines[idx:])
 
         if not wrote_top_notify:
             insert_idx = find_first_toml_section_idx(new_lines)
