@@ -44,6 +44,7 @@ import socket
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -240,6 +241,23 @@ def _join_endpoint(base_url: str, path: str) -> str:
     return f"{base_url}{path}"
 
 
+def _is_google_ai_studio_endpoint(base_url: str) -> bool:
+    return urllib.parse.urlsplit(base_url).netloc == "generativelanguage.googleapis.com"
+
+
+def _google_generate_content_url(base_url: str, model: str) -> str:
+    parsed = urllib.parse.urlsplit(base_url)
+    base_path = parsed.path.rstrip("/")
+    if base_path.endswith("/openai"):
+        base_path = base_path[: -len("/openai")]
+    model_path = model.lstrip("/")
+    if not model_path.startswith("models/"):
+        model_path = f"models/{model_path}"
+    quoted_model_path = urllib.parse.quote(model_path, safe="/")
+    direct_path = f"{base_path}/{quoted_model_path}:generateContent"
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, direct_path, "", ""))
+
+
 def _json_post(
     url: str,
     body: Mapping[str, object],
@@ -327,6 +345,72 @@ def _extract_openai_text(response: dict[str, object]) -> str:
     return ""
 
 
+def _extract_gemini_text(response: dict[str, object]) -> str:
+    candidates = response.get("candidates")
+    if not isinstance(candidates, list):
+        return ""
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        content = candidate.get("content")
+        if not isinstance(content, dict):
+            continue
+        parts = content.get("parts")
+        if not isinstance(parts, list):
+            continue
+        text_parts: list[str] = []
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+            text = part.get("text")
+            if isinstance(text, str) and text.strip():
+                text_parts.append(text)
+        cleaned = _strip_thought_blocks(" ".join(text_parts))
+        if cleaned:
+            return cleaned
+    return ""
+
+
+def _summarize_with_google_generate_content(
+    model: str,
+    base_url: str,
+    api_key: str,
+    prompt: str,
+    timeout_sec: float,
+) -> str:
+    body = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": prompt}],
+            },
+        ],
+        "generationConfig": {
+            "maxOutputTokens": 80,
+            "temperature": 0.2,
+        },
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": api_key,
+    }
+    data = _json_post(
+        _google_generate_content_url(base_url, model),
+        body,
+        headers,
+        timeout_sec,
+    )
+    if not data:
+        _log_line("summarizer_failed reason=google_generate_content_failed")
+        return ""
+    summary = _extract_gemini_text(data)
+    if not summary:
+        _log_line("summarizer_failed reason=google_generate_content_empty_output")
+        return ""
+    _log_line("summarizer_success route=google_generate_content")
+    return _truncate(summary, 200)
+
+
 def _summarize_with_llm(text: str) -> str:
     summarizer = _get_summarizer_config()
     if not summarizer:
@@ -394,6 +478,20 @@ def _summarize_with_llm(text: str) -> str:
         if summary:
             _log_line("summarizer_success route=chat_completions")
             return _truncate(summary, 200)
+
+    if _is_google_ai_studio_endpoint(base_url):
+        _log_line(
+            "summarizer_fallback route=google_generate_content "
+            "reason=chat_completions_failed_or_empty"
+        )
+        return _summarize_with_google_generate_content(
+            model,
+            base_url,
+            api_key,
+            prompt,
+            timeout_sec,
+        )
+
     _log_line("summarizer_fallback route=responses reason=chat_completions_failed_or_empty")
 
     responses_body = {
