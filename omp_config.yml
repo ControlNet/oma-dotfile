@@ -1,10 +1,10 @@
 defaultThinkingLevel: high
 modelRoles: 
-  default: oma-codex/gpt-5.5:medium
-  smol: oma-codex/gpt-5.4-mini
-  slow: oma-codex/gpt-5.5:high
-  plan: oma-codex/gpt-5.5:high
-  commit: oma-codex/gpt-5.4-mini
+  default: codex-api/gpt-5.5:medium
+  smol: codex-api/gpt-5.4-mini
+  slow: codex-api/gpt-5.5:high
+  plan: codex-api/gpt-5.5:high
+  commit: codex-api/gpt-5.4-mini
 disabledProviders: 
   - claude
   - claude-plugins
@@ -17,7 +17,7 @@ disabledProviders:
   - vscode
 task: 
   agentModelOverrides: 
-    designer: oma-codex/gpt-5.5:high
+    designer: codex-api/gpt-5.5:high
 skills:
   enableCodexUser: false
   enableClaudeUser: false
