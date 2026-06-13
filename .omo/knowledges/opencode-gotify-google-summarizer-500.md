@@ -64,3 +64,30 @@ and then compiled the script:
 ```bash
 python3 -m py_compile codex-gotify-notify.py
 ```
+
+## Keep Codex prompt/request aligned with OpenCode
+
+When debugging poor Codex summaries, do not change the summarizer prompt/request
+shape away from OpenCode as a first response. The OpenCode notifier uses one
+user prompt for all routes:
+
+- `/chat/completions`: `messages = [{ role: "user", content: prompt }]`
+- Google `:generateContent`: `contents[0].parts[0].text = prompt`
+- `/responses`: `input[0].content[0].text = prompt`
+
+The prompt text is:
+
+```text
+You are a concise summarizer. Output plain text only.
+Use the same language as the input text.
+Summarize this in ONE short sentence (max 80 chars). No markdown, no quotes, just plain text:
+
+<input>
+```
+
+OpenCode also sets Google direct `generationConfig.temperature` to `0` and
+does not send `maxOutputTokens` on that route. If OpenCode behaves well but
+Codex produces meta-summaries such as `Input:` / `Key points:`, investigate the
+Codex summarizer input source first. OpenCode summarizes the latest assistant
+message text only, extracted from message parts where `type === "text"` and
+`info.summary` is false.
