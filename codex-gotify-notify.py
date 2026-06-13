@@ -365,7 +365,7 @@ def _extract_gemini_text(response: dict[str, object]) -> str:
             text = part.get("text")
             if isinstance(text, str) and text.strip():
                 text_parts.append(text)
-        cleaned = _strip_thought_blocks(" ".join(text_parts))
+        cleaned = _strip_thought_blocks("".join(text_parts))
         if cleaned:
             return cleaned
     return ""
@@ -386,8 +386,7 @@ def _summarize_with_google_generate_content(
             },
         ],
         "generationConfig": {
-            "maxOutputTokens": 80,
-            "temperature": 0.2,
+            "temperature": 0,
         },
     }
     headers = {
@@ -457,15 +456,15 @@ def _summarize_with_llm(text: str) -> str:
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
-        "api-key": api_key,
     }
+    if not _is_google_ai_studio_endpoint(base_url):
+        headers["api-key"] = api_key
 
     chat_body = {
         "model": model,
         "messages": [
             {"role": "user", "content": prompt},
         ],
-        "max_tokens": 80,
     }
     chat_data = _json_post(
         _join_endpoint(base_url, "/chat/completions"),
