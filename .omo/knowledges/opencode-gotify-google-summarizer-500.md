@@ -35,3 +35,32 @@ A local Node fixture also mocked:
 - Gotify `/message` receiving the fallback summary
 
 and confirmed `opencode google generateContent fallback: ok`.
+
+## Codex notifier recurrence
+
+Remote Codex diagnostics on `ansr-5090-4` showed the same provider-family
+failure in `~/.codex/log/gotify-notify.log`:
+
+- `summarizer_start model=gemma-4-31b-it endpoint=https://generativelanguage.googleapis.com/v1beta/openai`
+- `summarizer_fallback route=responses reason=chat_completions_failed_or_empty`
+- `http_error url=https://generativelanguage.googleapis.com/v1beta/openai/responses status=404`
+- `summarizer_failed fallback=preview`
+
+This means Gotify delivery still succeeds for most events, but Codex falls back
+to the raw preview because the Python notifier did not yet have the Google
+direct Gemini fallback. The Codex fix mirrors the OpenCode fix:
+
+1. Try OpenAI-compatible `/chat/completions`.
+2. For Google AI Studio endpoints, fallback to
+   `/v1beta/models/{model}:generateContent` with `x-goog-api-key`.
+3. Skip `/responses` for Google endpoints; keep `/responses` only for generic
+   non-Google OpenAI-compatible providers.
+
+Verification used a local inline `importlib` fixture that monkeypatched
+`_json_post`, asserted the Google fallback reached `:generateContent` without
+calling `/responses`, asserted non-Google providers still used `/responses`,
+and then compiled the script:
+
+```bash
+python3 -m py_compile codex-gotify-notify.py
+```
