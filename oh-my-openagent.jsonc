@@ -14,10 +14,10 @@
       "variant": "high"
     },
     "librarian": {
-      "model": "codex/gpt-5.4-mini"
+      "model": "codex/gpt-5.6-luna"
     },
     "explore": {
-      "model": "codex/gpt-5.4-mini"
+      "model": "codex/gpt-5.6-luna"
     },
     "multimodal-looker": {
       "model": "codex/gpt-5.6-terra",
@@ -62,7 +62,7 @@
       "variant": "high"
     },
     "quick": {
-      "model": "codex/gpt-5.4-mini"
+      "model": "codex/gpt-5.6-luna"
     },
     "unspecified-low": {
       "model": "codex/gpt-5.6-terra",
