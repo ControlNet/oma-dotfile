@@ -42,9 +42,21 @@ providers:
         reasoning: true
         input: [text, image]
         cost:
-          input: 1.25
-          output: 10.0
-          cacheRead: 0.125
+          input: 1.75
+          output: 14.0
+          cacheRead: 0.175
+          cacheWrite: 0
+        contextWindow: 272000
+        maxTokens: 128000
+
+      - id: gpt-5.4
+        name: GPT 5.4 (OAuth)
+        reasoning: true
+        input: [text, image]
+        cost:
+          input: 2.5
+          output: 15.0
+          cacheRead: 0.25
           cacheWrite: 0
         contextWindow: 272000
         maxTokens: 128000
@@ -70,5 +82,41 @@ providers:
           output: 30.0
           cacheRead: 0.5
           cacheWrite: 0
+        contextWindow: 272000
+        maxTokens: 128000
+
+      - id: gpt-5.6-luna
+        name: GPT 5.6 Luna (OAuth)
+        reasoning: true
+        input: [text, image]
+        cost:
+          input: 0.2
+          output: 1.2
+          cacheRead: 0.02
+          cacheWrite: 0.25
+        contextWindow: 272000
+        maxTokens: 128000
+
+      - id: gpt-5.6-terra
+        name: GPT 5.6 Terra (OAuth)
+        reasoning: true
+        input: [text, image]
+        cost:
+          input: 2.0
+          output: 12.0
+          cacheRead: 0.2
+          cacheWrite: 2.5
+        contextWindow: 272000
+        maxTokens: 128000
+
+      - id: gpt-5.6-sol
+        name: GPT 5.6 Sol (OAuth)
+        reasoning: true
+        input: [text, image]
+        cost:
+          input: 5.0
+          output: 30.0
+          cacheRead: 0.5
+          cacheWrite: 6.25
         contextWindow: 272000
         maxTokens: 128000
