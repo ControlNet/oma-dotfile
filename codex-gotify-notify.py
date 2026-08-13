@@ -40,7 +40,9 @@ from collections.abc import Mapping
 import json
 import os
 import re
+import shlex
 import socket
+import subprocess
 import sys
 import time
 import urllib.error
@@ -149,6 +151,67 @@ def _truncate(text: str, limit: int) -> str:
 
 def _normalize_text(text: str) -> str:
     return " ".join(str(text).split())
+
+
+def _command_mentions_codex_acp(command: list[str]) -> bool:
+    if not command:
+        return False
+
+    executable = command[0].strip().lower().replace("\\", "/").rstrip("/")
+    if Path(executable).name in {"codex-acp", "codex-acp.cmd", "codex-acp.exe"}:
+        return True
+
+    if Path(executable).name not in {"node", "node.exe", "bun", "bun.exe"} or len(command) < 2:
+        return False
+
+    script = command[1].strip().lower().replace("\\", "/").rstrip("/")
+    return (
+        Path(script).name in {"codex-acp", "codex-acp.cmd", "codex-acp.exe"}
+        or script.endswith("/@agentclientprotocol/codex-acp")
+        or "/@agentclientprotocol/codex-acp/" in script
+    )
+
+
+def _process_snapshot(pid: int) -> tuple[int, list[str]] | None:
+    proc_path = Path("/proc") / str(pid)
+    try:
+        command = [
+            item.decode("utf-8", errors="replace")
+            for item in (proc_path / "cmdline").read_bytes().split(b"\0")
+            if item
+        ]
+        status = (proc_path / "status").read_text(encoding="utf-8")
+        parent_line = next(line for line in status.splitlines() if line.startswith("PPid:"))
+        return int(parent_line.split(":", 1)[1].strip()), command
+    except (OSError, StopIteration, ValueError):
+        pass
+
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "ppid=", "-o", "command=", "-p", str(pid)],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=1,
+        )
+        parent_raw, command_raw = result.stdout.strip().split(maxsplit=1)
+        return int(parent_raw), shlex.split(command_raw)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def _is_codex_acp_process_tree() -> bool:
+    pid = os.getppid()
+    visited: set[int] = set()
+    while pid > 1 and pid not in visited:
+        visited.add(pid)
+        snapshot = _process_snapshot(pid)
+        if snapshot is None:
+            return False
+        pid, command = snapshot
+        if _command_mentions_codex_acp(command):
+            return True
+    return False
 
 
 def _preview(text: str, head: int, tail: int) -> str:
@@ -1219,6 +1282,10 @@ def main() -> int:
     event_type = _event_type(payload) or "unknown"
     thread_id = _payload_thread_id(payload) or _payload_session_id(payload) or "-"
     _log_line(f"payload_loaded event={event_type} thread_id={thread_id}")
+
+    if _is_codex_acp_process_tree():
+        _log_line(f"run_skip reason=codex_acp event={event_type} thread_id={thread_id}")
+        return 0
 
     notify_noninteractive = _is_true(
         _env_first("CODEX_NOTIFY_NONINTERACTIVE", "OPENCODE_NOTIFY_NONINTERACTIVE", default="false")
