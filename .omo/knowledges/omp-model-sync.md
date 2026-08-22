@@ -3,7 +3,7 @@
 ## Source of truth
 
 - `opencode.jsonc` defines the complete `provider.codex.models` catalog, including model IDs, display names, context/output limits, modalities, and costs.
-- `oh-my-openagent.jsonc` defines the intended model tier allocation for agents and categories.
+- `omo.jsonc` defines the intended OpenCode model tier allocation for agents and categories under `"[opencode]"`.
 - `omp_models.yaml` mirrors the OpenCode Codex model catalog under `providers.codex-api.models`, but pricing must be checked against the official OpenAI API pricing page rather than copied from OpenCode configuration.
 - `omp_config.yml` maps OMP roles to the same tier allocation: `gpt-5.6-luna` for lightweight work and `gpt-5.6-sol` for default, planning, slow, and designer work.
 
