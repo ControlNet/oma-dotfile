@@ -39,6 +39,14 @@ Codex notify hook execution logs are written to:
 `pull.py` installs OpenCode config into `~/.config/opencode` (or `$CONFIG_DIR` if set).
 For local `plugins/` and `skills/`, it replaces only same-named items shipped by this repo and preserves unrelated existing plugins/skills that users added locally.
 
+## OMO support
+
+`pull.py` installs the unified Oh My OpenAgent configuration as `~/.omo/omo.jsonc`.
+OpenCode-specific OMO settings live under the `"[opencode]"` key in that file; `opencode.jsonc` remains the OpenCode core configuration.
+
+Before overwriting an existing `omo.jsonc`, the installer creates a timestamped backup unless `NO_BACKUP=1` is set.
+It also retires obsolete `~/.omo/config.json[c]` and OpenCode-directory `oh-my-opencode.json[c]` / `oh-my-openagent.json[c]` files by renaming them to timestamped backups, so only the current unified configuration remains active.
+
 ## Codex support
 
 `pull.py` installs shared Codex assets into `~/.codex` (or `$CODEX_DIR` if set):
