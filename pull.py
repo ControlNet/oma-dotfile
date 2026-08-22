@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-pull.py - Sync opencode configs from GitHub repo to user-level config.
+pull.py - Sync agent configs from GitHub repo to user-level locations.
 
 Env:
   REPO_OWNER=ControlNet
@@ -145,7 +145,6 @@ MAX_BACKUPS = max(1, int(os.environ.get("MAX_BACKUPS", "1")))
 
 OPENCODE_CONFIG_FILES = [
     ("opencode.jsonc", "opencode.jsonc"),
-    ("oh-my-openagent.jsonc", "oh-my-openagent.jsonc"),
     ("tui.json", "tui.json"),
     ("_AGENTS.md", "AGENTS.md"),
 ]
@@ -154,6 +153,12 @@ LEGACY_OPENAGENT_CONFIG_NAMES = [
     "oh-my-opencode.json",
     "oh-my-opencode.jsonc",
     "oh-my-openagent.json",
+    "oh-my-openagent.jsonc",
+]
+
+LEGACY_OMO_CONFIG_NAMES = [
+    "config.json",
+    "config.jsonc",
 ]
 
 
@@ -197,9 +202,20 @@ def install_opencode_config_files(repo_path: Path, config_dir: Path, stamp: str)
             backup_and_install(src, dst, stamp)
 
 
+def install_omo_config(repo_path: Path, omo_dir: Path, stamp: str) -> None:
+    src = repo_path / "omo.jsonc"
+    print("         - omo.jsonc")
+    backup_and_install(src, omo_dir / "omo.jsonc", stamp)
+
+
 def retire_legacy_openagent_files(config_dir: Path, stamp: str) -> None:
     for name in LEGACY_OPENAGENT_CONFIG_NAMES:
         rename_path_if_exists(config_dir / name, stamp)
+
+
+def retire_legacy_omo_files(omo_dir: Path, stamp: str) -> None:
+    for name in LEGACY_OMO_CONFIG_NAMES:
+        rename_path_if_exists(omo_dir / name, stamp)
 
 
 def copy_directory(src_dir: Path, dst_dir: Path) -> None:
@@ -466,11 +482,9 @@ def main():
     warn_missing_required_env_vars()
 
     config_dir = get_config_dir()
+    omo_dir = Path.home() / ".omo"
     codex_dir = get_codex_dir()
     omp_agent_dir = get_omp_agent_dir()
-    config_dir.mkdir(parents=True, exist_ok=True)
-    codex_dir.mkdir(parents=True, exist_ok=True)
-    omp_agent_dir.mkdir(parents=True, exist_ok=True)
     stamp = timestamp()
 
     repo_url = f"https://github.com/{REPO_OWNER}/{REPO_NAME}.git"
@@ -499,10 +513,26 @@ def main():
             print(result.stderr, file=sys.stderr)
             sys.exit(1)
 
+        for required_name in ("opencode.jsonc", "omo.jsonc"):
+            if not (repo_path / required_name).is_file():
+                error(f"Required repository file is missing: {required_name}")
+                sys.exit(1)
+
+        config_dir.mkdir(parents=True, exist_ok=True)
+        omo_dir.mkdir(parents=True, exist_ok=True)
+        codex_dir.mkdir(parents=True, exist_ok=True)
+        omp_agent_dir.mkdir(parents=True, exist_ok=True)
+
         info(f"[2/7] Installing OpenCode config files to: {config_dir}")
         install_opencode_config_files(repo_path, config_dir, stamp)
+        rename_path_if_exists(config_dir / "opencode.json", stamp)
 
-        info("[3/7] Installing OpenCode plugins and skills...")
+        info(f"[3/7] Installing unified OMO config to: {omo_dir}")
+        install_omo_config(repo_path, omo_dir, stamp)
+        retire_legacy_openagent_files(config_dir, stamp)
+        retire_legacy_omo_files(omo_dir, stamp)
+
+        info("[4/7] Installing OpenCode plugins and skills...")
         for dir_name in ["plugins", "skills"]:
             src_dir = repo_path / dir_name
             dst_dir = config_dir / dir_name
@@ -510,7 +540,7 @@ def main():
                 print(f"         - {dir_name}/ (replace managed items)")
                 copy_directory_items_replace(src_dir, dst_dir)
 
-        info(f"[4/7] Installing oh-my-pi config files to: {omp_agent_dir}")
+        info(f"[5/7] Installing oh-my-pi config files to: {omp_agent_dir}")
         omp_config_files = [
             ("omp_config.yml", "config.yml"),
         ]
@@ -537,7 +567,7 @@ def main():
             print("         - omp_models.yaml (render CODEX_BASE_URL)")
             backup_and_install_omp_models(omp_models_src, omp_models_dst, stamp)
 
-        info(f"[5/7] Installing shared Codex assets to: {codex_dir}")
+        info(f"[6/7] Installing shared Codex assets to: {codex_dir}")
         codex_files = [
             ("_AGENTS.md", "AGENTS.md"),
             ("codex-gotify-notify.py", "codex-gotify-notify.py"),
@@ -554,10 +584,6 @@ def main():
         if codex_skills_src.exists():
             print("         - skills/ (merge)")
             copy_directory_merge(codex_skills_src, codex_skills_dst)
-
-        info("[6/7] Retiring legacy OpenAgent config names so only current .jsonc remains active")
-        rename_path_if_exists(config_dir / "opencode.json", stamp)
-        retire_legacy_openagent_files(config_dir, stamp)
 
         info("[7/7] Configuring Codex config")
         ensure_codex_config(codex_dir, stamp)
