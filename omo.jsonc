@@ -1,0 +1,100 @@
+{
+  "$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-openagent/dev/assets/omo.schema.json",
+  "[opencode]": {
+    "agents": {
+      "sisyphus": {
+        "model": "codex/gpt-5.6-sol",
+        "reasoning": "high"
+      },
+      "hephaestus": {
+        "model": "codex/gpt-5.6-sol",
+        "reasoning": "high"
+      },
+      "oracle": {
+        "model": "codex/gpt-5.6-sol",
+        "reasoning": "high"
+      },
+      "librarian": {
+        "model": "codex/gpt-5.6-luna",
+        "reasoning": "xhigh"
+      },
+      "explore": {
+        "model": "codex/gpt-5.6-luna",
+        "reasoning": "xhigh"
+      },
+      "multimodal-looker": {
+        "model": "codex/gpt-5.6-sol",
+        "reasoning": "high"
+      },
+      "prometheus": {
+        "model": "codex/gpt-5.6-sol",
+        "reasoning": "high"
+      },
+      "metis": {
+        "model": "codex/gpt-5.6-sol",
+        "reasoning": "high"
+      },
+      "momus": {
+        "model": "codex/gpt-5.6-sol",
+        "reasoning": "xhigh"
+      },
+      "atlas": {
+        "model": "codex/gpt-5.6-sol",
+        "reasoning": "medium"
+      },
+      "sisyphus-junior": {
+        "model": "codex/gpt-5.6-sol",
+        "reasoning": "high"
+      }
+    },
+    "categories": {
+      "visual-engineering": {
+        "model": "codex/gpt-5.6-sol",
+        "reasoning": "high"
+      },
+      "ultrabrain": {
+        "model": "codex/gpt-5.6-sol",
+        "reasoning": "xhigh"
+      },
+      "deep": {
+        "model": "codex/gpt-5.6-sol",
+        "reasoning": "high"
+      },
+      "artistry": {
+        "model": "codex/gpt-5.6-sol",
+        "reasoning": "high"
+      },
+      "quick": {
+        "model": "codex/gpt-5.6-luna",
+        "reasoning": "high"
+      },
+      "unspecified-low": {
+        "model": "codex/gpt-5.6-terra",
+        "reasoning": "high"
+      },
+      "unspecified-high": {
+        "model": "codex/gpt-5.6-sol",
+        "reasoning": "high"
+      },
+      "writing": {
+        "model": "codex/gpt-5.6-sol",
+        "reasoning": "medium"
+      }
+    },
+    "git_master": {
+      "commit_footer": false,
+      "include_co_authored_by": false
+    },
+    "claude_code": {
+      "skills": false,
+      "commands": false,
+      "mcp": false,
+      "agents": false,
+      "hooks": false,
+      "plugins": false
+    },
+    "team_mode": {
+      "enabled": true
+    }
+  }
+}
