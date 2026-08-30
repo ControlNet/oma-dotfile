@@ -699,6 +699,25 @@ def _event_type(payload: dict[str, object]) -> str:
     return ""
 
 
+def _looks_like_thread_title_generation_prompt(value: object) -> bool:
+    prompt = _extract_text_candidate(value).casefold()
+    return (
+        prompt.startswith("generate a concise, single-line task title")
+        and "do not answer the request." in prompt
+        and "user prompt:" in prompt
+    )
+
+
+def _is_thread_title_generation_event(payload: dict[str, object]) -> bool:
+    event_type = _event_type(payload).strip().lower().replace("_", "-")
+    if event_type != "agent-turn-complete":
+        return False
+    return any(
+        _looks_like_thread_title_generation_prompt(message)
+        for message in _payload_input_messages(payload)
+    )
+
+
 def _sessions_root_path() -> Path:
     custom = _env("CODEX_NOTIFY_SESSIONS_DIR")
     if custom:
@@ -1282,6 +1301,12 @@ def main() -> int:
     event_type = _event_type(payload) or "unknown"
     thread_id = _payload_thread_id(payload) or _payload_session_id(payload) or "-"
     _log_line(f"payload_loaded event={event_type} thread_id={thread_id}")
+
+    if _is_thread_title_generation_event(payload):
+        _log_line(
+            f"run_skip reason=thread_title_generation event={event_type} thread_id={thread_id}"
+        )
+        return 0
 
     if _is_codex_acp_process_tree():
         _log_line(f"run_skip reason=codex_acp event={event_type} thread_id={thread_id}")
