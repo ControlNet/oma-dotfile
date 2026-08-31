@@ -1,11 +1,16 @@
-defaultThinkingLevel: high
-modelRoles: 
-  default: codex-api/gpt-5.6-sol:medium
-  smol: codex-api/gpt-5.6-luna
-  slow: codex-api/gpt-5.6-sol:high
-  plan: codex-api/gpt-5.6-sol:high
-  commit: codex-api/gpt-5.6-luna
-disabledProviders: 
+modelRoles:
+  default: codex_api/gpt-5.6-sol:high
+  slow: codex_api/gpt-5.6-sol:max
+  vision: codex_api/gpt-5.6-sol:medium
+  plan: codex_api/gpt-5.6-sol:xhigh
+  designer: codex_api/gpt-5.6-sol:high
+  commit: codex_api/gpt-5.6-sol:medium
+  advisor: codex_api/gpt-5.6-sol:high
+  task: codex_api/gpt-5.6-sol:high
+  smol: codex_api/gpt-5.6-luna:max
+  tiny: codex_api/gpt-5.6-luna:high
+disabledProviders:
+  - azure
   - claude
   - claude-plugins
   - codex
@@ -15,27 +20,55 @@ disabledProviders:
   - github
   - windsurf
   - vscode
-task: 
-  agentModelOverrides: 
-    designer: codex-api/gpt-5.6-sol:high
-skills:
-  enableCodexUser: false
-  enableClaudeUser: false
-  enableClaudeProject: false
-  enablePiUser: true
-  enablePiProject: true
-memories: 
+symbolPreset: unicode
+composer:
+  shape: band
+theme:
+  dark: titanium
+setupVersion: 2
+tui:
+  renderMermaid: true
+  codexResetFireworks: true
+  tight: false
+  imeSafeCursor: true
+display:
+  showTokenUsage: true
+  showTurnTime: true
+  cacheMissMarker: true
+task:
+  showResolvedModelBadge: true
+  eager: default
+statusLine:
+  preset: full
+  transparent: false
+  sessionAccent: true
+  compactThinkingLevel: false
+  showHookStatus: true
+defaultThinkingLevel: high
+tier:
+  openai: none
+  subagent: inherit
+personality: default
+retry:
+  maxRetries: 10
+  modelFallback: false
+advisor:
   enabled: false
-collapseChangelog: true
-commands: 
-  enableClaudeUser: false
-  enableClaudeProject: false
-  enableOpencodeUser: false
-  enableOpencodeProject: false
-providers: 
-  webSearch: auto
-  image: auto
-lsp: 
-  diagnosticsOnEdit: true
-ttsr: 
-  contextMode: discard
+steeringMode: one-at-a-time
+followUpMode: one-at-a-time
+interruptMode: immediate
+loop:
+  mode: prompt
+contextPromotion:
+  enabled: false
+memory:
+  backend: local
+autolearn:
+  enabled: true
+  autoContinue: false
+edit:
+  mode: hashline
+astGrep:
+  enabled: false
+github:
+  enabled: false

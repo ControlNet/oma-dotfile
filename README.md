@@ -93,9 +93,13 @@ If all `GOTIFY_NOTIFY_SUMMARIZER_MODEL`, `GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT`, an
 - `omp_models.yaml` -> `models.yml`
 - `omp-gotify-notify.js` -> `extensions/omp-gotify-notify.js`
 
+The custom model provider ID is `codex_api`. The shorter `codex` ID is reserved by oh-my-pi's built-in Codex discovery integrations. The repository config also disables oh-my-pi's bundled `azure` model provider; no Azure endpoint is configured.
+
 Before writing `models.yml`, installer replaces `baseUrl: CODEX_BASE_URL` with the real value from `CODEX_BASE_URL`.
 This is required because oh-my-pi does not auto-expand environment variables for `baseUrl`.
 If `CODEX_BASE_URL` is missing, the placeholder remains and installer prints a warning.
+
+The installer replaces `config.yml` with `omp_config.yml`. After making machine-local changes through oh-my-pi setup, update the repository template before running `pull.py` if those changes should be preserved.
 
 `omp-gotify-notify.js` is an oh-my-pi extension (built on official extension events), and can send Gotify notifications for:
 - full run completion (`agent_end`, uses the final assistant message)

@@ -1,54 +1,19 @@
-# Codex provider for oh-my-pi
+# OpenCode Codex gateway provider for oh-my-pi
 # Merge this under providers: in ~/.omp/agent/models.yml
 # See: https://github.com/can1357/oh-my-pi/blob/main/docs/models.md
 #
 # - apiKey: env var name (value resolved at runtime); set CODEX_API_KEY
 # - baseUrl: literal URL only (no env expansion); set to your CODEX_BASE_URL value
-# - api: openai-codex-responses is the Codex/Responses API (not openai-completions)
+# - provider id: codex_api avoids OMP's built-in codex discovery namespace
+# - api: openai-responses matches the OpenAI-compatible Responses endpoint
 
 providers:
-  codex-api:
+  codex_api:
     baseUrl: CODEX_BASE_URL
     apiKey: CODEX_API_KEY
     api: openai-responses
     authHeader: true
     models:
-      - id: gpt-5.1-codex-mini
-        name: GPT 5.1 Codex Mini (OAuth)
-        reasoning: true
-        input: [text, image]
-        cost:
-          input: 0.25
-          output: 2.0
-          cacheRead: 0.025
-          cacheWrite: 0
-        contextWindow: 400000
-        maxTokens: 128000
-
-      - id: gpt-5.2
-        name: GPT 5.2 (OAuth)
-        reasoning: true
-        input: [text, image]
-        cost:
-          input: 1.75
-          output: 14.0
-          cacheRead: 0.175
-          cacheWrite: 0
-        contextWindow: 272000
-        maxTokens: 128000
-
-      - id: gpt-5.3-codex
-        name: GPT 5.3 Codex (OAuth)
-        reasoning: true
-        input: [text, image]
-        cost:
-          input: 1.75
-          output: 14.0
-          cacheRead: 0.175
-          cacheWrite: 0
-        contextWindow: 272000
-        maxTokens: 128000
-
       - id: gpt-5.4
         name: GPT 5.4 (OAuth)
         reasoning: true
@@ -90,10 +55,10 @@ providers:
         reasoning: true
         input: [text, image]
         cost:
-          input: 0.2
+          input: 0.25
           output: 1.2
           cacheRead: 0.02
-          cacheWrite: 0.25
+          cacheWrite: 0
         contextWindow: 272000
         maxTokens: 128000
 
@@ -102,10 +67,10 @@ providers:
         reasoning: true
         input: [text, image]
         cost:
-          input: 2.0
+          input: 2.5
           output: 12.0
           cacheRead: 0.2
-          cacheWrite: 2.5
+          cacheWrite: 0
         contextWindow: 272000
         maxTokens: 128000
 
@@ -114,9 +79,9 @@ providers:
         reasoning: true
         input: [text, image]
         cost:
-          input: 5.0
+          input: 6.25
           output: 30.0
           cacheRead: 0.5
-          cacheWrite: 6.25
+          cacheWrite: 0
         contextWindow: 272000
         maxTokens: 128000
