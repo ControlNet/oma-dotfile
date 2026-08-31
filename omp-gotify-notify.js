@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -24,15 +25,21 @@ import path from "node:path";
 //   GOTIFY_NOTIFY_SUMMARIZER_MODEL
 //   GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT
 //   GOTIFY_NOTIFY_SUMMARIZER_API_KEY
-//   OMP_NOTIFY_SUMMARIZER_TIMEOUT_SEC default 120
+//   OMP_NOTIFY_SUMMARIZER_TIMEOUT_SEC default 8, maximum 8
 //   OMP_NOTIFY_SUMMARIZER_MAX_INPUT_CHARS default 5000
+//   OMP_NOTIFY_GOTIFY_TIMEOUT_SEC      default 5, maximum 5
+//   OMP_NOTIFY_LOG_FILE                default ~/.omp/logs/gotify-notify.log
 
 const DEFAULT_MAX_CHARS = 280;
 const DEFAULT_HEAD = 50;
 const DEFAULT_TAIL = 50;
 const DEFAULT_DEDUP_WINDOW_SEC = 15;
-const DEFAULT_SUMMARIZER_TIMEOUT_MS = 120_000;
+const DEFAULT_SUMMARIZER_TIMEOUT_MS = 8_000;
 const DEFAULT_SUMMARIZER_MAX_INPUT_CHARS = 5000;
+const DEFAULT_GOTIFY_TIMEOUT_MS = 5_000;
+const MAX_SUMMARIZER_TIMEOUT_MS = 8_000;
+const MAX_GOTIFY_TIMEOUT_MS = 5_000;
+const MAX_LOG_BYTES = 256 * 1024;
 
 function env(name, fallback = "") {
 	return String(process.env[name] ?? fallback).trim();
@@ -48,6 +55,11 @@ function envBool(name, fallback) {
 function envInt(name, fallback) {
 	const parsed = Number.parseInt(env(name), 10);
 	return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function requestTimeoutMs(name, fallbackMs, maximumMs) {
+	const seconds = Math.max(1, envInt(name, fallbackMs / 1000));
+	return Math.min(seconds * 1000, maximumMs);
 }
 
 function hostname() {
@@ -94,13 +106,30 @@ function preview(text, head, tail) {
 	return `${normalized.slice(0, head)}...${normalized.slice(-tail)}`;
 }
 
-function escapeMarkdown(text) {
-	const escapeSet = new Set(["\\", "`", "*", "_", "~", "[", "]", "(", ")", "#", "+", "-", ".", "!", ">", "|", "{", "}"]);
-	let out = "";
-	for (const ch of String(text || "")) {
-		out += escapeSet.has(ch) ? `\\${ch}` : ch;
+function logFilePath() {
+	return env("OMP_NOTIFY_LOG_FILE", path.join(os.homedir(), ".omp", "logs", "gotify-notify.log"));
+}
+
+function safeErrorName(error) {
+	if (error && typeof error === "object" && typeof error.name === "string") {
+		return normalizeText(error.name) || "Error";
 	}
-	return out;
+	return "Error";
+}
+
+function logDiagnostic(stage, detail) {
+	try {
+		const file = logFilePath();
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		if (fs.existsSync(file) && fs.statSync(file).size >= MAX_LOG_BYTES) {
+			fs.renameSync(file, `${file}.1`);
+		}
+		const safeStage = truncate(normalizeText(stage), 40);
+		const safeDetail = truncate(normalizeText(detail), 160);
+		fs.appendFileSync(file, `${new Date().toISOString()} ${safeStage} ${safeDetail}\n`, "utf8");
+	} catch {
+		// Logging must never affect the host runtime.
+	}
 }
 
 function extractAssistantText(message) {
@@ -169,7 +198,7 @@ function endpointJoin(base, suffix) {
 	return base.endsWith(suffix) ? base : `${base}${suffix}`;
 }
 
-async function postJSON(url, body, headers, timeoutMs) {
+async function postJSON(url, body, headers, timeoutMs, stage) {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), timeoutMs);
 	try {
@@ -182,10 +211,14 @@ async function postJSON(url, body, headers, timeoutMs) {
 			body: JSON.stringify(body),
 			signal: controller.signal,
 		});
-		if (!res.ok) return null;
+		if (!res.ok) {
+			logDiagnostic(stage, `HTTP ${res.status}`);
+			return null;
+		}
 		const json = await res.json().catch(() => null);
 		return json && typeof json === "object" ? json : null;
-	} catch {
+	} catch (error) {
+		logDiagnostic(stage, safeErrorName(error));
 		return null;
 	} finally {
 		clearTimeout(timeout);
@@ -200,11 +233,22 @@ function summarizerConfig() {
 	return { model, endpoint, apiKey };
 }
 
+function gotifyConfig() {
+	const base = normalizeBase(env("GOTIFY_URL"));
+	const token = env("GOTIFY_TOKEN_FOR_OMP") || env("GOTIFY_TOKEN_FOR_OPENCODE") || env("GOTIFY_TOKEN_FOR_CODEX");
+	if (!base || !token) return null;
+	return { base, token };
+}
+
 async function summarizeWithLLM(text) {
 	const config = summarizerConfig();
 	if (!config) return "";
 
-	const timeoutMs = Math.max(1, envInt("OMP_NOTIFY_SUMMARIZER_TIMEOUT_SEC", DEFAULT_SUMMARIZER_TIMEOUT_MS / 1000)) * 1000;
+	const timeoutMs = requestTimeoutMs(
+		"OMP_NOTIFY_SUMMARIZER_TIMEOUT_SEC",
+		DEFAULT_SUMMARIZER_TIMEOUT_MS,
+		MAX_SUMMARIZER_TIMEOUT_MS,
+	);
 	const maxInputChars = Math.max(1, envInt("OMP_NOTIFY_SUMMARIZER_MAX_INPUT_CHARS", DEFAULT_SUMMARIZER_MAX_INPUT_CHARS));
 	const clipped = truncate(normalizeText(text), maxInputChars);
 	if (!clipped) return "";
@@ -230,6 +274,7 @@ async function summarizeWithLLM(text) {
 		},
 		headers,
 		timeoutMs,
+		"summarizer.chat",
 	);
 	if (chatData) {
 		const out = extractOpenAIText(chatData);
@@ -246,6 +291,7 @@ async function summarizeWithLLM(text) {
 		},
 		headers,
 		timeoutMs,
+		"summarizer.responses",
 	);
 	if (!responsesData) return "";
 	const out = extractOpenAIText(responsesData);
@@ -253,25 +299,40 @@ async function summarizeWithLLM(text) {
 }
 
 async function pushGotify(title, message) {
-	const base = normalizeBase(env("GOTIFY_URL"));
-	const token = env("GOTIFY_TOKEN_FOR_OMP") || env("GOTIFY_TOKEN_FOR_OPENCODE") || env("GOTIFY_TOKEN_FOR_CODEX");
-	if (!base || !token || !message) return;
+	const config = gotifyConfig();
+	if (!config || !message) return false;
 
+	const controller = new AbortController();
+	const timeoutMs = requestTimeoutMs(
+		"OMP_NOTIFY_GOTIFY_TIMEOUT_SEC",
+		DEFAULT_GOTIFY_TIMEOUT_MS,
+		MAX_GOTIFY_TIMEOUT_MS,
+	);
+	const timeout = setTimeout(() => controller.abort(), timeoutMs);
 	try {
-		await fetch(`${base}/message`, {
+		const response = await fetch(`${config.base}/message`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				"X-Gotify-Key": token,
+				"X-Gotify-Key": config.token,
 			},
 			body: JSON.stringify({
 				title,
 				message,
 				priority: 5,
 			}),
+			signal: controller.signal,
 		});
-	} catch {
-		// Swallow errors; notifier must never break agent flow.
+		if (!response.ok) {
+			logDiagnostic("gotify", `HTTP ${response.status}`);
+			return false;
+		}
+		return true;
+	} catch (error) {
+		logDiagnostic("gotify", safeErrorName(error));
+		return false;
+	} finally {
+		clearTimeout(timeout);
 	}
 }
 
@@ -322,13 +383,14 @@ export default function OmpGotifyNotify(pi) {
 
 	async function send(sessionId, eventName, message, summarizeSource = "", cwd = "") {
 		if (!message) return;
+		if (!gotifyConfig()) return;
 		if (!shouldSend(sessionId, eventName, message)) return;
 
 		let finalMessage = message;
 		if (summarizeSource) {
 			const summary = await summarizeWithLLM(summarizeSource);
 			if (summary) {
-				finalMessage = `✅ ${escapeMarkdown(summary)}`;
+				finalMessage = `✅ ${summary}`;
 			}
 		}
 
@@ -348,6 +410,8 @@ export default function OmpGotifyNotify(pi) {
 
 	pi.on("agent_end", async (event, ctx) => {
 		try {
+			if (event?.willContinue) return;
+
 			const sessionId = String(ctx?.sessionManager?.getSessionId?.() || "-");
 			const cwd = await resolveContextCwd(ctx);
 			const message = findLastAssistantMessage(event?.messages);
@@ -356,10 +420,13 @@ export default function OmpGotifyNotify(pi) {
 				await send(sessionId, "agent_complete", "✅ Agent turn completed", "", cwd);
 				return;
 			}
+			if (message.stopReason === "aborted") return;
 
 			if (message.stopReason === "error") {
 				if (!notifyError) return;
-				await send(sessionId, "agent_error", "❌ Agent turn failed", "", cwd);
+				const reason = preview(message.errorMessage || "", head, tail);
+				const body = reason ? `❌ Agent turn failed: ${reason}` : "❌ Agent turn failed";
+				await send(sessionId, "agent_error", body, "", cwd);
 				return;
 			}
 
@@ -369,7 +436,7 @@ export default function OmpGotifyNotify(pi) {
 				await send(
 					sessionId,
 					"agent_complete",
-					`✅ ${escapeMarkdown(preview(assistantText, head, tail))}`,
+					`✅ ${preview(assistantText, head, tail)}`,
 					assistantText,
 					cwd,
 				);
@@ -381,31 +448,17 @@ export default function OmpGotifyNotify(pi) {
 		}
 	});
 
-	pi.on("tool_call", async (event, ctx) => {
+	pi.on("tool_execution_start", async (event, ctx) => {
 		try {
 			if (!notifyQuestion) return;
 			if (!event || event.toolName !== "ask") return;
 
 			const sessionId = String(ctx?.sessionManager?.getSessionId?.() || "-");
 			const cwd = await resolveContextCwd(ctx);
-			const question = extractAskQuestion(event.input);
-			const body = question ? `❓ ${escapeMarkdown(preview(question, head, tail))}` : "❓ Waiting for input";
-			await send(sessionId, "ask_waiting", body, "", cwd);
-		} catch {
-			// Never fail the host runtime due to notifier errors.
-		}
-	});
-
-	pi.on("auto_retry_end", async (event, ctx) => {
-		try {
-			if (!notifyError) return;
-			if (!event || event.success) return;
-
-			const sessionId = String(ctx?.sessionManager?.getSessionId?.() || "-");
-			const cwd = await resolveContextCwd(ctx);
-			const reason = normalizeText(event.finalError || "");
-			const body = reason ? `❌ Retry failed: ${escapeMarkdown(preview(reason, head, tail))}` : "❌ Retry failed";
-			await send(sessionId, "auto_retry_end", body, "", cwd);
+			const question = extractAskQuestion(event.args);
+			const body = question ? `❓ ${preview(question, head, tail)}` : "❓ Waiting for input";
+			const toolCallId = normalizeText(event.toolCallId || "unknown");
+			await send(sessionId, `ask_waiting:${toolCallId}`, body, "", cwd);
 		} catch {
 			// Never fail the host runtime due to notifier errors.
 		}

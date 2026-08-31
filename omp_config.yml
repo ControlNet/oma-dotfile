@@ -52,6 +52,12 @@ personality: default
 retry:
   maxRetries: 10
   modelFallback: false
+completion:
+  notify: off
+error:
+  notify: off
+ask:
+  notify: off
 advisor:
   enabled: false
 steeringMode: one-at-a-time

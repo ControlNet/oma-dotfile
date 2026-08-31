@@ -102,6 +102,7 @@ If `CODEX_BASE_URL` is missing, the placeholder remains and installer prints a w
 The installer replaces `config.yml` with `omp_config.yml`. After making machine-local changes through oh-my-pi setup, update the repository template before running `pull.py` if those changes should be preserved.
 
 `omp-gotify-notify.js` is an oh-my-pi extension (built on official extension events), and can send Gotify notifications for:
-- full run completion (`agent_end`, uses the final assistant message)
-- retry failure (`auto_retry_end`)
-- ask tool waiting for input (`tool_call` with `ask`)
+- terminal completion or error (`agent_end`, ignores automatic continuations and aborted turns)
+- ask tool waiting for input (`tool_execution_start` with `ask`)
+
+The extension is the sole OMP notification channel in the repository config, so OMP's native completion, error, and ask notifications are disabled. Summarizer requests are capped at 8 seconds per compatible route and Gotify delivery is capped at 5 seconds, keeping worst-case network waiting to about 21 seconds within OMP's 30-second extension-handler budget. Redacted delivery diagnostics are written to `~/.omp/logs/gotify-notify.log`.
