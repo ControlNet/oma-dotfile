@@ -718,6 +718,26 @@ def _is_thread_title_generation_event(payload: dict[str, object]) -> bool:
     )
 
 
+def _looks_like_conversation_recap_prompt(value: object) -> bool:
+    prompt = _extract_text_candidate(value).casefold()
+    # Codex's hidden recap turn inherits legacy notify (rust-v0.153.4).
+    return (
+        prompt.startswith("write a brief catch-up for a user returning to this codex task.")
+        and "in at most 40 words and one or two plain-text sentences" in prompt
+        and "recent conversation:" in prompt
+    )
+
+
+def _is_conversation_recap_event(payload: dict[str, object]) -> bool:
+    event_type = _event_type(payload).strip().lower().replace("_", "-")
+    if event_type != "agent-turn-complete":
+        return False
+    return any(
+        _looks_like_conversation_recap_prompt(message)
+        for message in _payload_input_messages(payload)
+    )
+
+
 def _sessions_root_path() -> Path:
     custom = _env("CODEX_NOTIFY_SESSIONS_DIR")
     if custom:
@@ -1305,6 +1325,12 @@ def main() -> int:
     if _is_thread_title_generation_event(payload):
         _log_line(
             f"run_skip reason=thread_title_generation event={event_type} thread_id={thread_id}"
+        )
+        return 0
+
+    if _is_conversation_recap_event(payload):
+        _log_line(
+            f"run_skip reason=conversation_recap event={event_type} thread_id={thread_id}"
         )
         return 0
 

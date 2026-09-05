@@ -82,6 +82,7 @@ python3 pull.py
 ```
 
 Current Codex `notify` payload is completion-focused (`agent-turn-complete`), so this hook notifies when a turn completes.
+Hidden title-generation and Conversation recap turns (automatic and manual `/recap`) are filtered by their fixed input prompt signatures before summarization or delivery. Recap remains available in Codex; skipped recap notifications log `run_skip reason=conversation_recap`. These signatures may need updating if Codex changes its internal prompts.
 Turns launched through `codex-acp` are filtered by inspecting the notify hook's ancestor process chain. Other Codex App Server clients remain eligible for notifications.
 Auto approval reviewer turns are filtered out by checking payload/session metadata for `model=codex-auto-review` or approval-reviewer markers. If Codex does not write session metadata for those turns, the hook falls back to scanning recent `~/.codex/log/codex-tui.log` lines for `model=codex-auto-review`. Override that path with `CODEX_NOTIFY_TUI_LOG_FILE` if needed.
 If all `GOTIFY_NOTIFY_SUMMARIZER_MODEL`, `GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT`, and `GOTIFY_NOTIFY_SUMMARIZER_API_KEY` are set, the hook asks the configured LLM for a one-line summary before sending to Gotify. If any one of them is missing, summarization is skipped and the preview fallback is used.
