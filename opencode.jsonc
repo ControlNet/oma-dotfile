@@ -22,7 +22,6 @@
       },
       "models": {
         "gpt-6-astra": {
-          "name": "GPT 6 Astra (OAuth)",
           "reasoning": true,
           "limit": {
             "context": 382000,
@@ -72,7 +71,6 @@
           }
         },
         "gpt-5.4": {
-          "name": "GPT 5.4 (OAuth)",
           "reasoning": true,
           "limit": {
             "context": 272000,
@@ -116,7 +114,6 @@
           }
         },
         "gpt-5.4-mini": {
-          "name": "GPT 5.4 Mini (OAuth)",
           "reasoning": true,
           "limit": {
             "context": 400000,
@@ -165,7 +162,6 @@
           }
         },
         "gpt-5.5": {
-          "name": "GPT 5.5 (OAuth)",
           "reasoning": true,
           "limit": {
             "context": 272000,
@@ -209,7 +205,6 @@
           }
         },
         "gpt-5.6-luna": {
-          "name": "GPT 5.6 Luna (OAuth)",
           "reasoning": true,
           "limit": {
             "context": 272000,
@@ -258,7 +253,6 @@
           }
         },
         "gpt-5.6-terra": {
-          "name": "GPT 5.6 Terra (OAuth)",
           "reasoning": true,
           "limit": {
             "context": 272000,
@@ -307,7 +301,6 @@
           }
         },
         "gpt-5.6-sol": {
-          "name": "GPT 5.6 Sol (OAuth)",
           "reasoning": true,
           "limit": {
             "context": 272000,

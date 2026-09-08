@@ -11,6 +11,7 @@ Env:
   CODEX_HOME=<optional override; used when CODEX_DIR is not set>
   OMP_AGENT_DIR=<optional override for ~/.omp/agent>
   PI_CODING_AGENT_DIR=<oh-my-pi native override; used when OMP_AGENT_DIR is not set>
+  TOKSCALE_CONFIG_DIR=<optional override for tokscale settings directory>
   NO_BACKUP=1 (optional)
 """
 
@@ -141,6 +142,18 @@ def get_omp_agent_dir() -> Path:
     return Path.home() / ".omp" / "agent"
 
 
+def get_tokscale_config_dir() -> Path:
+    """Follow Tokscale's platform defaults and native directory override."""
+    override = os.environ.get("TOKSCALE_CONFIG_DIR", "")
+    if override:
+        return Path(override)
+    if sys.platform == "win32" and os.environ.get("APPDATA"):
+        return Path(os.environ["APPDATA"]) / "tokscale"
+    if sys.platform != "darwin" and os.environ.get("XDG_CONFIG_HOME"):
+        return Path(os.environ["XDG_CONFIG_HOME"]) / "tokscale"
+    return Path.home() / ".config" / "tokscale"
+
+
 MAX_BACKUPS = max(1, int(os.environ.get("MAX_BACKUPS", "1")))
 
 OPENCODE_CONFIG_FILES = [
@@ -265,6 +278,42 @@ def backup_file_if_exists(path: Path, stamp: str) -> None:
     backup_path = path.with_suffix(f"{path.suffix}.bak-{stamp}")
     _ = shutil.copy2(path, backup_path)
     cleanup_old_backups(path)
+
+
+def install_tokscale_model_aliases(repo_path: Path, config_dir: Path, stamp: str) -> None:
+    """Merge managed aliases while preserving unrelated user settings."""
+    src = repo_path / "tokscale_model_alias.json"
+    dst = config_dir / "settings.json"
+    try:
+        aliases = json.loads(src.read_text(encoding="utf-8"))
+        if not isinstance(aliases, dict) or not all(
+            isinstance(key, str) and key.strip()
+            and isinstance(value, str) and value.strip()
+            for key, value in aliases.items()
+        ):
+            raise ValueError("Model aliases must be a non-empty-string mapping")
+        settings = json.loads(dst.read_text(encoding="utf-8")) if dst.exists() else {}
+        if not isinstance(settings, dict):
+            raise ValueError("Tokscale settings must be a JSON object")
+        existing = settings.get("modelAliases", {})
+        if not isinstance(existing, dict):
+            raise ValueError("Existing modelAliases must be a JSON object")
+        merged = {**existing, **aliases}
+        if existing == merged and "modelAliases" in settings:
+            info("Tokscale model aliases already configured; skip")
+            return
+        settings["modelAliases"] = merged
+        content = json.dumps(settings, indent=2, ensure_ascii=False) + "\n"
+    except (OSError, ValueError) as exc:
+        warn(f"Failed to load Tokscale aliases/settings ({type(exc).__name__}); leaving settings unchanged")
+        return
+
+    config_dir.mkdir(parents=True, exist_ok=True)
+    if dst.exists():
+        info(f"Updating {dst}; preserving unrelated settings (backup enabled: {not NO_BACKUP})")
+    backup_file_if_exists(dst, stamp)
+    _ = dst.write_text(content, encoding="utf-8")
+    success(f"Configured Tokscale model aliases: {dst}")
 
 
 def render_omp_models(content: str, codex_base_url: str) -> tuple[str, bool]:
@@ -493,7 +542,7 @@ def main():
         tmp_path = Path(tmp_dir)
         repo_path = tmp_path / REPO_NAME
 
-        info(f"[1/7] Cloning repository (branch/tag: {REPO_REV})...")
+        info(f"[1/8] Cloning repository (branch/tag: {REPO_REV})...")
         result = subprocess.run(
             [
                 "git",
@@ -523,16 +572,16 @@ def main():
         codex_dir.mkdir(parents=True, exist_ok=True)
         omp_agent_dir.mkdir(parents=True, exist_ok=True)
 
-        info(f"[2/7] Installing OpenCode config files to: {config_dir}")
+        info(f"[2/8] Installing OpenCode config files to: {config_dir}")
         install_opencode_config_files(repo_path, config_dir, stamp)
         rename_path_if_exists(config_dir / "opencode.json", stamp)
 
-        info(f"[3/7] Installing unified OMO config to: {omo_dir}")
+        info(f"[3/8] Installing unified OMO config to: {omo_dir}")
         install_omo_config(repo_path, omo_dir, stamp)
         retire_legacy_openagent_files(config_dir, stamp)
         retire_legacy_omo_files(omo_dir, stamp)
 
-        info("[4/7] Installing OpenCode plugins and skills...")
+        info("[4/8] Installing OpenCode plugins and skills...")
         for dir_name in ["plugins", "skills"]:
             src_dir = repo_path / dir_name
             dst_dir = config_dir / dir_name
@@ -540,7 +589,7 @@ def main():
                 print(f"         - {dir_name}/ (replace managed items)")
                 copy_directory_items_replace(src_dir, dst_dir)
 
-        info(f"[5/7] Installing oh-my-pi config files to: {omp_agent_dir}")
+        info(f"[5/8] Installing oh-my-pi config files to: {omp_agent_dir}")
         omp_config_files = [
             ("omp_config.yml", "config.yml"),
         ]
@@ -567,7 +616,7 @@ def main():
             print("         - omp_models.yaml (render CODEX_BASE_URL)")
             backup_and_install_omp_models(omp_models_src, omp_models_dst, stamp)
 
-        info(f"[6/7] Installing shared Codex assets to: {codex_dir}")
+        info(f"[6/8] Installing shared Codex assets to: {codex_dir}")
         codex_files = [
             ("_AGENTS.md", "AGENTS.md"),
             ("codex-gotify-notify.py", "codex-gotify-notify.py"),
@@ -585,8 +634,11 @@ def main():
             print("         - skills/ (merge)")
             copy_directory_merge(codex_skills_src, codex_skills_dst)
 
-        info("[7/7] Configuring Codex config")
+        info("[7/8] Configuring Codex config")
         ensure_codex_config(codex_dir, stamp)
+
+        info("[8/8] Configuring Tokscale model aliases")
+        install_tokscale_model_aliases(repo_path, get_tokscale_config_dir(), stamp)
 
     print()
     success("Installation complete!")
