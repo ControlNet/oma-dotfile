@@ -91,7 +91,6 @@ class TokscaleAliasesTests(unittest.TestCase):
         for model_id in models:
             for provider in ("openai", "codex", "codex_api", "omp"):
                 self.assertEqual(aliases[f"{provider}/{model_id}"], model_id)
-        self.assertEqual(aliases["GPT 5.6 Sol (OAuth)"], "gpt-5.6-sol")
         self.assertEqual(aliases["anthropic/claude-opus-4-6"], "claude-opus-4-6")
         self.assertTrue(all("/" not in value for value in aliases.values()))
 

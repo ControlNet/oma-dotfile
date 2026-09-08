@@ -92,8 +92,9 @@ If all `GOTIFY_NOTIFY_SUMMARIZER_MODEL`, `GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT`, an
 `tokscale_model_alias.json` is a flat mapping from reported model names to upstream
 model IDs, such as `codex_api/gpt-6-astra` -> `gpt-6-astra` and
 `azure_anthropic/claude-opus-4-6` -> `claude-opus-4-6`. It covers the current
-OpenCode/Codex/OMP GPT catalog, OAuth display labels, and provider-prefixed
-OpenAI/Anthropic model IDs observed in local reports. Unknown model identities
+OpenCode/Codex/OMP GPT catalog and provider-prefixed OpenAI/Anthropic model IDs
+observed in local reports. OAuth display labels are omitted because OpenCode now
+uses model IDs and local OMP reports already record model IDs. Unknown model identities
 are not guessed; add an explicit entry when another spelling appears.
 
 `pull.py` merges this mapping into `settings.json` under `modelAliases`. Unrelated
