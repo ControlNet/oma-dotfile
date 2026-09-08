@@ -1,7 +1,7 @@
 # Tokscale model aliases
 
 - Inspected local Tokscale 4.15.1 on 2026-09-08. It is available in the Bun package cache, although `tokscale` is not on this shell's PATH; `bunx tokscale` is the normal launcher.
-- `tokscale_model_alias.json` contains a flat alias-to-upstream-model-ID map. It covers the repository's OpenCode/OMP GPT catalog, OAuth display labels, and prefixed OpenAI/Anthropic IDs from the local usage report. Bare canonical IDs already group naturally. Unknown model identities are intentionally not inferred.
+- `tokscale_model_alias.json` contains a flat alias-to-upstream-model-ID map. It covers the repository's OpenCode/OMP GPT catalog and prefixed OpenAI/Anthropic IDs from the local usage report. Bare canonical IDs already group naturally. Unknown model identities are intentionally not inferred.
 - `pull.py` merges the map into `settings.json.modelAliases`; repository entries win identical-key collisions, unrelated aliases/settings survive, unchanged files are skipped, and existing backup controls apply. Invalid source/settings structures warn without overwriting the destination.
 - Config resolution follows `TOKSCALE_CONFIG_DIR`, Linux `XDG_CONFIG_HOME`, Windows `APPDATA`, and the default `~/.config/tokscale` on Linux/macOS.
 - Upstream inspected at commit `15516420f2b106750760f6e182559899f814e2dc`: https://github.com/junhoyeo/tokscale/blob/15516420f2b106750760f6e182559899f814e2dc/crates/tokscale-core/src/model_alias.rs
@@ -22,3 +22,7 @@ git diff --check
 ```
 
 Expected: 7 focused tests pass; JSON parses and no whitespace errors appear. The isolated staged snapshot passed all 15 Python tests plus `python3 -m py_compile pull.py`. The full working tree passed 30 tests, including unrelated, uncommitted Claude notification tests; those changes are excluded from this commit.
+
+## OAuth label cleanup (2026-09-09)
+
+Removed 70 obsolete OAuth display-name aliases, including provider-prefixed variants; retained all 150 model-ID aliases unchanged. OpenCode no longer configures model labels, and the observed OMP report uses model IDs. Updated the existing coverage test and README. The installer remains an additive merge: previously installed label aliases are harmless but are not automatically removed from user settings by this source-file cleanup.
