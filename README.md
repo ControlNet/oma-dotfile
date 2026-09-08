@@ -87,6 +87,60 @@ Turns launched through `codex-acp` are filtered by inspecting the notify hook's 
 Auto approval reviewer turns are filtered out by checking payload/session metadata for `model=codex-auto-review` or approval-reviewer markers. If Codex does not write session metadata for those turns, the hook falls back to scanning recent `~/.codex/log/codex-tui.log` lines for `model=codex-auto-review`. Override that path with `CODEX_NOTIFY_TUI_LOG_FILE` if needed.
 If all `GOTIFY_NOTIFY_SUMMARIZER_MODEL`, `GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT`, and `GOTIFY_NOTIFY_SUMMARIZER_API_KEY` are set, the hook asks the configured LLM for a one-line summary before sending to Gotify. If any one of them is missing, summarization is skipped and the preview fallback is used.
 
+## Tokscale model aliases
+
+`tokscale_model_alias.json` is a flat mapping from reported model names to upstream
+model IDs, such as `codex_api/gpt-6-astra` -> `gpt-6-astra` and
+`azure_anthropic/claude-opus-4-6` -> `claude-opus-4-6`. It covers the current
+OpenCode/Codex/OMP GPT catalog, OAuth display labels, and provider-prefixed
+OpenAI/Anthropic model IDs observed in local reports. Unknown model identities
+are not guessed; add an explicit entry when another spelling appears.
+
+`pull.py` merges this mapping into `settings.json` under `modelAliases`. Unrelated
+settings and local aliases are preserved; repository entries win for identical
+keys. Existing settings are backed up unless `NO_BACKUP=1`; unchanged settings
+are not rewritten. Invalid JSON or a non-object `modelAliases` is left untouched
+with a warning.
+
+The default directory is `~/.config/tokscale` on Linux/macOS and
+`%APPDATA%\tokscale` on Windows. `TOKSCALE_CONFIG_DIR` overrides it; Linux also
+honors `XDG_CONFIG_HOME`.
+
+To install only the aliases from this checkout using Python 3.11+ (standard
+library only):
+
+```bash
+python3 - <<'PY'
+from pathlib import Path
+import pull
+pull.install_tokscale_model_aliases(Path.cwd(), pull.get_tokscale_config_dir(), pull.timestamp())
+PY
+```
+
+Inspect a single row per model across clients and providers:
+
+```bash
+bunx tokscale models --light --group-by model
+```
+
+Aliases affect local report grouping only, preserving client/provider attribution,
+pricing totals, and exported/submitted model identities. Tokscale 4.15.1 gives
+OpenCode's configured `name` precedence over aliases. The repository therefore
+omits model-level `name` fields in `opencode.jsonc`, allowing model IDs and aliases
+to determine grouping. OpenCode's model picker also displays the IDs. Install the
+updated OpenCode configuration as well as the aliases for this change to take
+effect; installing only the aliases leaves existing local display names active.
+See the [upstream grouping implementation](https://github.com/junhoyeo/tokscale/blob/main/crates/tokscale-core/src/lib.rs).
+
+Verification (synthetic settings in temporary directories, no user settings changed):
+
+```bash
+python3 -m unittest discover -s tests -p 'test_tokscale_model_aliases.py'
+git diff --check
+```
+
+Expected: all tests pass and no whitespace errors.
+
 ## oh-my-pi support
 
 `pull.py` installs oh-my-pi config into `~/.omp/agent` (or `$OMP_AGENT_DIR`, fallback `$PI_CODING_AGENT_DIR`):
