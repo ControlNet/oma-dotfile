@@ -5,7 +5,15 @@ the Codex API model provider.
 
 Provider behavior:
 
-- Top-level `model_provider` is set to `"codex_api"`.
+- Source rechecked on 2026-09-09: injection requires a non-empty
+  `CODEX_BASE_URL` after stripping whitespace. It does not require checking
+  `CODEX_API_KEY` before modifying the provider configuration.
+- If `[model_providers.codex_api]` already exists, the top-level provider
+  selection is preserved, including an absent or commented-out assignment.
+  This treats an existing but unselected provider as manually disabled.
+- Top-level `model_provider` is set to `"codex_api"` only when the provider
+  section does not already exist. Existing section detection uses the same
+  stripped, exact section header as the section replacement helper.
 - `[model_providers.codex_api]` is created or replaced.
 - `base_url` is written from the current `CODEX_BASE_URL` environment variable.
 - `env_key` remains `"CODEX_API_KEY"` because Codex can resolve the API key from
@@ -14,7 +22,7 @@ Provider behavior:
 - If `CODEX_BASE_URL` is missing, provider injection is skipped with a warning;
   no hard-coded URL or placeholder is written into Codex config.
 
-Expected generated TOML fragment:
+Expected generated TOML fragment on first installation:
 
 ```toml
 model_provider = "codex_api"
@@ -45,7 +53,7 @@ with tempfile.TemporaryDirectory() as tmp:
     config = codex_dir / 'config.toml'
     config.write_text(
         'notify = ["old", "hook"]\n'
-        'model_provider = "old_provider"\n'
+        'model_provider = "codex_api"\n'
         'model = "keep-me"\n\n'
         '[model_providers.codex_api]\n'
         'name = "old"\n'
@@ -73,3 +81,15 @@ with tempfile.TemporaryDirectory() as tmp:
 print('codex provider and notify injection: ok')
 PY
 ```
+
+Regression verification (2026-09-09):
+
+```bash
+python3 -m unittest discover -s tests -p 'test_*.py'
+```
+
+Result: 18 tests passed. `tests/test_codex_provider_config.py` uses synthetic
+TOML and reserved test URLs, writes only temporary files, and covers absent,
+commented-out, alternative, and active top-level selections; nested profile
+selection; provider URL updates; repeat-run idempotence; first installation;
+and an empty URL. The three disabled-selection cases failed before the fix.
