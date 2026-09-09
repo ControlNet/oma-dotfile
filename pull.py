@@ -453,11 +453,15 @@ def ensure_codex_api_provider_config(lines: list[str]) -> list[str]:
         warn("CODEX_BASE_URL is not set; skip Codex model provider config in config.toml.")
         return lines
 
-    lines = ensure_top_level_config_line(
-        lines,
-        'model_provider = "codex_api"',
-        "model_provider",
+    provider_exists = any(
+        line.strip() == "[model_providers.codex_api]" for line in lines
     )
+    if not provider_exists:
+        lines = ensure_top_level_config_line(
+            lines,
+            'model_provider = "codex_api"',
+            "model_provider",
+        )
     return replace_toml_section(
         lines,
         "model_providers.codex_api",
