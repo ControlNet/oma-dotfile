@@ -16,7 +16,7 @@ SPEC.loader.exec_module(pull)
 
 
 class CodexProviderConfigTests(unittest.TestCase):
-    def test_existing_provider_preserves_top_level_choice(self) -> None:
+    def test_existing_provider_restores_api_selection(self) -> None:
         for selection in (
             "",
             '# model_provider = "codex_api"\n',
@@ -38,10 +38,9 @@ class CodexProviderConfigTests(unittest.TestCase):
                     pull.ensure_codex_config(directory, "provider-test")
                     first = config.read_text(encoding="utf-8")
                     pull.ensure_codex_config(directory, "provider-test")
-                # Then the choice, comments, and nested settings survive.
+                # Then API routing is restored and nested settings survive.
                 saved = tomllib.loads(first)
-                self.assertEqual(saved.get("model_provider"), tomllib.loads(original).get("model_provider"))
-                self.assertTrue(first.startswith(selection))
+                self.assertEqual(saved["model_provider"], "codex_api")
                 self.assertEqual(saved["profiles"]["work"]["model_provider"], "codex_api")
                 self.assertEqual(saved["model_providers"]["codex_api"]["base_url"], "https://example.test/v1")
                 self.assertIn("notify", saved)
