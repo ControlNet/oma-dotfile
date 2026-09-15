@@ -19,8 +19,10 @@ returning to API mode, and mode-specific Codex/OMP installation behavior.
 - OMP converts `codex_api/` selectors to `openai-codex/` and installs an empty
   custom catalog (`providers: {}`). Native model availability must be checked
   after login; there is no account-access guarantee for retained model IDs.
-- No extra --api flag was added. Running without --oauth restores the existing
-  API installation behavior. Mode selection is per invocation.
+- No extra --api flag was added. Running without --oauth restores OpenCode/OMO
+  and OMP API routing. Upstream commit 02827d6 preserves an existing Codex
+  selector; after --oauth, restore Codex by uncommenting its selector or use
+  `codex -c 'model_provider="codex_api"'` for one run.
 - Credentials are untouched; installed native routing does not enforce OAuth
   when another login method, profile, or explicit model override is selected.
 - Full Python stdlib suite: 41 tests passed, including 11 OAuth tests and an
@@ -136,3 +138,11 @@ home directory as a test. No third-party Python dependencies are needed.
 - https://github.com/can1357/oh-my-pi/blob/main/docs/models.md
 - Local OMP source: pi-ai/src/registry/openai-codex.ts and
   pi-coding-agent/src/config/model-registry.ts.
+
+## Publication integration
+
+Before pushing, upstream 02827d6 was integrated. Its Codex selection-preservation
+behavior takes precedence over the original API round-trip proposal. Regression
+tests assert that ordinary sync leaves the disabled Codex selector unchanged,
+while OpenCode/OMO and OMP return to gateway routing. Unrelated Claude changes
+were excluded from the OAuth commit.

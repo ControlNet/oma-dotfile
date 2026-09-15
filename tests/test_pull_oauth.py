@@ -52,7 +52,7 @@ class OAuthTests(unittest.TestCase):
             pull.ensure_codex_config(self.tmp, 'again', oauth=True)
             self.assertEqual(config.read_text(), before)
             pull.ensure_codex_config(self.tmp, 'api-again')
-            self.assertEqual(tomllib.loads(config.read_text())['model_provider'], 'codex_api')
+            self.assertNotIn('model_provider', tomllib.loads(config.read_text()))
         self.assertEqual(auth.read_text(), '{}')
 
     def test_opencode_preserves_existing_provider_with_jsonc(self):
@@ -152,7 +152,7 @@ class OAuthTests(unittest.TestCase):
             self.assertEqual((self.tmp / 'get_omp_agent_dir/models.yml').read_text(), 'providers: {}\n')
             pull.main([])
             codex = tomllib.loads((self.tmp / 'get_codex_dir/config.toml').read_text())
-            self.assertEqual(codex['model_provider'], 'codex_api')
+            self.assertNotIn('model_provider', codex)
             self.assertIn('"codex/', (self.tmp / '.omo/omo.jsonc').read_text())
             self.assertIn('codex_api/', (self.tmp / 'get_omp_agent_dir/config.yml').read_text())
 
