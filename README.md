@@ -2,7 +2,7 @@
 
 My opencode configurations.
 
-Linux/Mac:
+Default installation (third-party API mode), Linux/macOS:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ControlNet/oma-dotfile/master/pull.py | python3
 ```
@@ -12,12 +12,86 @@ Windows (PowerShell):
 (Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/ControlNet/oma-dotfile/master/pull.py' -UseBasicParsing).Content | python
 ```
 
+## Native OpenAI OAuth routing
+
+The installer defaults to the existing third-party API configuration. To select
+native OpenAI OAuth routing:
+
+```bash
+python3 pull.py --oauth
+```
+
+For a streamed installer, pass arguments after `-` (once the updated script is
+published to the selected remote revision):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ControlNet/oma-dotfile/master/pull.py | python3 - --oauth
+```
+
+Windows (PowerShell):
+
+```powershell
+(Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/ControlNet/oma-dotfile/master/pull.py' -UseBasicParsing).Content | python - --oauth
+```
+
+- Codex: comment an existing top-level `model_provider = "codex_api"` assignment.
+  If absent, add nothing. Preserve custom provider definitions, other provider
+  selections, and profiles. With no overriding selection, Codex uses `openai`.
+- OpenCode: preserve the existing `provider.codex` object, or leave it absent if
+  not configured. Other settings still sync from the template. OAuth rendering
+  accepts JSONC input and writes formatted JSON; comments are not retained in
+  this file. Legacy `opencode.json` provider settings are carried forward before
+  the existing installer retires that file to a backup.
+- OMO: replace `codex/` model prefixes with `openai/` in the installed
+  `~/.omo/omo.jsonc`, retaining model IDs and reasoning settings.
+- OMP: switch `codex_api/` selectors to `openai-codex/` and install
+  `providers: {}` in `models.yml` to use the native model catalog.
+
+OAuth mode does not require `CODEX_BASE_URL` or `CODEX_API_KEY`. It changes routing,
+not credentials: log in through each agent, and verify that the retained model
+IDs and reasoning levels are available to your account.
+
+```bash
+codex login
+codex login status
+opencode auth login --provider openai
+omp
+```
+
+In OpenCode choose ChatGPT authentication. Inside OMP run `/login openai-codex`.
+Existing explicit model selections, profiles, project overrides, and resumed
+sessions can override defaults. The Gotify summarizer uses its own configuration.
+OAuth mode neither forces a login method nor copies or rewrites credentials.
+
+To restore the third-party configuration, run the installer without `--oauth`
+with the gateway environment variables configured:
+
+```bash
+python3 pull.py
+```
+
+The mode is not persisted: each ordinary installation restores API routing.
+Existing backup settings apply. The installer always clones `REPO_REV` from GitHub,
+so local template changes are not used until available in that remote revision.
+
+Verification uses Python's standard library and synthetic configurations in
+temporary directories; it does not install into the real home directory:
+
+```bash
+python3 -m unittest discover -s tests -p 'test_pull_oauth.py'
+git diff --check
+```
+
+Expected: all OAuth installer tests pass and the diff check reports no whitespace errors.
+
+## Environment variables
+
 Recommended environment variables:
 - `OPENCODE_DISABLE_CLAUDE_CODE=1` (disable claude-code support for opencode)
 
 Optional environment variables:
-- `CODEX_BASE_URL` (with `/v1`, required if you want to use codex provider)
-- `CODEX_API_KEY` (required if you want to use codex provider)
+- `CODEX_BASE_URL` (with `/v1`, required for the third-party API provider; not required by `--oauth`)
+- `CODEX_API_KEY` (required for the third-party API provider; not required by `--oauth`)
 - `GITHUB_PERSONAL_ACCESS_TOKEN` (used for gh tools)
 - `NOTION_API_TOKEN` (used by the notion-api skill for Notion REST API calls)
 
@@ -54,10 +128,14 @@ It also retires obsolete `~/.omo/config.json[c]` and OpenCode-directory `oh-my-o
 - `skills/` (merge-copy, preserves unrelated existing skills)
 - `codex-gotify-notify.py`
 
-`pull.py` also configures `~/.codex/config.toml` with the Codex API provider and Gotify notify hook.
-It writes the current `CODEX_BASE_URL` value directly into `base_url` because Codex does not expand environment variables there.
+`pull.py` configures the Gotify notify hook in both modes. In default API mode,
+it also selects and configures the Codex API provider. With `--oauth`, it only
+comments an existing top-level `model_provider = "codex_api"` assignment and
+preserves the provider definition; it does not add a selector if one is absent.
 
-Generated provider config:
+In API mode, it writes the current `CODEX_BASE_URL` value directly into `base_url` because Codex does not expand environment variables there.
+
+Generated provider config in default API mode:
 
 ```toml
 model_provider = "codex_api"
@@ -151,11 +229,15 @@ Expected: all tests pass and no whitespace errors.
 
 The custom model provider ID is `codex_api`. The shorter `codex` ID is reserved by oh-my-pi's built-in Codex discovery integrations. The repository config also disables oh-my-pi's bundled `azure` model provider; no Azure endpoint is configured.
 
-Before writing `models.yml`, installer replaces `baseUrl: CODEX_BASE_URL` with the real value from `CODEX_BASE_URL`.
+In default API mode, before writing `models.yml`, the installer replaces `baseUrl: CODEX_BASE_URL` with the real value from `CODEX_BASE_URL`.
 This is required because oh-my-pi does not auto-expand environment variables for `baseUrl`.
 If `CODEX_BASE_URL` is missing, the placeholder remains and installer prints a warning.
 
-The installer replaces `config.yml` with `omp_config.yml`. After making machine-local changes through oh-my-pi setup, update the repository template before running `pull.py` if those changes should be preserved.
+With `--oauth`, the installer writes `providers: {}` to `models.yml` and changes
+all `codex_api/` model role prefixes to `openai-codex/` in `config.yml`.
+It skips gateway URL interpolation and uses OMP's native model catalog.
+
+The installer replaces `config.yml` with the selected rendering of `omp_config.yml`. After making machine-local changes through oh-my-pi setup, update the repository template before running `pull.py` if those changes should be preserved.
 
 `omp-gotify-notify.js` is an oh-my-pi extension (built on official extension events), and can send Gotify notifications for:
 - terminal completion or error (`agent_end`, ignores automatic continuations and aborted turns)

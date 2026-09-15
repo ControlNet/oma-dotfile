@@ -15,6 +15,7 @@ Env:
   NO_BACKUP=1 (optional)
 """
 
+import argparse
 import json
 import os
 import re
@@ -96,9 +97,11 @@ def timestamp() -> str:
     return datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
-def warn_missing_required_env_vars() -> None:
+def warn_missing_required_env_vars(oauth: bool = False) -> None:
     missing = [
-        name for name in REQUIRED_ENV_VARS if not os.environ.get(name, "").strip()
+        name for name in REQUIRED_ENV_VARS
+        if not (oauth and name in {"CODEX_BASE_URL", "CODEX_API_KEY"})
+        and not os.environ.get(name, "").strip()
     ]
     if not missing:
         info("All required environment variables are present")
@@ -206,19 +209,100 @@ def rename_path_if_exists(path: Path, stamp: str) -> None:
         cleanup_old_backups(path)
 
 
-def install_opencode_config_files(repo_path: Path, config_dir: Path, stamp: str) -> None:
+# Keep JSON strings intact while accepting JSONC comments and trailing commas.
+JSONC_TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|//[^\n]*|/\*.*?\*/', re.DOTALL)
+
+
+def read_jsonc_object(path: Path) -> dict:
+    content = JSONC_TOKEN.sub(
+        lambda match: match.group() if match.group().startswith('"') else " ",
+        path.read_text(encoding="utf-8"),
+    )
+    content = re.sub(
+        r'"(?:\\.|[^"\\])*"|,\s*(?=[}\]])',
+        lambda match: match.group() if match.group().startswith('"') else "",
+        content,
+    )
+    value = json.loads(content)
+    if not isinstance(value, dict):
+        raise ValueError(f"Expected a JSON object in {path}")
+    return value
+
+
+def install_rendered_text(content: str, dst: Path, stamp: str) -> None:
+    """Back up and install rendered configuration without rewriting identical files."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.exists() and dst.read_text(encoding="utf-8") == content:
+        return
+    backup_file_if_exists(dst, stamp)
+    dst.write_text(content, encoding="utf-8")
+
+
+def install_opencode_config_files(
+    repo_path: Path, config_dir: Path, stamp: str, oauth: bool = False
+) -> None:
     for src_name, dst_name in OPENCODE_CONFIG_FILES:
         src = repo_path / src_name
         dst = config_dir / dst_name
         if src.exists():
             print(f"         - {src_name}")
-            backup_and_install(src, dst, stamp)
+            if oauth and src_name == "opencode.jsonc":
+                document = read_jsonc_object(src)
+                providers = document.setdefault("provider", {})
+                providers.pop("codex", None)
+                # OpenCode loads JSON before JSONC; JSONC wins on conflicts.
+                existing_codex = {}
+                has_codex = False
+                for existing_path in (config_dir / "opencode.json", dst):
+                    if existing_path.exists():
+                        existing = read_jsonc_object(existing_path).get("provider", {})
+                        if not isinstance(existing, dict):
+                            raise ValueError(f"Expected provider object in {existing_path}")
+                        if "codex" in existing:
+                            if not isinstance(existing["codex"], dict):
+                                raise ValueError(f"Expected codex provider object in {existing_path}")
+                            existing_codex = merge_config_objects(existing_codex, existing["codex"])
+                            has_codex = True
+                if has_codex:
+                    providers["codex"] = existing_codex
+                install_rendered_text(json.dumps(document, indent=2, ensure_ascii=False) + "\n", dst, stamp)
+            else:
+                backup_and_install(src, dst, stamp)
 
 
-def install_omo_config(repo_path: Path, omo_dir: Path, stamp: str) -> None:
+def merge_config_objects(base: dict, override: dict) -> dict:
+    """Merge legacy JSON and JSONC provider objects in load order."""
+    result = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = merge_config_objects(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+def install_omo_config(
+    repo_path: Path, omo_dir: Path, stamp: str, oauth: bool = False
+) -> None:
     src = repo_path / "omo.jsonc"
     print("         - omo.jsonc")
-    backup_and_install(src, omo_dir / "omo.jsonc", stamp)
+    if oauth:
+        content = JSONC_TOKEN.sub(
+            lambda match: match.group().replace('"codex/', '"openai/', 1)
+            if match.group().startswith('"codex/') else match.group(),
+            src.read_text(encoding="utf-8"),
+        )
+        install_rendered_text(content, omo_dir / "omo.jsonc", stamp)
+    else:
+        backup_and_install(src, omo_dir / "omo.jsonc", stamp)
+
+
+def install_omp_config(src: Path, dst: Path, stamp: str, oauth: bool = False) -> None:
+    if oauth:
+        content = src.read_text(encoding="utf-8").replace("codex_api/", "openai-codex/")
+        install_rendered_text(content, dst, stamp)
+    else:
+        backup_and_install(src, dst, stamp)
 
 
 def retire_legacy_openagent_files(config_dir: Path, stamp: str) -> None:
@@ -328,8 +412,13 @@ def render_omp_models(content: str, codex_base_url: str) -> tuple[str, bool]:
     return rendered, count > 0
 
 
-def backup_and_install_omp_models(src: Path, dst: Path, stamp: str) -> None:
-    """Install models.yml for oh-my-pi and inline CODEX_BASE_URL."""
+def backup_and_install_omp_models(
+    src: Path, dst: Path, stamp: str, oauth: bool = False
+) -> None:
+    """Install native discovery or the configured gateway model catalog."""
+    if oauth:
+        install_rendered_text("providers: {}\n", dst, stamp)
+        return
     try:
         content = src.read_text(encoding="utf-8")
     except OSError as exc:
@@ -447,6 +536,19 @@ def replace_toml_section(lines: list[str], section_name: str, section_lines: lis
     return [*lines[:section_start], *section_lines, *lines[section_end:]]
 
 
+def ensure_codex_oauth_provider_config(lines: list[str]) -> list[str]:
+    """Comment the managed top-level gateway selector; preserve other settings."""
+    end = find_first_toml_section_idx(lines)
+    if end is None:
+        end = len(lines)
+    result = list(lines)
+    for idx in range(end):
+        if re.match(r"^\s*model_provider\s*=", lines[idx]):
+            if tomllib.loads(lines[idx]).get("model_provider") == "codex_api":
+                result[idx] = "# " + lines[idx]
+    return result
+
+
 def ensure_codex_api_provider_config(lines: list[str]) -> list[str]:
     codex_base_url = os.environ.get("CODEX_BASE_URL", "").strip()
     if not codex_base_url:
@@ -506,7 +608,7 @@ def ensure_codex_notify_config_lines(lines: list[str], codex_dir: Path) -> list[
     return [*lines[:insert_idx], desired_line, *lines[insert_idx:]]
 
 
-def ensure_codex_config(codex_dir: Path, stamp: str) -> None:
+def ensure_codex_config(codex_dir: Path, stamp: str, oauth: bool = False) -> None:
     config_path = codex_dir / "config.toml"
     if config_path.exists():
         try:
@@ -519,7 +621,8 @@ def ensure_codex_config(codex_dir: Path, stamp: str) -> None:
         lines = []
 
     new_lines = ensure_codex_notify_config_lines(lines, codex_dir)
-    new_lines = ensure_codex_api_provider_config(new_lines)
+    new_lines = (ensure_codex_oauth_provider_config(new_lines) if oauth
+                 else ensure_codex_api_provider_config(new_lines))
 
     if new_lines == lines:
         info("Codex config already configured; skip")
@@ -530,9 +633,17 @@ def ensure_codex_config(codex_dir: Path, stamp: str) -> None:
     success(f"Configured Codex config: {config_path}")
 
 
-def main():
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Sync agent configurations from GitHub.")
+    parser.add_argument("--oauth", action="store_true",
+                        help="Use native OpenAI OAuth routing; log in separately in each agent.")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None):
+    args = parse_args(argv)
     print(BANNER)
-    warn_missing_required_env_vars()
+    warn_missing_required_env_vars(oauth=args.oauth)
 
     config_dir = get_config_dir()
     omo_dir = Path.home() / ".omo"
@@ -577,11 +688,11 @@ def main():
         omp_agent_dir.mkdir(parents=True, exist_ok=True)
 
         info(f"[2/8] Installing OpenCode config files to: {config_dir}")
-        install_opencode_config_files(repo_path, config_dir, stamp)
+        install_opencode_config_files(repo_path, config_dir, stamp, oauth=args.oauth)
         rename_path_if_exists(config_dir / "opencode.json", stamp)
 
         info(f"[3/8] Installing unified OMO config to: {omo_dir}")
-        install_omo_config(repo_path, omo_dir, stamp)
+        install_omo_config(repo_path, omo_dir, stamp, oauth=args.oauth)
         retire_legacy_openagent_files(config_dir, stamp)
         retire_legacy_omo_files(omo_dir, stamp)
 
@@ -602,7 +713,7 @@ def main():
             dst = omp_agent_dir / dst_name
             if src.exists():
                 print(f"         - {src_name}")
-                backup_and_install(src, dst, stamp)
+                install_omp_config(src, dst, stamp, oauth=args.oauth)
 
         omp_extension_files = [
             ("omp-gotify-notify.js", "extensions/omp-gotify-notify.js"),
@@ -617,8 +728,9 @@ def main():
         omp_models_src = repo_path / "omp_models.yaml"
         omp_models_dst = omp_agent_dir / "models.yml"
         if omp_models_src.exists():
-            print("         - omp_models.yaml (render CODEX_BASE_URL)")
-            backup_and_install_omp_models(omp_models_src, omp_models_dst, stamp)
+            print("         - models.yml (native discovery)" if args.oauth
+                  else "         - omp_models.yaml (render CODEX_BASE_URL)")
+            backup_and_install_omp_models(omp_models_src, omp_models_dst, stamp, oauth=args.oauth)
 
         info(f"[6/8] Installing shared Codex assets to: {codex_dir}")
         codex_files = [
@@ -639,13 +751,17 @@ def main():
             copy_directory_merge(codex_skills_src, codex_skills_dst)
 
         info("[7/8] Configuring Codex config")
-        ensure_codex_config(codex_dir, stamp)
+        ensure_codex_config(codex_dir, stamp, oauth=args.oauth)
 
-        info("[8/8] Configuring Tokscale model aliases")
+        info(f"[8/8] Configuring Tokscale model aliases")
         install_tokscale_model_aliases(repo_path, get_tokscale_config_dir(), stamp)
 
     print()
     success("Installation complete!")
+    if args.oauth:
+        info("OAuth routing installed; model IDs and reasoning levels are unchanged.")
+        info("Log in with codex login, opencode auth login --provider openai, and OMP /login openai-codex.")
+        info("Check each agent's model list. Existing profiles, explicit model choices, and resumed sessions may override defaults.")
     info(f"Timestamp: {stamp}")
     if not NO_BACKUP:
         info(f"Backups: *.bak-{stamp} (keep last {MAX_BACKUPS} per file)")
