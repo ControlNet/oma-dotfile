@@ -19,10 +19,10 @@ returning to API mode, and mode-specific Codex/OMP installation behavior.
 - OMP converts `codex_api/` selectors to `openai-codex/` and installs an empty
   custom catalog (`providers: {}`). Native model availability must be checked
   after login; there is no account-access guarantee for retained model IDs.
-- No extra --api flag was added. Running without --oauth restores OpenCode/OMO
-  and OMP API routing. Upstream commit 02827d6 preserves an existing Codex
-  selector; after --oauth, restore Codex by uncommenting its selector or use
-  `codex -c 'model_provider="codex_api"'` for one run.
+- No extra --api flag was added. At the user's explicit request, running without
+  --oauth automatically restores API routing for all three agents. Codex reuses
+  its commented gateway selector, avoiding accumulation over repeated switches.
+  CODEX_BASE_URL must be set; otherwise the provider edit is skipped as before.
 - Credentials are untouched; installed native routing does not enforce OAuth
   when another login method, profile, or explicit model override is selected.
 - Full Python stdlib suite: 41 tests passed, including 11 OAuth tests and an
@@ -139,10 +139,12 @@ home directory as a test. No third-party Python dependencies are needed.
 - Local OMP source: pi-ai/src/registry/openai-codex.ts and
   pi-coding-agent/src/config/model-registry.ts.
 
-## Publication integration
+## Publication integration and subsequent correction
 
-Before pushing, upstream 02827d6 was integrated. Its Codex selection-preservation
-behavior takes precedence over the original API round-trip proposal. Regression
-tests assert that ordinary sync leaves the disabled Codex selector unchanged,
-while OpenCode/OMO and OMP return to gateway routing. Unrelated Claude changes
-were excluded from the OAuth commit.
+Upstream 02827d6 initially preserved an existing Codex selector. The user then
+explicitly requested automatic return to API mode, superseding that behavior.
+Tests cover API selection for both new and existing provider definitions,
+missing gateway URLs, OAuth -> API round trips, repeated switching without
+accumulating comments, and preservation of nested profile settings. README
+now documents fully automatic switching when gateway variables are configured.
+Unrelated Claude changes remain excluded from this work.

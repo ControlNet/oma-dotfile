@@ -1,3 +1,12 @@
+# Current mode-switching behavior
+
+The user explicitly requested automatic return to API mode after OAuth support
+was added. This supersedes the historical selection-preservation behavior below.
+With CODEX_BASE_URL set, ordinary installation selects codex_api even when the
+provider already exists. --oauth comments its top-level selector. Repeated
+switches reuse that selector, preserve nested profiles, and do not accumulate
+commented lines. Missing CODEX_BASE_URL still leaves provider configuration alone.
+
 # Codex API Provider Installer
 
 `pull.py` configures `~/.codex/config.toml` with both the Codex notify hook and

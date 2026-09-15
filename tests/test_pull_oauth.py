@@ -52,8 +52,19 @@ class OAuthTests(unittest.TestCase):
             pull.ensure_codex_config(self.tmp, 'again', oauth=True)
             self.assertEqual(config.read_text(), before)
             pull.ensure_codex_config(self.tmp, 'api-again')
-            self.assertNotIn('model_provider', tomllib.loads(config.read_text()))
+            self.assertEqual(tomllib.loads(config.read_text())['model_provider'], 'codex_api')
         self.assertEqual(auth.read_text(), '{}')
+
+    def test_codex_repeated_switches_do_not_accumulate_comments(self):
+        lines = ['model_provider = "codex_api" # gateway', '[profiles.work]',
+                 '# model_provider = "codex_api"']
+        with patch.dict(os.environ, {'CODEX_BASE_URL': 'https://example.invalid/v1'}):
+            for _ in range(3):
+                lines = pull.ensure_codex_oauth_provider_config(lines)
+                lines = pull.ensure_codex_api_provider_config(lines)
+                self.assertEqual(tomllib.loads('\n'.join(lines))['model_provider'], 'codex_api')
+                self.assertEqual(lines.count('model_provider = "codex_api"'), 1)
+                self.assertEqual(lines.count('# model_provider = "codex_api"'), 1)
 
     def test_opencode_preserves_existing_provider_with_jsonc(self):
         dst = self.tmp / 'opencode.jsonc'
@@ -152,7 +163,7 @@ class OAuthTests(unittest.TestCase):
             self.assertEqual((self.tmp / 'get_omp_agent_dir/models.yml').read_text(), 'providers: {}\n')
             pull.main([])
             codex = tomllib.loads((self.tmp / 'get_codex_dir/config.toml').read_text())
-            self.assertNotIn('model_provider', codex)
+            self.assertEqual(codex['model_provider'], 'codex_api')
             self.assertIn('"codex/', (self.tmp / '.omo/omo.jsonc').read_text())
             self.assertIn('codex_api/', (self.tmp / 'get_omp_agent_dir/config.yml').read_text())
 

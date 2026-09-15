@@ -63,7 +63,7 @@ Existing explicit model selections, profiles, project overrides, and resumed
 sessions can override defaults. The Gotify summarizer uses its own configuration.
 OAuth mode neither forces a login method nor copies or rewrites credentials.
 
-To restore the OpenCode/OMO and OMP third-party configuration, run the installer without `--oauth`
+To restore the third-party configuration for all three agents, run the installer without `--oauth`
 with the gateway environment variables configured:
 
 ```bash
@@ -71,13 +71,11 @@ python3 pull.py
 ```
 
 The flag applies per invocation. Ordinary installation restores API routing for
-OpenCode/OMO and OMP. Codex preserves an existing provider selection, including
-the commented selector left by `--oauth`. To restore Codex's third-party default,
-uncomment `model_provider = "codex_api"` in its user config. To use it for one run:
+Codex, OpenCode/OMO, and OMP. With `CODEX_BASE_URL` configured, Codex automatically
+reactivates `model_provider = "codex_api"`; no manual uncommenting is needed.
+If `CODEX_BASE_URL` is missing, Codex provider configuration remains unchanged
+and the installer prints a warning.
 
-```bash
-codex -c 'model_provider="codex_api"'
-```
 Existing backup settings apply. The installer always clones `REPO_REV` from GitHub,
 so local template changes are not used until available in that remote revision.
 
@@ -136,8 +134,8 @@ It also retires obsolete `~/.omo/config.json[c]` and OpenCode-directory `oh-my-o
 - `codex-gotify-notify.py`
 
 `pull.py` configures the Gotify notify hook in both modes. In default API mode,
-it configures the Codex API provider and selects it only when first creating
-that provider definition. Subsequent runs preserve the existing selection. With `--oauth`, it only
+it configures and selects the Codex API provider, including when switching back
+from OAuth mode. With `--oauth`, it only
 comments an existing top-level `model_provider = "codex_api"` assignment and
 preserves the provider definition; it does not add a selector if one is absent.
 
