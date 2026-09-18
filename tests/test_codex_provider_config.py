@@ -57,6 +57,7 @@ class CodexProviderConfigTests(unittest.TestCase):
                 saved = tomllib.loads("\n".join(lines))
                 self.assertEqual(saved["model_provider"], "codex_api")
                 self.assertEqual(saved["model_providers"]["codex_api"]["wire_api"], "responses")
+                self.assertEqual(saved["model_providers"]["codex_api"]["env_key"], "CODEX_API_TOKEN")
 
     def test_empty_base_url_preserves_configuration(self) -> None:
         # Given a disabled provider and no usable URL.

@@ -39,7 +39,7 @@ OMP_AGENT_DIR_ENV = os.environ.get("OMP_AGENT_DIR", "").strip()
 NO_BACKUP = os.environ.get("NO_BACKUP", "0") == "1"
 REQUIRED_ENV_VARS = [
     "CODEX_BASE_URL",
-    "CODEX_API_KEY",
+    "CODEX_API_TOKEN",
     "GITHUB_PERSONAL_ACCESS_TOKEN",
 ]
 
@@ -102,7 +102,7 @@ def timestamp() -> str:
 def warn_missing_required_env_vars(oauth: bool = False) -> None:
     missing = [
         name for name in REQUIRED_ENV_VARS
-        if not (oauth and name in {"CODEX_BASE_URL", "CODEX_API_KEY"})
+        if not (oauth and name in {"CODEX_BASE_URL", "CODEX_API_TOKEN"})
         and not os.environ.get(name, "").strip()
     ]
     if not missing:
@@ -618,7 +618,7 @@ def ensure_codex_api_provider_config(lines: list[str]) -> list[str]:
             "[model_providers.codex_api]",
             'name = "codex_api"',
             f"base_url = {json.dumps(codex_base_url)}",
-            'env_key = "CODEX_API_KEY"',
+            'env_key = "CODEX_API_TOKEN"',
             'wire_api = "responses"',
         ],
     )

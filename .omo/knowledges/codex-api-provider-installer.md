@@ -16,7 +16,7 @@ Provider behavior:
 
 - Source rechecked on 2026-09-09: injection requires a non-empty
   `CODEX_BASE_URL` after stripping whitespace. It does not require checking
-  `CODEX_API_KEY` before modifying the provider configuration.
+  `CODEX_API_TOKEN` before modifying the provider configuration.
 - If `[model_providers.codex_api]` already exists, the top-level provider
   selection is preserved, including an absent or commented-out assignment.
   This treats an existing but unselected provider as manually disabled.
@@ -25,7 +25,7 @@ Provider behavior:
   stripped, exact section header as the section replacement helper.
 - `[model_providers.codex_api]` is created or replaced.
 - `base_url` is written from the current `CODEX_BASE_URL` environment variable.
-- `env_key` remains `"CODEX_API_KEY"` because Codex can resolve the API key from
+- `env_key` remains `"CODEX_API_TOKEN"` because Codex can resolve the API token from
   the environment.
 - `wire_api` is set to `"responses"`.
 - If `CODEX_BASE_URL` is missing, provider injection is skipped with a warning;
@@ -39,7 +39,7 @@ model_provider = "codex_api"
 [model_providers.codex_api]
 name = "codex_api"
 base_url = "<CODEX_BASE_URL value>"
-env_key = "CODEX_API_KEY"
+env_key = "CODEX_API_TOKEN"
 wire_api = "responses"
 ```
 
@@ -82,7 +82,7 @@ with tempfile.TemporaryDirectory() as tmp:
     assert content.count('[model_providers.codex_api]') == 1, content
     assert 'name = "codex_api"' in content, content
     assert 'base_url = "https://example.test/v1"' in content, content
-    assert 'env_key = "CODEX_API_KEY"' in content, content
+    assert 'env_key = "CODEX_API_TOKEN"' in content, content
     assert 'wire_api = "responses"' in content, content
     assert 'base_url = "https://old.example/v1"' not in content, content
     assert 'model = "keep-me"' in content, content

@@ -2,7 +2,7 @@
 # Merge this under providers: in ~/.omp/agent/models.yml
 # See: https://github.com/can1357/oh-my-pi/blob/main/docs/models.md
 #
-# - apiKey: env var name (value resolved at runtime); set CODEX_API_KEY
+# - apiKey: env var name (value resolved at runtime); set CODEX_API_TOKEN
 # - baseUrl: literal URL only (no env expansion); set to your CODEX_BASE_URL value
 # - provider id: codex_api avoids OMP's built-in codex discovery namespace
 # - api: openai-responses matches the OpenAI-compatible Responses endpoint
@@ -10,7 +10,7 @@
 providers:
   codex_api:
     baseUrl: CODEX_BASE_URL
-    apiKey: CODEX_API_KEY
+    apiKey: CODEX_API_TOKEN
     api: openai-responses
     authHeader: true
     models:
