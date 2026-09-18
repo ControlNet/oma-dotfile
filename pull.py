@@ -685,7 +685,10 @@ WAKATIME_MARKETPLACE = "wakatime"
 WAKATIME_MARKETPLACE_SOURCE = "wakatime/codex-cli-wakatime"
 WAKATIME_MARKETPLACE_GIT_URL = "https://github.com/wakatime/codex-cli-wakatime.git"
 WAKATIME_PLUGIN_ID = f"codex-cli-wakatime@{WAKATIME_MARKETPLACE}"
-CODEX_PLUGIN_TIMEOUT = 300
+CLAUDE_WAKATIME_MARKETPLACE_SOURCE = "wakatime/claude-code-wakatime"
+CLAUDE_WAKATIME_MARKETPLACE_GIT_URL = "https://github.com/wakatime/claude-code-wakatime.git"
+CLAUDE_WAKATIME_PLUGIN_ID = f"claude-code-wakatime@{WAKATIME_MARKETPLACE}"
+PLUGIN_COMMAND_TIMEOUT = 300
 
 
 def get_wakatime_config_path() -> Path:
@@ -696,30 +699,50 @@ def get_wakatime_config_path() -> Path:
     return Path.home() / ".wakatime.cfg"
 
 
-def run_codex_plugin_command(args: list[str], codex_dir: Path) -> dict | None:
-    """Run a codex plugin subcommand under the installer's Codex home."""
-    env = {**os.environ, "CODEX_HOME": str(codex_dir)}
+def run_plugin_process(
+    command: list[str], env_var: str, config_dir: Path
+) -> subprocess.CompletedProcess[str] | None:
+    """Run an agent CLI command with its config directory pinned to the installer's."""
+    env = {**os.environ, env_var: str(config_dir)}
     try:
         result = subprocess.run(
-            ["codex", *args, "--json"],
+            command,
             capture_output=True,
             text=True,
             env=env,
             stdin=subprocess.DEVNULL,
-            timeout=CODEX_PLUGIN_TIMEOUT,
+            timeout=PLUGIN_COMMAND_TIMEOUT,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        warn(f"Failed to run codex {' '.join(args)}: {exc}")
+        warn(f"Failed to run {' '.join(command)}: {exc}")
         return None
     if result.returncode != 0:
         # Command output may contain tokens or local paths, so it is not printed.
-        warn(f"codex {' '.join(args)} failed with exit code {result.returncode}")
+        warn(f"{' '.join(command)} failed with exit code {result.returncode}")
+        return None
+    return result
+
+
+def run_plugin_command(command: list[str], env_var: str, config_dir: Path) -> bool:
+    """Run a plugin command whose success is reported only by its exit code."""
+    return run_plugin_process(command, env_var, config_dir) is not None
+
+
+def read_plugin_json(command: list[str], env_var: str, config_dir: Path) -> object | None:
+    """Run a plugin command that prints JSON and return the parsed document."""
+    result = run_plugin_process(command, env_var, config_dir)
+    if result is None:
         return None
     try:
-        document = json.loads(result.stdout)
+        return json.loads(result.stdout)
     except json.JSONDecodeError:
-        warn(f"Failed to parse JSON output of codex {' '.join(args)}")
+        warn(f"Failed to parse JSON output of {' '.join(command)}")
         return None
+
+
+def run_codex_plugin_command(args: list[str], codex_dir: Path) -> dict | None:
+    """Run a codex plugin subcommand under the installer's Codex home."""
+    document = read_plugin_json(["codex", *args, "--json"], "CODEX_HOME", codex_dir)
     return document if isinstance(document, dict) else None
 
 
@@ -732,7 +755,12 @@ def is_codex_wakatime_plugin_installed(codex_dir: Path) -> bool:
     for entry in document.get("installed", []):
         if not isinstance(entry, dict) or entry.get("pluginId") != WAKATIME_PLUGIN_ID:
             continue
-        return bool(entry.get("installed")) and bool(entry.get("enabled"))
+        if not entry.get("installed"):
+            return False
+        if not entry.get("enabled"):
+            # Respect a deliberate opt-out instead of re-enabling it on every run.
+            warn(f'{WAKATIME_PLUGIN_ID} is disabled; set enabled = true in config.toml')
+        return True
     return False
 
 
@@ -751,10 +779,11 @@ def ensure_codex_wakatime_marketplace(codex_dir: Path) -> bool:
                 "skip WakaTime plugin"
             )
             return False
-    added = run_codex_plugin_command(
-        ["plugin", "marketplace", "add", WAKATIME_MARKETPLACE_SOURCE], codex_dir
-    )
-    if added is None:
+    if not run_plugin_command(
+        ["codex", "plugin", "marketplace", "add", WAKATIME_MARKETPLACE_SOURCE, "--json"],
+        "CODEX_HOME",
+        codex_dir,
+    ):
         # Codex also keeps marketplace state under .tmp/marketplaces, so a stale
         # root fails the add without showing up in the marketplace listing.
         warn(f"Stale marketplace state? Try: codex plugin marketplace remove {WAKATIME_MARKETPLACE}")
@@ -762,21 +791,105 @@ def ensure_codex_wakatime_marketplace(codex_dir: Path) -> bool:
     return True
 
 
-def ensure_codex_wakatime_plugin(codex_dir: Path) -> None:
+def ensure_codex_wakatime_plugin(codex_dir: Path) -> bool:
     """Install the WakaTime plugin; Codex owns the marketplace and plugin state."""
     if shutil.which("codex") is None:
-        warn("codex not found on PATH; skip WakaTime plugin")
-        return
+        warn("codex not found on PATH; skip Codex WakaTime plugin")
+        return False
 
     if is_codex_wakatime_plugin_installed(codex_dir):
         info("Codex WakaTime plugin already installed; skip")
-    else:
-        if not ensure_codex_wakatime_marketplace(codex_dir):
-            return
-        if run_codex_plugin_command(["plugin", "add", WAKATIME_PLUGIN_ID], codex_dir) is None:
-            return
-        success(f"Installed Codex plugin: {WAKATIME_PLUGIN_ID}")
-        info("Approve the plugin hooks in the next Codex session to start tracking.")
+        return True
+
+    if not ensure_codex_wakatime_marketplace(codex_dir):
+        return False
+    if run_codex_plugin_command(["plugin", "add", WAKATIME_PLUGIN_ID], codex_dir) is None:
+        return False
+    success(f"Installed Codex plugin: {WAKATIME_PLUGIN_ID}")
+    info("Approve the plugin hooks in the next Codex session to start tracking.")
+    return True
+
+
+def is_claude_wakatime_plugin_installed(claude_config_dir: Path) -> bool:
+    document = read_plugin_json(
+        ["claude", "plugin", "list", "--json"], "CLAUDE_CONFIG_DIR", claude_config_dir
+    )
+    if not isinstance(document, list):
+        return False
+    for entry in document:
+        if not isinstance(entry, dict) or entry.get("id") != CLAUDE_WAKATIME_PLUGIN_ID:
+            continue
+        if not entry.get("enabled"):
+            # Respect a deliberate opt-out instead of re-enabling it on every run.
+            warn(f"{CLAUDE_WAKATIME_PLUGIN_ID} is disabled; run: "
+                 f"claude plugin enable {CLAUDE_WAKATIME_PLUGIN_ID}")
+        return True
+    return False
+
+
+def ensure_claude_wakatime_marketplace(claude_config_dir: Path) -> bool:
+    """Add the WakaTime marketplace, without replacing a differently sourced one."""
+    document = read_plugin_json(
+        ["claude", "plugin", "marketplace", "list", "--json"],
+        "CLAUDE_CONFIG_DIR",
+        claude_config_dir,
+    )
+    if isinstance(document, list):
+        for entry in document:
+            if not isinstance(entry, dict) or entry.get("name") != WAKATIME_MARKETPLACE:
+                continue
+            # Claude Code reports either the GitHub shorthand or the clone URL.
+            if entry.get("repo") == CLAUDE_WAKATIME_MARKETPLACE_SOURCE or \
+                    entry.get("url") == CLAUDE_WAKATIME_MARKETPLACE_GIT_URL:
+                return True
+            warn(
+                f"Claude Code marketplace '{WAKATIME_MARKETPLACE}' uses another source; "
+                "skip WakaTime plugin"
+            )
+            return False
+    # This subcommand has no JSON output, so only its exit code is checked.
+    return run_plugin_command(
+        ["claude", "plugin", "marketplace", "add", CLAUDE_WAKATIME_MARKETPLACE_SOURCE],
+        "CLAUDE_CONFIG_DIR",
+        claude_config_dir,
+    )
+
+
+def ensure_claude_wakatime_plugin(claude_config_dir: Path) -> bool:
+    """Install the WakaTime plugin; Claude Code owns the marketplace and plugin state."""
+    if shutil.which("claude") is None:
+        warn("claude not found on PATH; skip Claude Code WakaTime plugin")
+        return False
+
+    if is_claude_wakatime_plugin_installed(claude_config_dir):
+        info("Claude Code WakaTime plugin already installed; skip")
+        return True
+
+    if not ensure_claude_wakatime_marketplace(claude_config_dir):
+        return False
+    # No -y: a marketplace that starts declaring an install command should stop
+    # the installer instead of running that command unattended.
+    document = read_plugin_json(
+        ["claude", "plugin", "install", CLAUDE_WAKATIME_PLUGIN_ID, "--json"],
+        "CLAUDE_CONFIG_DIR",
+        claude_config_dir,
+    )
+    if not isinstance(document, dict) or document.get("outcome") != "ok":
+        warn(f"Failed to install {CLAUDE_WAKATIME_PLUGIN_ID}")
+        return False
+    success(f"Installed Claude Code plugin: {CLAUDE_WAKATIME_PLUGIN_ID}")
+    info("Restart Claude Code to load the plugin hooks.")
+    return True
+
+
+def ensure_wakatime_plugins(codex_dir: Path, claude_config_dir: Path) -> None:
+    """Install the WakaTime plugins; each agent CLI owns its own plugin state."""
+    installed = [
+        ensure_codex_wakatime_plugin(codex_dir),
+        ensure_claude_wakatime_plugin(claude_config_dir),
+    ]
+    if not any(installed):
+        return
 
     if shutil.which("node") is None:
         warn("node not found on PATH; the WakaTime plugin hooks require it")
@@ -908,8 +1021,8 @@ def main(argv: list[str] | None = None):
         info("[7/10] Configuring Codex config")
         ensure_codex_config(codex_dir, stamp, oauth=args.oauth)
 
-        info("[8/10] Installing Codex WakaTime plugin")
-        ensure_codex_wakatime_plugin(codex_dir)
+        info("[8/10] Installing WakaTime plugins for Codex and Claude Code")
+        ensure_wakatime_plugins(codex_dir, claude_config_dir)
 
         info(f"[9/10] Installing Claude Code plugin to: {claude_config_dir}")
         install_claude_plugin(repo_path, claude_config_dir, stamp)

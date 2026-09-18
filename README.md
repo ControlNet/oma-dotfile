@@ -175,41 +175,54 @@ Turns launched through `codex-acp` are filtered by inspecting the notify hook's 
 Auto approval reviewer turns are filtered out by checking payload/session metadata for `model=codex-auto-review` or approval-reviewer markers. If Codex does not write session metadata for those turns, the hook falls back to scanning recent `~/.codex/log/codex-tui.log` lines for `model=codex-auto-review`. Override that path with `CODEX_NOTIFY_TUI_LOG_FILE` if needed.
 If all `GOTIFY_NOTIFY_SUMMARIZER_MODEL`, `GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT`, and `GOTIFY_NOTIFY_SUMMARIZER_API_KEY` are set, the hook asks the configured LLM for a one-line summary before sending to Gotify. If any one of them is missing, summarization is skipped and the preview fallback is used.
 
-## Codex WakaTime plugin
+## WakaTime plugins
 
-`pull.py` installs the WakaTime plugin through the Codex CLI, so Codex keeps
-owning the marketplace, plugin, and hook-trust state:
+`pull.py` installs the WakaTime plugins through each agent's own CLI, so Codex
+and Claude Code keep owning their marketplace, plugin, and trust state:
 
 ```bash
 codex plugin marketplace add wakatime/codex-cli-wakatime
 codex plugin add codex-cli-wakatime@wakatime
+
+claude plugin marketplace add wakatime/claude-code-wakatime
+claude plugin install claude-code-wakatime@wakatime
 ```
 
-Both commands run with `CODEX_HOME` pinned to the installer's Codex directory
-and append only `[marketplaces.wakatime]` and
-`[plugins."codex-cli-wakatime@wakatime"]` to `config.toml`; existing sections and
-comments are preserved. The installer inspects `codex plugin list --json` first
-and skips the install when the plugin is already installed and enabled. If the
-`wakatime` marketplace name already points at a different source, it warns
-instead of replacing the source.
+Every command runs with `CODEX_HOME` or `CLAUDE_CONFIG_DIR` pinned to the
+installer's directory for that agent, with `stdin` closed; both CLIs are
+non-interactive and idempotent here.
 
-The step is skipped with a warning when `codex` is missing from `PATH`, and
-every failure is reported without aborting the rest of the installation. Two
+- Codex appends only `[marketplaces.wakatime]` and
+  `[plugins."codex-cli-wakatime@wakatime"]` to `config.toml`, preserving existing
+  sections and comments.
+- Claude Code merges `extraKnownMarketplaces` and `enabledPlugins` into
+  `settings.json`, preserving unrelated settings such as `hooks` and `model`.
+
+The installer inspects `codex plugin list --json` and `claude plugin list --json`
+first and skips an already installed plugin. A plugin that is installed but
+disabled is reported and left alone, so a deliberate opt-out is not undone on the
+next run. If the `wakatime` marketplace name already points at a different
+source, the installer warns instead of replacing it. `claude plugin install` runs
+without `-y`: a marketplace that starts declaring an install command stops the
+installer rather than running that command unattended.
+
+A missing `codex` or `claude` on `PATH` skips only that agent's plugin, and every
+failure is reported without aborting the rest of the installation. Three
 follow-ups stay manual:
-- The plugin hooks must be approved in the next Codex session before tracking starts.
+- Codex plugin hooks must be approved in the next Codex session before tracking starts.
+- Claude Code must be restarted to load the plugin hooks.
 - The API key belongs in `~/.wakatime.cfg` (or `$WAKATIME_HOME/.wakatime.cfg`); the
   installer only warns when that file is missing and never writes it.
 
-The plugin manages `wakatime-cli` under `~/.wakatime/` itself and logs to
-`~/.wakatime/codex-cli.log`. Its hooks run through `node`, so the installer warns
-when `node` is missing.
+Both plugins manage `wakatime-cli` under `~/.wakatime/` themselves and run their
+hooks through `node`, so the installer warns once when `node` is missing.
 
 ```bash
-python3 -m unittest discover -s tests -p 'test_codex_wakatime_plugin.py'
+python3 -m unittest discover -s tests -p 'test_wakatime_plugins.py'
 ```
 
-Expected: all WakaTime plugin installer tests pass. The tests mock the Codex CLI
-and never contact the marketplace.
+Expected: all WakaTime plugin installer tests pass. The tests mock both agent
+CLIs and never contact the marketplace.
 
 ## Claude Code support
 
