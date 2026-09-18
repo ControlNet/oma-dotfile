@@ -89,7 +89,52 @@ git diff --check
 
 Expected: all OAuth installer tests pass and the diff check reports no whitespace errors.
 
+## Conditional installation
+
+`pull.py` installs a target's configuration only when that agent is actually installed on
+the machine. A skipped step creates no directory, so a Codex-only machine no longer ends up
+with an empty `~/.config/opencode` or `~/.omp/agent`.
+
+| Target | Steps | Detected by |
+|---|---|---|
+| OpenCode/OMO | OpenCode config, OMO config, plugins and skills | `opencode` executable |
+| oh-my-pi | oh-my-pi config, extensions, models | `omp` executable |
+| Codex | shared Codex assets, `config.toml` | `codex` executable |
+| Claude Code | managed Claude Code plugin | `claude` executable |
+| Tokscale | model aliases | `~/.config/tokscale` (or `$TOKSCALE_CONFIG_DIR`) exists |
+
+OMO has no executable of its own; it is a plugin layer that requires OpenCode, so the
+`opencode` executable gates its configuration too. The WakaTime step installs each plugin
+behind its own agent: the Codex plugin when Codex is installed, the Claude Code plugin when
+Claude Code is installed.
+
+Detection checks `PATH` first, then per-user bin directories that a non-interactive shell
+often omits (`~/.opencode/bin`, `~/.bun/bin`, `~/.local/bin`, `~/.npm-global/bin`, and
+`~/.nvm/versions/node/*/bin`).
+
+Tokscale ships no CLI, so its configuration directory is the signal. Once that directory
+exists — including after a forced run created it — Tokscale counts as installed.
+
+To install everything regardless of detection, for example to pre-seed a machine before
+installing the agents:
+
+```bash
+python3 pull.py --all
+curl -fsSL https://raw.githubusercontent.com/ControlNet/oma-dotfile/master/pull.py | python3 - --all
+INSTALL_ALL=1 python3 pull.py
+```
+
+```bash
+python3 -m unittest discover -s tests -p 'test_target_detection.py'
+```
+
+Expected: all detection and gating tests pass. They use synthetic `PATH`s and temporary
+home directories and never touch real agent configuration.
+
 ## Environment variables
+
+Installer environment variables:
+- `INSTALL_ALL=1` (install every target without detecting agents; same as `--all`)
 
 Recommended environment variables:
 - `OPENCODE_DISABLE_CLAUDE_CODE=1` (disable claude-code support for opencode)
