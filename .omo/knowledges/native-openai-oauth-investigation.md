@@ -7,6 +7,10 @@ is now implemented and covered by `tests/test_pull_oauth.py`. README.md document
 local and streamed invocation on Linux/macOS and PowerShell, authentication,
 returning to API mode, and mode-specific Codex/OMP installation behavior.
 
+- Streamed Linux/macOS invocation passes script arguments after Python's stdin
+  script marker: `curl -fsSL https://raw.githubusercontent.com/ControlNet/oma-dotfile/master/pull.py | python3 - --oauth`.
+  For a local checkout, use `python3 pull.py --oauth`.
+
 - Codex comments only an existing top-level `model_provider = "codex_api"`
   assignment. It adds no provider selector when absent, and preserves other
   provider selections, definitions, and profile settings.

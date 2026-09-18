@@ -105,13 +105,17 @@ Other optional environment variables:
 - `GOTIFY_TOKEN_FOR_OPENCODE` (used for gotify notifications)
   - `GOTIFY_TOKEN_FOR_CODEX` (optional; if missing, Codex notify falls back to `GOTIFY_TOKEN_FOR_OPENCODE`)
   - `GOTIFY_TOKEN_FOR_OMP` (optional; if missing, OMP notify falls back to `GOTIFY_TOKEN_FOR_OPENCODE`/`GOTIFY_TOKEN_FOR_CODEX`)
-- `OPENCODE_NOTIFY_TITLE`, `CODEX_NOTIFY_TITLE`, `OMP_NOTIFY_TITLE` (optional; override the default Gotify title format `<Agent> :: <project>@<hostname>`)
+  - `GOTIFY_TOKEN_FOR_CLAUDE` (optional; if missing, Claude Code notify falls back to the other Gotify tokens)
+- `OPENCODE_NOTIFY_TITLE`, `CODEX_NOTIFY_TITLE`, `OMP_NOTIFY_TITLE`, `CLAUDE_NOTIFY_TITLE` (optional; override the default Gotify title format `<Agent> :: <project>@<hostname>`)
 - `GOTIFY_NOTIFY_SUMMARIZER_MODEL` (e.g., `gpt-5-nano`)
 - `GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT` (OpenAI-compatible endpoint, e.g., `https://api.openai.com/v1`)
 - `GOTIFY_NOTIFY_SUMMARIZER_API_KEY` (API key used by summarizer requests)
 
 Codex notify hook execution logs are written to:
 - `~/.codex/log/gotify-notify.log`
+
+Claude Code notify hook execution logs are written to:
+- `~/.claude/logs/gotify-notify.log` (or `$CLAUDE_CONFIG_DIR/logs/gotify-notify.log`)
 
 ## OpenCode support
 
@@ -170,6 +174,26 @@ Hidden title-generation and Conversation recap turns (automatic and manual `/rec
 Turns launched through `codex-acp` are filtered by inspecting the notify hook's ancestor process chain. Other Codex App Server clients remain eligible for notifications.
 Auto approval reviewer turns are filtered out by checking payload/session metadata for `model=codex-auto-review` or approval-reviewer markers. If Codex does not write session metadata for those turns, the hook falls back to scanning recent `~/.codex/log/codex-tui.log` lines for `model=codex-auto-review`. Override that path with `CODEX_NOTIFY_TUI_LOG_FILE` if needed.
 If all `GOTIFY_NOTIFY_SUMMARIZER_MODEL`, `GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT`, and `GOTIFY_NOTIFY_SUMMARIZER_API_KEY` are set, the hook asks the configured LLM for a one-line summary before sending to Gotify. If any one of them is missing, summarization is skipped and the preview fallback is used.
+
+## Claude Code support
+
+`pull.py` installs the managed Claude Code plugin into `~/.claude/skills/gotify-notify` (or `$CLAUDE_CONFIG_DIR/skills/gotify-notify`). The installer replaces only that directory and preserves `settings.json`, unrelated skills, and other plugins. Claude Code loads personal skills-directory plugins in place; no marketplace installation is required.
+
+The plugin sends Gotify notifications for:
+- main-agent response end (`Stop`)
+- API failures ending a turn (`StopFailure`)
+- permission prompts and MCP input dialogs (`Notification`)
+- `AskUserQuestion` input requests (`PreToolUse`)
+
+Subagent completion notifications are disabled by default, and response-end notifications are skipped while Claude reports background tasks or scheduled wakeups. Enable subagent notifications with `CLAUDE_NOTIFY_SUBAGENT=true`. Other event toggles are `CLAUDE_NOTIFY_COMPLETE`, `CLAUDE_NOTIFY_ERROR`, `CLAUDE_NOTIFY_PERMISSION`, and `CLAUDE_NOTIFY_QUESTION`; each is enabled by default.
+
+After installing or updating the plugin, start a new Claude Code session or run `/reload-plugins`. To disable it without deleting files:
+
+```bash
+claude plugin disable gotify-notify@skills-dir
+```
+
+The handler uses Python's standard library, bounds network timeouts, redacts diagnostics, and deduplicates concurrent hook deliveries through `$CLAUDE_CONFIG_DIR/gotify-notify/state.sqlite3`. Credentials are read only from environment variables; do not store them in repository files.
 
 ## Tokscale model aliases
 
