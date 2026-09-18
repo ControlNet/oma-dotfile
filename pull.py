@@ -9,6 +9,7 @@ Env:
   CONFIG_DIR=<optional override>
   CODEX_DIR=<optional override>
   CODEX_HOME=<optional override; used when CODEX_DIR is not set>
+  CLAUDE_CONFIG_DIR=<optional override for ~/.claude>
   OMP_AGENT_DIR=<optional override for ~/.omp/agent>
   PI_CODING_AGENT_DIR=<oh-my-pi native override; used when OMP_AGENT_DIR is not set>
   TOKSCALE_CONFIG_DIR=<optional override for tokscale settings directory>
@@ -33,6 +34,7 @@ REPO_NAME = os.environ.get("REPO_NAME", "oma-dotfile")
 REPO_REV = os.environ.get("REPO_REV", "master")
 CONFIG_DIR_ENV = os.environ.get("CONFIG_DIR", "")
 CODEX_DIR_ENV = os.environ.get("CODEX_DIR", "")
+CLAUDE_CONFIG_DIR_ENV = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
 OMP_AGENT_DIR_ENV = os.environ.get("OMP_AGENT_DIR", "").strip()
 NO_BACKUP = os.environ.get("NO_BACKUP", "0") == "1"
 REQUIRED_ENV_VARS = [
@@ -133,6 +135,13 @@ def get_codex_dir() -> Path:
     if codex_home:
         return Path(codex_home)
     return Path.home() / ".codex"
+
+
+def get_claude_config_dir() -> Path:
+    """Determine Claude Code's user-level configuration directory."""
+    if CLAUDE_CONFIG_DIR_ENV:
+        return Path(CLAUDE_CONFIG_DIR_ENV).expanduser()
+    return Path.home() / ".claude"
 
 
 def get_omp_agent_dir() -> Path:
@@ -354,6 +363,37 @@ def copy_directory_items_replace(src_dir: Path, dst_dir: Path) -> None:
             _ = shutil.copytree(entry, target)
         else:
             _ = shutil.copy2(entry, target)
+
+
+def install_claude_plugin(
+    repo_path: Path, claude_config_dir: Path, _stamp: str
+) -> None:
+    """Install the managed Claude Code plugin without touching other skills."""
+    src_dir = repo_path / "claude-plugins" / "gotify-notify"
+    dst_dir = claude_config_dir / "skills" / "gotify-notify"
+    if not src_dir.is_dir():
+        warn(f"Source directory not found: {src_dir}")
+        return
+
+    copy_directory(src_dir, dst_dir)
+
+    hooks_path = dst_dir / "hooks" / "hooks.json"
+    try:
+        hooks_document = json.loads(hooks_path.read_text(encoding="utf-8"))
+        for event_entries in hooks_document["hooks"].values():
+            for event_entry in event_entries:
+                for hook in event_entry["hooks"]:
+                    if hook.get("type") == "command":
+                        hook["command"] = sys.executable or "python3"
+        _ = hooks_path.write_text(
+            json.dumps(hooks_document, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+    except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
+        warn(f"Failed to render Claude Code hooks: {exc}")
+        return
+
+    success(f"Installed Claude Code plugin: {dst_dir}")
 
 
 def backup_file_if_exists(path: Path, stamp: str) -> None:
@@ -655,6 +695,7 @@ def main(argv: list[str] | None = None):
     config_dir = get_config_dir()
     omo_dir = Path.home() / ".omo"
     codex_dir = get_codex_dir()
+    claude_config_dir = get_claude_config_dir()
     omp_agent_dir = get_omp_agent_dir()
     stamp = timestamp()
 
@@ -664,7 +705,7 @@ def main(argv: list[str] | None = None):
         tmp_path = Path(tmp_dir)
         repo_path = tmp_path / REPO_NAME
 
-        info(f"[1/8] Cloning repository (branch/tag: {REPO_REV})...")
+        info(f"[1/9] Cloning repository (branch/tag: {REPO_REV})...")
         result = subprocess.run(
             [
                 "git",
@@ -692,18 +733,19 @@ def main(argv: list[str] | None = None):
         config_dir.mkdir(parents=True, exist_ok=True)
         omo_dir.mkdir(parents=True, exist_ok=True)
         codex_dir.mkdir(parents=True, exist_ok=True)
+        claude_config_dir.mkdir(parents=True, exist_ok=True)
         omp_agent_dir.mkdir(parents=True, exist_ok=True)
 
-        info(f"[2/8] Installing OpenCode config files to: {config_dir}")
+        info(f"[2/9] Installing OpenCode config files to: {config_dir}")
         install_opencode_config_files(repo_path, config_dir, stamp, oauth=args.oauth)
         rename_path_if_exists(config_dir / "opencode.json", stamp)
 
-        info(f"[3/8] Installing unified OMO config to: {omo_dir}")
+        info(f"[3/9] Installing unified OMO config to: {omo_dir}")
         install_omo_config(repo_path, omo_dir, stamp, oauth=args.oauth)
         retire_legacy_openagent_files(config_dir, stamp)
         retire_legacy_omo_files(omo_dir, stamp)
 
-        info("[4/8] Installing OpenCode plugins and skills...")
+        info("[4/9] Installing OpenCode plugins and skills...")
         for dir_name in ["plugins", "skills"]:
             src_dir = repo_path / dir_name
             dst_dir = config_dir / dir_name
@@ -711,7 +753,7 @@ def main(argv: list[str] | None = None):
                 print(f"         - {dir_name}/ (replace managed items)")
                 copy_directory_items_replace(src_dir, dst_dir)
 
-        info(f"[5/8] Installing oh-my-pi config files to: {omp_agent_dir}")
+        info(f"[5/9] Installing oh-my-pi config files to: {omp_agent_dir}")
         omp_config_files = [
             ("omp_config.yml", "config.yml"),
         ]
@@ -739,7 +781,7 @@ def main(argv: list[str] | None = None):
                   else "         - omp_models.yaml (render CODEX_BASE_URL)")
             backup_and_install_omp_models(omp_models_src, omp_models_dst, stamp, oauth=args.oauth)
 
-        info(f"[6/8] Installing shared Codex assets to: {codex_dir}")
+        info(f"[6/9] Installing shared Codex assets to: {codex_dir}")
         codex_files = [
             ("_AGENTS.md", "AGENTS.md"),
             ("codex-gotify-notify.py", "codex-gotify-notify.py"),
@@ -757,10 +799,13 @@ def main(argv: list[str] | None = None):
             print("         - skills/ (merge)")
             copy_directory_merge(codex_skills_src, codex_skills_dst)
 
-        info("[7/8] Configuring Codex config")
+        info("[7/9] Configuring Codex config")
         ensure_codex_config(codex_dir, stamp, oauth=args.oauth)
 
-        info(f"[8/8] Configuring Tokscale model aliases")
+        info(f"[8/9] Installing Claude Code plugin to: {claude_config_dir}")
+        install_claude_plugin(repo_path, claude_config_dir, stamp)
+
+        info(f"[9/9] Configuring Tokscale model aliases")
         install_tokscale_model_aliases(repo_path, get_tokscale_config_dir(), stamp)
 
     print()
