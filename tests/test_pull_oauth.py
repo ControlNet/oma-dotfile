@@ -145,7 +145,7 @@ class OAuthTests(unittest.TestCase):
                 self.enterContext(patch.object(pull, name))
         # The Codex CLI is never invoked here; the fake clone below answers every
         # subprocess call and would misread the plugin command arguments.
-        wakatime = self.enterContext(patch.object(pull, 'ensure_codex_wakatime_plugin'))
+        wakatime = self.enterContext(patch.object(pull, 'ensure_wakatime_plugins'))
 
         def clone(command, **kwargs):
             destination = Path(command[-1])
@@ -164,7 +164,8 @@ class OAuthTests(unittest.TestCase):
             self.assertNotIn('"codex/', (self.tmp / '.omo/omo.jsonc').read_text())
             self.assertNotIn('codex_api/', (self.tmp / 'get_omp_agent_dir/config.yml').read_text())
             self.assertEqual((self.tmp / 'get_omp_agent_dir/models.yml').read_text(), 'providers: {}\n')
-            wakatime.assert_called_with(self.tmp / 'get_codex_dir')
+            wakatime.assert_called_with(self.tmp / 'get_codex_dir',
+                                        self.tmp / 'get_claude_config_dir')
             pull.main([])
             codex = tomllib.loads((self.tmp / 'get_codex_dir/config.toml').read_text())
             self.assertEqual(codex['model_provider'], 'codex_api')

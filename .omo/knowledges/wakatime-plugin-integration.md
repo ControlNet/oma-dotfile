@@ -1,4 +1,4 @@
-# Codex WakaTime Plugin Integration Notes
+# WakaTime Plugin Integration Notes
 
 Investigated on 2026-09-18.
 
@@ -67,3 +67,35 @@ References:
 - https://learn.chatgpt.com/docs/plugins
 - https://github.com/wakatime/codex-cli-wakatime/blob/main/README.md
 - https://github.com/openai/codex/blob/main/codex-rs/cli/src/plugin_cmd.rs
+
+## Claude Code CLI behavior (investigated 2026-09-18)
+
+- `claude plugin marketplace add wakatime/claude-code-wakatime` and
+  `claude plugin install claude-code-wakatime@wakatime` are non-interactive with
+  `stdin` closed, and idempotent (`already on disk`, `already installed`, exit 0).
+- `CLAUDE_CONFIG_DIR` is honored by both commands.
+- `claude plugin install` supports `--json`; `claude plugin marketplace add` does
+  **not**, so only its exit code can be checked.
+- `claude plugin list --json` and `claude plugin marketplace list --json` return
+  JSON arrays, unlike the Codex equivalents which return objects.
+- `marketplace list --json` reports either `{"source":"github","repo":...}` or
+  `{"source":"git","url":...}` depending on how the marketplace was added, so the
+  identity check must accept both.
+- Marketplace and plugin state lands in `settings.json` under
+  `extraKnownMarketplaces` and `enabledPlugins`, merged into the existing file.
+  Verified that unrelated keys (`hooks`, `model`) survive. The CLI does rewrite
+  the file, and it normalized a `model` value while saving.
+- Do not pass `-y` to `claude plugin install`: it would accept a
+  marketplace-declared install command unattended.
+- Plugin hooks live in the plugin's own `hooks/hooks.json` and run
+  `${CLAUDE_PLUGIN_ROOT}/scripts/run`, which requires `node` (or `NODE_BIN`).
+  Claude Code must be restarted to load them.
+
+## Codex marketplace state is not only in config.toml
+
+Hand-deleting `[marketplaces.wakatime]` from `config.toml` leaves
+`~/.codex/.tmp/marketplaces/wakatime/.codex-marketplace-install.json` behind. The
+marketplace then does not appear in `codex plugin marketplace list`, but
+`marketplace add` still fails with "already added from a different source".
+Recovery is `codex plugin marketplace remove wakatime` followed by a normal
+install.
