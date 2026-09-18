@@ -181,12 +181,17 @@ If all `GOTIFY_NOTIFY_SUMMARIZER_MODEL`, `GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT`, an
 and Claude Code keep owning their marketplace, plugin, and trust state:
 
 ```bash
-codex plugin marketplace add wakatime/codex-cli-wakatime
+codex plugin marketplace add https://github.com/wakatime/codex-cli-wakatime.git
 codex plugin add codex-cli-wakatime@wakatime
 
-claude plugin marketplace add wakatime/claude-code-wakatime
+claude plugin marketplace add https://github.com/wakatime/claude-code-wakatime.git
 claude plugin install claude-code-wakatime@wakatime
 ```
+
+Marketplaces are added by clone URL rather than by `owner/repo` shorthand: with
+the shorthand, Claude Code tries SSH first and falls back to HTTPS only when SSH
+is unconfigured, so the installer would depend on working GitHub SSH
+credentials. Reading existing state still accepts both forms.
 
 Every command runs with `CODEX_HOME` or `CLAUDE_CONFIG_DIR` pinned to the
 installer's directory for that agent, with `stdin` closed; both CLIs are

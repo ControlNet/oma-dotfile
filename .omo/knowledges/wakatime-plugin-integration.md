@@ -99,3 +99,14 @@ marketplace then does not appear in `codex plugin marketplace list`, but
 `marketplace add` still fails with "already added from a different source".
 Recovery is `codex plugin marketplace remove wakatime` followed by a normal
 install.
+
+## Marketplace source form (verified 2026-09-18)
+
+- `claude plugin marketplace add wakatime/claude-code-wakatime` prints
+  "SSH not configured, cloning via HTTPS" — the GitHub shorthand attempts SSH
+  first, so on a machine with GitHub SSH keys the installer's clone would depend
+  on those credentials. Passing the HTTPS clone URL skips that attempt.
+- Both CLIs accept the full clone URL and record the same source afterwards, so
+  the URL form is used for adding. Codex records `source` either way; Claude Code
+  records `{"source":"github","repo":...}` for the shorthand and
+  `{"source":"git","url":...}` for the URL, so state checks accept both.

@@ -682,11 +682,13 @@ def ensure_codex_config(codex_dir: Path, stamp: str, oauth: bool = False) -> Non
 
 
 WAKATIME_MARKETPLACE = "wakatime"
-WAKATIME_MARKETPLACE_SOURCE = "wakatime/codex-cli-wakatime"
+# Marketplaces are added by clone URL, not by owner/repo shorthand: the shorthand
+# makes the agent CLI try SSH first, which needs working GitHub SSH credentials.
 WAKATIME_MARKETPLACE_GIT_URL = "https://github.com/wakatime/codex-cli-wakatime.git"
+WAKATIME_MARKETPLACE_REPO = "wakatime/codex-cli-wakatime"
 WAKATIME_PLUGIN_ID = f"codex-cli-wakatime@{WAKATIME_MARKETPLACE}"
-CLAUDE_WAKATIME_MARKETPLACE_SOURCE = "wakatime/claude-code-wakatime"
 CLAUDE_WAKATIME_MARKETPLACE_GIT_URL = "https://github.com/wakatime/claude-code-wakatime.git"
+CLAUDE_WAKATIME_MARKETPLACE_REPO = "wakatime/claude-code-wakatime"
 CLAUDE_WAKATIME_PLUGIN_ID = f"claude-code-wakatime@{WAKATIME_MARKETPLACE}"
 PLUGIN_COMMAND_TIMEOUT = 300
 
@@ -780,7 +782,7 @@ def ensure_codex_wakatime_marketplace(codex_dir: Path) -> bool:
             )
             return False
     if not run_plugin_command(
-        ["codex", "plugin", "marketplace", "add", WAKATIME_MARKETPLACE_SOURCE, "--json"],
+        ["codex", "plugin", "marketplace", "add", WAKATIME_MARKETPLACE_GIT_URL, "--json"],
         "CODEX_HOME",
         codex_dir,
     ):
@@ -838,9 +840,10 @@ def ensure_claude_wakatime_marketplace(claude_config_dir: Path) -> bool:
         for entry in document:
             if not isinstance(entry, dict) or entry.get("name") != WAKATIME_MARKETPLACE:
                 continue
-            # Claude Code reports either the GitHub shorthand or the clone URL.
-            if entry.get("repo") == CLAUDE_WAKATIME_MARKETPLACE_SOURCE or \
-                    entry.get("url") == CLAUDE_WAKATIME_MARKETPLACE_GIT_URL:
+            # Claude Code reports either the clone URL or the GitHub shorthand,
+            # depending on how the marketplace was originally added.
+            if entry.get("url") == CLAUDE_WAKATIME_MARKETPLACE_GIT_URL or \
+                    entry.get("repo") == CLAUDE_WAKATIME_MARKETPLACE_REPO:
                 return True
             warn(
                 f"Claude Code marketplace '{WAKATIME_MARKETPLACE}' uses another source; "
@@ -849,7 +852,7 @@ def ensure_claude_wakatime_marketplace(claude_config_dir: Path) -> bool:
             return False
     # This subcommand has no JSON output, so only its exit code is checked.
     return run_plugin_command(
-        ["claude", "plugin", "marketplace", "add", CLAUDE_WAKATIME_MARKETPLACE_SOURCE],
+        ["claude", "plugin", "marketplace", "add", CLAUDE_WAKATIME_MARKETPLACE_GIT_URL],
         "CLAUDE_CONFIG_DIR",
         claude_config_dir,
     )
