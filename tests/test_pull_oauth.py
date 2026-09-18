@@ -131,7 +131,7 @@ class OAuthTests(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True), contextlib.redirect_stdout(io.StringIO()) as output:
             pull.warn_missing_required_env_vars(oauth=True)
         self.assertNotIn('CODEX_BASE_URL', output.getvalue())
-        self.assertNotIn('CODEX_API_KEY', output.getvalue())
+        self.assertNotIn('CODEX_API_TOKEN', output.getvalue())
         self.assertIn('GITHUB_PERSONAL_ACCESS_TOKEN', output.getvalue())
 
     def test_main_routes_all_outputs_without_touching_auth(self):

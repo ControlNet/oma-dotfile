@@ -41,7 +41,7 @@ template, live configuration, or credential changes were made.
 ## Current repository routing
 
 - `pull.py::ensure_codex_api_provider_config` selects `codex_api` and writes
-  `CODEX_BASE_URL` plus the `CODEX_API_KEY` environment variable name.
+  `CODEX_BASE_URL` plus the `CODEX_API_TOKEN` environment variable name.
   An absent URL only skips the edit; it does not reset an existing provider.
 - `opencode.jsonc` defines the custom `codex` provider with those environment
   references. `omo.jsonc` explicitly selects `codex/...` in every OpenCode
