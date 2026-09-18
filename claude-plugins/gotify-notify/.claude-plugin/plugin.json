@@ -1,0 +1,8 @@
+{
+  "name": "gotify-notify",
+  "description": "Send Claude Code lifecycle notifications to Gotify",
+  "version": "1.0.0",
+  "author": {
+    "name": "ControlNet"
+  }
+}
