@@ -47,7 +47,7 @@ Windows (PowerShell):
 - OMP: switch `codex_api/` selectors to `openai-codex/` and install
   `providers: {}` in `models.yml` to use the native model catalog.
 
-OAuth mode does not require `CODEX_BASE_URL` or `CODEX_API_KEY`. It changes routing,
+OAuth mode does not require `CODEX_BASE_URL` or `CODEX_API_TOKEN`. It changes routing,
 not credentials: log in through each agent, and verify that the retained model
 IDs and reasoning levels are available to your account.
 
@@ -96,7 +96,7 @@ Recommended environment variables:
 
 Optional environment variables:
 - `CODEX_BASE_URL` (with `/v1`, required for the third-party API provider; not required by `--oauth`)
-- `CODEX_API_KEY` (required for the third-party API provider; not required by `--oauth`)
+- `CODEX_API_TOKEN` (required for the third-party API provider; not required by `--oauth`)
 - `GITHUB_PERSONAL_ACCESS_TOKEN` (used for gh tools)
 - `NOTION_API_TOKEN` (used by the notion-api skill for Notion REST API calls)
 
@@ -153,7 +153,7 @@ model_provider = "codex_api"
 [model_providers.codex_api]
 name = "codex_api"
 base_url = "<CODEX_BASE_URL value>"
-env_key = "CODEX_API_KEY"
+env_key = "CODEX_API_TOKEN"
 wire_api = "responses"
 ```
 
