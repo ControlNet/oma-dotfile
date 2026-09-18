@@ -13,6 +13,7 @@ Env:
   OMP_AGENT_DIR=<optional override for ~/.omp/agent>
   PI_CODING_AGENT_DIR=<oh-my-pi native override; used when OMP_AGENT_DIR is not set>
   TOKSCALE_CONFIG_DIR=<optional override for tokscale settings directory>
+  WAKATIME_HOME=<optional override for the .wakatime.cfg location>
   NO_BACKUP=1 (optional)
 """
 
@@ -680,6 +681,111 @@ def ensure_codex_config(codex_dir: Path, stamp: str, oauth: bool = False) -> Non
     success(f"Configured Codex config: {config_path}")
 
 
+WAKATIME_MARKETPLACE = "wakatime"
+WAKATIME_MARKETPLACE_SOURCE = "wakatime/codex-cli-wakatime"
+WAKATIME_MARKETPLACE_GIT_URL = "https://github.com/wakatime/codex-cli-wakatime.git"
+WAKATIME_PLUGIN_ID = f"codex-cli-wakatime@{WAKATIME_MARKETPLACE}"
+CODEX_PLUGIN_TIMEOUT = 300
+
+
+def get_wakatime_config_path() -> Path:
+    """WakaTime reads ~/.wakatime.cfg unless WAKATIME_HOME redirects it."""
+    wakatime_home = os.environ.get("WAKATIME_HOME", "").strip()
+    if wakatime_home:
+        return Path(wakatime_home).expanduser() / ".wakatime.cfg"
+    return Path.home() / ".wakatime.cfg"
+
+
+def run_codex_plugin_command(args: list[str], codex_dir: Path) -> dict | None:
+    """Run a codex plugin subcommand under the installer's Codex home."""
+    env = {**os.environ, "CODEX_HOME": str(codex_dir)}
+    try:
+        result = subprocess.run(
+            ["codex", *args, "--json"],
+            capture_output=True,
+            text=True,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            timeout=CODEX_PLUGIN_TIMEOUT,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        warn(f"Failed to run codex {' '.join(args)}: {exc}")
+        return None
+    if result.returncode != 0:
+        # Command output may contain tokens or local paths, so it is not printed.
+        warn(f"codex {' '.join(args)} failed with exit code {result.returncode}")
+        return None
+    try:
+        document = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        warn(f"Failed to parse JSON output of codex {' '.join(args)}")
+        return None
+    return document if isinstance(document, dict) else None
+
+
+def is_codex_wakatime_plugin_installed(codex_dir: Path) -> bool:
+    document = run_codex_plugin_command(
+        ["plugin", "list", "--marketplace", WAKATIME_MARKETPLACE], codex_dir
+    )
+    if document is None:
+        return False
+    for entry in document.get("installed", []):
+        if not isinstance(entry, dict) or entry.get("pluginId") != WAKATIME_PLUGIN_ID:
+            continue
+        return bool(entry.get("installed")) and bool(entry.get("enabled"))
+    return False
+
+
+def ensure_codex_wakatime_marketplace(codex_dir: Path) -> bool:
+    """Add the WakaTime marketplace, without replacing a differently sourced one."""
+    document = run_codex_plugin_command(["plugin", "marketplace", "list"], codex_dir)
+    if document is not None:
+        for entry in document.get("marketplaces", []):
+            if not isinstance(entry, dict) or entry.get("name") != WAKATIME_MARKETPLACE:
+                continue
+            source = (entry.get("marketplaceSource") or {}).get("source", "")
+            if source == WAKATIME_MARKETPLACE_GIT_URL:
+                return True
+            warn(
+                f"Codex marketplace '{WAKATIME_MARKETPLACE}' uses another source; "
+                "skip WakaTime plugin"
+            )
+            return False
+    added = run_codex_plugin_command(
+        ["plugin", "marketplace", "add", WAKATIME_MARKETPLACE_SOURCE], codex_dir
+    )
+    if added is None:
+        # Codex also keeps marketplace state under .tmp/marketplaces, so a stale
+        # root fails the add without showing up in the marketplace listing.
+        warn(f"Stale marketplace state? Try: codex plugin marketplace remove {WAKATIME_MARKETPLACE}")
+        return False
+    return True
+
+
+def ensure_codex_wakatime_plugin(codex_dir: Path) -> None:
+    """Install the WakaTime plugin; Codex owns the marketplace and plugin state."""
+    if shutil.which("codex") is None:
+        warn("codex not found on PATH; skip WakaTime plugin")
+        return
+
+    if is_codex_wakatime_plugin_installed(codex_dir):
+        info("Codex WakaTime plugin already installed; skip")
+    else:
+        if not ensure_codex_wakatime_marketplace(codex_dir):
+            return
+        if run_codex_plugin_command(["plugin", "add", WAKATIME_PLUGIN_ID], codex_dir) is None:
+            return
+        success(f"Installed Codex plugin: {WAKATIME_PLUGIN_ID}")
+        info("Approve the plugin hooks in the next Codex session to start tracking.")
+
+    if shutil.which("node") is None:
+        warn("node not found on PATH; the WakaTime plugin hooks require it")
+
+    wakatime_config = get_wakatime_config_path()
+    if not wakatime_config.is_file():
+        warn(f"WakaTime config not found: {wakatime_config}; add your api_key there")
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Sync agent configurations from GitHub.")
     parser.add_argument("--oauth", action="store_true",
@@ -705,7 +811,7 @@ def main(argv: list[str] | None = None):
         tmp_path = Path(tmp_dir)
         repo_path = tmp_path / REPO_NAME
 
-        info(f"[1/9] Cloning repository (branch/tag: {REPO_REV})...")
+        info(f"[1/10] Cloning repository (branch/tag: {REPO_REV})...")
         result = subprocess.run(
             [
                 "git",
@@ -736,16 +842,16 @@ def main(argv: list[str] | None = None):
         claude_config_dir.mkdir(parents=True, exist_ok=True)
         omp_agent_dir.mkdir(parents=True, exist_ok=True)
 
-        info(f"[2/9] Installing OpenCode config files to: {config_dir}")
+        info(f"[2/10] Installing OpenCode config files to: {config_dir}")
         install_opencode_config_files(repo_path, config_dir, stamp, oauth=args.oauth)
         rename_path_if_exists(config_dir / "opencode.json", stamp)
 
-        info(f"[3/9] Installing unified OMO config to: {omo_dir}")
+        info(f"[3/10] Installing unified OMO config to: {omo_dir}")
         install_omo_config(repo_path, omo_dir, stamp, oauth=args.oauth)
         retire_legacy_openagent_files(config_dir, stamp)
         retire_legacy_omo_files(omo_dir, stamp)
 
-        info("[4/9] Installing OpenCode plugins and skills...")
+        info("[4/10] Installing OpenCode plugins and skills...")
         for dir_name in ["plugins", "skills"]:
             src_dir = repo_path / dir_name
             dst_dir = config_dir / dir_name
@@ -753,7 +859,7 @@ def main(argv: list[str] | None = None):
                 print(f"         - {dir_name}/ (replace managed items)")
                 copy_directory_items_replace(src_dir, dst_dir)
 
-        info(f"[5/9] Installing oh-my-pi config files to: {omp_agent_dir}")
+        info(f"[5/10] Installing oh-my-pi config files to: {omp_agent_dir}")
         omp_config_files = [
             ("omp_config.yml", "config.yml"),
         ]
@@ -781,7 +887,7 @@ def main(argv: list[str] | None = None):
                   else "         - omp_models.yaml (render CODEX_BASE_URL)")
             backup_and_install_omp_models(omp_models_src, omp_models_dst, stamp, oauth=args.oauth)
 
-        info(f"[6/9] Installing shared Codex assets to: {codex_dir}")
+        info(f"[6/10] Installing shared Codex assets to: {codex_dir}")
         codex_files = [
             ("_AGENTS.md", "AGENTS.md"),
             ("codex-gotify-notify.py", "codex-gotify-notify.py"),
@@ -799,13 +905,16 @@ def main(argv: list[str] | None = None):
             print("         - skills/ (merge)")
             copy_directory_merge(codex_skills_src, codex_skills_dst)
 
-        info("[7/9] Configuring Codex config")
+        info("[7/10] Configuring Codex config")
         ensure_codex_config(codex_dir, stamp, oauth=args.oauth)
 
-        info(f"[8/9] Installing Claude Code plugin to: {claude_config_dir}")
+        info("[8/10] Installing Codex WakaTime plugin")
+        ensure_codex_wakatime_plugin(codex_dir)
+
+        info(f"[9/10] Installing Claude Code plugin to: {claude_config_dir}")
         install_claude_plugin(repo_path, claude_config_dir, stamp)
 
-        info(f"[9/9] Configuring Tokscale model aliases")
+        info(f"[10/10] Configuring Tokscale model aliases")
         install_tokscale_model_aliases(repo_path, get_tokscale_config_dir(), stamp)
 
     print()
