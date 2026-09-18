@@ -41,8 +41,8 @@ CLAUDE_PLUGIN_LIST = [
 ]
 CLAUDE_MARKETPLACE_ENTRY = {
     "name": pull.WAKATIME_MARKETPLACE,
-    "source": "github",
-    "repo": pull.CLAUDE_WAKATIME_MARKETPLACE_SOURCE,
+    "source": "git",
+    "url": pull.CLAUDE_WAKATIME_MARKETPLACE_GIT_URL,
 }
 
 
@@ -115,7 +115,7 @@ class CodexWakatimePluginTests(unittest.TestCase):
                      pull.WAKATIME_MARKETPLACE, "--json"],
                     ["codex", "plugin", "marketplace", "list", "--json"],
                     ["codex", "plugin", "marketplace", "add",
-                     pull.WAKATIME_MARKETPLACE_SOURCE, "--json"],
+                     pull.WAKATIME_MARKETPLACE_GIT_URL, "--json"],
                     ["codex", "plugin", "add", pull.WAKATIME_PLUGIN_ID, "--json"],
                 ],
             )
@@ -227,7 +227,7 @@ class ClaudeWakatimePluginTests(unittest.TestCase):
                     ["claude", "plugin", "list", "--json"],
                     ["claude", "plugin", "marketplace", "list", "--json"],
                     ["claude", "plugin", "marketplace", "add",
-                     pull.CLAUDE_WAKATIME_MARKETPLACE_SOURCE],
+                     pull.CLAUDE_WAKATIME_MARKETPLACE_GIT_URL],
                     ["claude", "plugin", "install", pull.CLAUDE_WAKATIME_PLUGIN_ID, "--json"],
                 ],
             )
@@ -287,13 +287,13 @@ class ClaudeWakatimePluginTests(unittest.TestCase):
                 ["claude", "plugin", "install", pull.CLAUDE_WAKATIME_PLUGIN_ID, "--json"],
             )
 
-    def test_clone_url_marketplace_is_recognized(self) -> None:
-        # Given a marketplace added by clone URL instead of GitHub shorthand.
+    def test_shorthand_marketplace_is_recognized(self) -> None:
+        # Given a marketplace added earlier by GitHub shorthand instead of URL.
         with tempfile.TemporaryDirectory() as tmp:
             entry = {
                 "name": pull.WAKATIME_MARKETPLACE,
-                "source": "git",
-                "url": pull.CLAUDE_WAKATIME_MARKETPLACE_GIT_URL,
+                "source": "github",
+                "repo": pull.CLAUDE_WAKATIME_MARKETPLACE_REPO,
             }
             fake, installed = run_claude_ensure(
                 {
@@ -303,7 +303,7 @@ class ClaudeWakatimePluginTests(unittest.TestCase):
                 },
                 Path(tmp),
             )
-            # Then it is treated as the documented source.
+            # Then it is still treated as the documented source.
             self.assertTrue(installed)
             self.assertEqual(len(fake.calls), 3)
 
