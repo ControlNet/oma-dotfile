@@ -146,6 +146,9 @@ class OAuthTests(unittest.TestCase):
         # The Codex CLI is never invoked here; the fake clone below answers every
         # subprocess call and would misread the plugin command arguments.
         wakatime = self.enterContext(patch.object(pull, 'ensure_wakatime_plugins'))
+        # Detection belongs to the gating tests; this one routes every target.
+        self.enterContext(patch.object(pull, 'detect_targets',
+                                       return_value={name: True for name in pull.TARGET_LABELS}))
 
         def clone(command, **kwargs):
             destination = Path(command[-1])
@@ -175,6 +178,8 @@ class OAuthTests(unittest.TestCase):
     def test_argument_parser(self):
         self.assertFalse(pull.parse_args([]).oauth)
         self.assertTrue(pull.parse_args(['--oauth']).oauth)
+        self.assertFalse(pull.parse_args([]).install_all)
+        self.assertTrue(pull.parse_args(['--all']).install_all)
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             pull.parse_args(['--unknown'])
 
