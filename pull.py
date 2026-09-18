@@ -14,6 +14,7 @@ Env:
   PI_CODING_AGENT_DIR=<oh-my-pi native override; used when OMP_AGENT_DIR is not set>
   TOKSCALE_CONFIG_DIR=<optional override for tokscale settings directory>
   WAKATIME_HOME=<optional override for the .wakatime.cfg location>
+  INSTALL_ALL=1 (optional; install every target without detecting agents)
   NO_BACKUP=1 (optional)
 """
 
@@ -38,6 +39,7 @@ CODEX_DIR_ENV = os.environ.get("CODEX_DIR", "")
 CLAUDE_CONFIG_DIR_ENV = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
 OMP_AGENT_DIR_ENV = os.environ.get("OMP_AGENT_DIR", "").strip()
 NO_BACKUP = os.environ.get("NO_BACKUP", "0") == "1"
+INSTALL_ALL = os.environ.get("INSTALL_ALL", "0") == "1"
 REQUIRED_ENV_VARS = [
     "CODEX_BASE_URL",
     "CODEX_API_TOKEN",
@@ -88,12 +90,16 @@ def success(msg: str) -> None:
 
 def warn(msg: str) -> None:
     """Print warning message with yellow color."""
-    print(f"{YELLOW}{BOLD}[WARN]{RESET}    {msg}", file=sys.stderr)
+    # Flush first: stdout is block-buffered when piped, stderr is not, so without
+    # this a warning overtakes the line it belongs to.
+    sys.stdout.flush()
+    print(f"{YELLOW}{BOLD}[WARN]{RESET}    {msg}", file=sys.stderr, flush=True)
 
 
 def error(msg: str) -> None:
     """Print error message with red color and exit."""
-    print(f"{RED}{BOLD}[ERROR]{RESET}   {msg}", file=sys.stderr)
+    sys.stdout.flush()
+    print(f"{RED}{BOLD}[ERROR]{RESET}   {msg}", file=sys.stderr, flush=True)
 
 
 def timestamp() -> str:
@@ -155,6 +161,11 @@ def get_omp_agent_dir() -> Path:
     return Path.home() / ".omp" / "agent"
 
 
+def get_omo_dir() -> Path:
+    """Determine the OMO configuration directory."""
+    return Path.home() / ".omo"
+
+
 def get_tokscale_config_dir() -> Path:
     """Follow Tokscale's platform defaults and native directory override."""
     override = os.environ.get("TOKSCALE_CONFIG_DIR", "")
@@ -165,6 +176,70 @@ def get_tokscale_config_dir() -> Path:
     if sys.platform != "darwin" and os.environ.get("XDG_CONFIG_HOME"):
         return Path(os.environ["XDG_CONFIG_HOME"]) / "tokscale"
     return Path.home() / ".config" / "tokscale"
+
+
+# Targets are reported in this order. OMO has no executable of its own: it is a
+# plugin layer that requires OpenCode, so the OpenCode target gates its config too.
+TARGET_LABELS = {
+    "opencode": "OpenCode/OMO",
+    "omp": "oh-my-pi",
+    "codex": "Codex",
+    "claude": "Claude Code",
+    "tokscale": "Tokscale",
+}
+
+AGENT_EXECUTABLES = {
+    "opencode": "opencode",
+    "omp": "omp",
+    "codex": "codex",
+    "claude": "claude",
+    "tokscale": "",  # Ships no CLI; detected from its configuration directory.
+}
+
+# Interactive shells add these; `curl ... | python3 -` often does not.
+EXTRA_BIN_DIRS = (".opencode/bin", ".bun/bin", ".local/bin", ".npm-global/bin")
+
+
+def extra_bin_search_path() -> str:
+    """Build a PATH of per-user bin directories a non-interactive shell may omit."""
+    home = Path.home()
+    directories = [home / relative for relative in EXTRA_BIN_DIRS]
+    directories.extend(sorted((home / ".nvm" / "versions" / "node").glob("*/bin")))
+    return os.pathsep.join(str(directory) for directory in directories)
+
+
+def find_agent_executable(name: str) -> Path | None:
+    """Resolve an agent CLI from PATH, then from known per-user install locations."""
+    if not name:
+        return None
+    found = shutil.which(name) or shutil.which(name, path=extra_bin_search_path())
+    return Path(found) if found else None
+
+
+def detect_targets(force: bool = False) -> dict[str, bool]:
+    """Report which agent software is present so only its config gets installed."""
+    detected = {}
+    for name in TARGET_LABELS:
+        if force:
+            detected[name] = True
+        elif name == "tokscale":
+            detected[name] = get_tokscale_config_dir().is_dir()
+        else:
+            detected[name] = find_agent_executable(AGENT_EXECUTABLES[name]) is not None
+    return detected
+
+
+def report_targets(targets: dict[str, bool], forced: bool = False) -> None:
+    """Show which agents were detected and which are skipped as not installed."""
+    if forced:
+        info("Installing every target without detection (--all)")
+        return
+    found = [TARGET_LABELS[name] for name, enabled in targets.items() if enabled]
+    missing = [TARGET_LABELS[name] for name, enabled in targets.items() if not enabled]
+    info(f"Detected: {', '.join(found)}" if found else "Detected: nothing")
+    if missing:
+        warn(f"Not installed, skipping: {', '.join(missing)}")
+        info("Use --all (or INSTALL_ALL=1) to install these anyway.")
 
 
 MAX_BACKUPS = max(1, int(os.environ.get("MAX_BACKUPS", "1")))
@@ -204,6 +279,12 @@ def backup_and_install(src: Path, dst: Path, stamp: str) -> None:
         _ = shutil.copy2(dst, backup_path)
         cleanup_old_backups(dst)
     _ = shutil.copy2(src, dst)
+
+
+def prepare_target_dir(path: Path) -> Path:
+    """Create a target directory only once its agent has been detected."""
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def rename_path_if_exists(path: Path, stamp: str) -> None:
@@ -902,10 +983,20 @@ def ensure_wakatime_plugins(codex_dir: Path, claude_config_dir: Path) -> None:
         warn(f"WakaTime config not found: {wakatime_config}; add your api_key there")
 
 
+def begin_step(label: str, message: str, enabled: bool, reason: str) -> bool:
+    """Announce a step and report why it is skipped; return whether to run it."""
+    info(f"[{label}] {message}")
+    if not enabled:
+        warn(f"         skipped: {reason}")
+    return enabled
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Sync agent configurations from GitHub.")
     parser.add_argument("--oauth", action="store_true",
                         help="Use native OpenAI OAuth routing; log in separately in each agent.")
+    parser.add_argument("--all", dest="install_all", action="store_true",
+                        help="Install every target even if its agent is not detected.")
     return parser.parse_args(argv)
 
 
@@ -914,8 +1005,12 @@ def main(argv: list[str] | None = None):
     print(BANNER)
     warn_missing_required_env_vars(oauth=args.oauth)
 
+    forced = args.install_all or INSTALL_ALL
+    targets = detect_targets(force=forced)
+    report_targets(targets, forced=forced)
+
     config_dir = get_config_dir()
-    omo_dir = Path.home() / ".omo"
+    omo_dir = get_omo_dir()
     codex_dir = get_codex_dir()
     claude_config_dir = get_claude_config_dir()
     omp_agent_dir = get_omp_agent_dir()
@@ -952,92 +1047,117 @@ def main(argv: list[str] | None = None):
                 error(f"Required repository file is missing: {required_name}")
                 sys.exit(1)
 
-        config_dir.mkdir(parents=True, exist_ok=True)
-        omo_dir.mkdir(parents=True, exist_ok=True)
-        codex_dir.mkdir(parents=True, exist_ok=True)
-        claude_config_dir.mkdir(parents=True, exist_ok=True)
-        omp_agent_dir.mkdir(parents=True, exist_ok=True)
+        if begin_step("2/10", f"Installing OpenCode config files to: {config_dir}",
+                      targets["opencode"], "opencode not found"):
+            prepare_target_dir(config_dir)
+            install_opencode_config_files(repo_path, config_dir, stamp, oauth=args.oauth)
+            rename_path_if_exists(config_dir / "opencode.json", stamp)
+            retire_legacy_openagent_files(config_dir, stamp)
 
-        info(f"[2/10] Installing OpenCode config files to: {config_dir}")
-        install_opencode_config_files(repo_path, config_dir, stamp, oauth=args.oauth)
-        rename_path_if_exists(config_dir / "opencode.json", stamp)
+        if begin_step("3/10", f"Installing unified OMO config to: {omo_dir}",
+                      targets["opencode"], "opencode not found"):
+            prepare_target_dir(omo_dir)
+            install_omo_config(repo_path, omo_dir, stamp, oauth=args.oauth)
+            retire_legacy_omo_files(omo_dir, stamp)
 
-        info(f"[3/10] Installing unified OMO config to: {omo_dir}")
-        install_omo_config(repo_path, omo_dir, stamp, oauth=args.oauth)
-        retire_legacy_openagent_files(config_dir, stamp)
-        retire_legacy_omo_files(omo_dir, stamp)
+        if begin_step("4/10", "Installing OpenCode plugins and skills...",
+                      targets["opencode"], "opencode not found"):
+            prepare_target_dir(config_dir)
+            for dir_name in ["plugins", "skills"]:
+                src_dir = repo_path / dir_name
+                dst_dir = config_dir / dir_name
+                if src_dir.exists():
+                    print(f"         - {dir_name}/ (replace managed items)")
+                    copy_directory_items_replace(src_dir, dst_dir)
 
-        info("[4/10] Installing OpenCode plugins and skills...")
-        for dir_name in ["plugins", "skills"]:
-            src_dir = repo_path / dir_name
-            dst_dir = config_dir / dir_name
-            if src_dir.exists():
-                print(f"         - {dir_name}/ (replace managed items)")
-                copy_directory_items_replace(src_dir, dst_dir)
+        if begin_step("5/10", f"Installing oh-my-pi config files to: {omp_agent_dir}",
+                      targets["omp"], "omp not found"):
+            prepare_target_dir(omp_agent_dir)
+            omp_config_files = [
+                ("omp_config.yml", "config.yml"),
+            ]
+            for src_name, dst_name in omp_config_files:
+                src = repo_path / src_name
+                dst = omp_agent_dir / dst_name
+                if src.exists():
+                    print(f"         - {src_name}")
+                    install_omp_config(src, dst, stamp, oauth=args.oauth)
 
-        info(f"[5/10] Installing oh-my-pi config files to: {omp_agent_dir}")
-        omp_config_files = [
-            ("omp_config.yml", "config.yml"),
-        ]
-        for src_name, dst_name in omp_config_files:
-            src = repo_path / src_name
-            dst = omp_agent_dir / dst_name
-            if src.exists():
-                print(f"         - {src_name}")
-                install_omp_config(src, dst, stamp, oauth=args.oauth)
+            omp_extension_files = [
+                ("omp-gotify-notify.js", "extensions/omp-gotify-notify.js"),
+            ]
+            for src_name, dst_name in omp_extension_files:
+                src = repo_path / src_name
+                dst = omp_agent_dir / dst_name
+                if src.exists():
+                    print(f"         - {src_name}")
+                    backup_and_install(src, dst, stamp)
 
-        omp_extension_files = [
-            ("omp-gotify-notify.js", "extensions/omp-gotify-notify.js"),
-        ]
-        for src_name, dst_name in omp_extension_files:
-            src = repo_path / src_name
-            dst = omp_agent_dir / dst_name
-            if src.exists():
-                print(f"         - {src_name}")
-                backup_and_install(src, dst, stamp)
+            omp_models_src = repo_path / "omp_models.yaml"
+            omp_models_dst = omp_agent_dir / "models.yml"
+            if omp_models_src.exists():
+                print("         - models.yml (native discovery)" if args.oauth
+                      else "         - omp_models.yaml (render CODEX_BASE_URL)")
+                backup_and_install_omp_models(omp_models_src, omp_models_dst, stamp, oauth=args.oauth)
 
-        omp_models_src = repo_path / "omp_models.yaml"
-        omp_models_dst = omp_agent_dir / "models.yml"
-        if omp_models_src.exists():
-            print("         - models.yml (native discovery)" if args.oauth
-                  else "         - omp_models.yaml (render CODEX_BASE_URL)")
-            backup_and_install_omp_models(omp_models_src, omp_models_dst, stamp, oauth=args.oauth)
+        if begin_step("6/10", f"Installing shared Codex assets to: {codex_dir}",
+                      targets["codex"], "codex not found"):
+            prepare_target_dir(codex_dir)
+            codex_files = [
+                ("_AGENTS.md", "AGENTS.md"),
+                ("codex-gotify-notify.py", "codex-gotify-notify.py"),
+            ]
+            for src_name, dst_name in codex_files:
+                src = repo_path / src_name
+                dst = codex_dir / dst_name
+                if src.exists():
+                    print(f"         - {src_name}")
+                    backup_and_install(src, dst, stamp)
 
-        info(f"[6/10] Installing shared Codex assets to: {codex_dir}")
-        codex_files = [
-            ("_AGENTS.md", "AGENTS.md"),
-            ("codex-gotify-notify.py", "codex-gotify-notify.py"),
-        ]
-        for src_name, dst_name in codex_files:
-            src = repo_path / src_name
-            dst = codex_dir / dst_name
-            if src.exists():
-                print(f"         - {src_name}")
-                backup_and_install(src, dst, stamp)
+            codex_skills_src = repo_path / "skills"
+            codex_skills_dst = codex_dir / "skills"
+            if codex_skills_src.exists():
+                print("         - skills/ (merge)")
+                copy_directory_merge(codex_skills_src, codex_skills_dst)
 
-        codex_skills_src = repo_path / "skills"
-        codex_skills_dst = codex_dir / "skills"
-        if codex_skills_src.exists():
-            print("         - skills/ (merge)")
-            copy_directory_merge(codex_skills_src, codex_skills_dst)
+        if begin_step("7/10", "Configuring Codex config",
+                      targets["codex"], "codex not found"):
+            prepare_target_dir(codex_dir)
+            ensure_codex_config(codex_dir, stamp, oauth=args.oauth)
 
-        info("[7/10] Configuring Codex config")
-        ensure_codex_config(codex_dir, stamp, oauth=args.oauth)
+        if begin_step("8/10", "Installing WakaTime plugins for Codex and Claude Code",
+                      targets["codex"] or targets["claude"],
+                      "neither codex nor claude found"):
+            # Each plugin follows its own agent inside ensure_wakatime_plugins; both
+            # directories are created first so neither CLI is handed a missing one.
+            if targets["codex"]:
+                prepare_target_dir(codex_dir)
+            if targets["claude"]:
+                prepare_target_dir(claude_config_dir)
+            ensure_wakatime_plugins(codex_dir, claude_config_dir)
 
-        info("[8/10] Installing WakaTime plugins for Codex and Claude Code")
-        ensure_wakatime_plugins(codex_dir, claude_config_dir)
+        if begin_step("9/10", f"Installing Claude Code plugin to: {claude_config_dir}",
+                      targets["claude"], "claude not found"):
+            prepare_target_dir(claude_config_dir)
+            install_claude_plugin(repo_path, claude_config_dir, stamp)
 
-        info(f"[9/10] Installing Claude Code plugin to: {claude_config_dir}")
-        install_claude_plugin(repo_path, claude_config_dir, stamp)
-
-        info(f"[10/10] Configuring Tokscale model aliases")
-        install_tokscale_model_aliases(repo_path, get_tokscale_config_dir(), stamp)
+        if begin_step("10/10", "Configuring Tokscale model aliases",
+                      targets["tokscale"], "tokscale config directory not found"):
+            install_tokscale_model_aliases(repo_path, get_tokscale_config_dir(), stamp)
 
     print()
     success("Installation complete!")
     if args.oauth:
         info("OAuth routing installed; model IDs and reasoning levels are unchanged.")
-        info("Log in with codex login, opencode auth login --provider openai, and OMP /login openai-codex.")
+        logins = []
+        if targets["codex"]:
+            logins.append("codex login")
+        if targets["opencode"]:
+            logins.append("opencode auth login --provider openai")
+        if targets["omp"]:
+            logins.append("OMP /login openai-codex")
+        if logins:
+            info(f"Log in with: {'; '.join(logins)}")
         info("Check each agent's model list. Existing profiles, explicit model choices, and resumed sessions may override defaults.")
     info(f"Timestamp: {stamp}")
     if not NO_BACKUP:
