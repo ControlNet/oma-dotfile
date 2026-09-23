@@ -119,7 +119,7 @@ class OAuthTests(unittest.TestCase):
         pull.install_omo_config(ROOT, self.tmp, 'api')
         self.assertEqual((self.tmp / 'omo.jsonc').read_text(), (ROOT / 'omo.jsonc').read_text())
 
-    def test_omp_native_roles_and_empty_custom_catalog(self):
+    def test_omp_native_roles_and_model_overrides(self):
         pull.install_omp_config(ROOT / 'omp_config.yml', self.tmp / 'config.yml', 'oauth', oauth=True)
         content = (self.tmp / 'config.yml').read_text()
         self.assertEqual(content, (ROOT / 'omp_config.yml').read_text().replace('codex_api/', 'openai-codex/'))
@@ -127,7 +127,9 @@ class OAuthTests(unittest.TestCase):
         dst.write_text('providers: {}\n')
         with patch.dict(os.environ, {}, clear=True), contextlib.redirect_stderr(io.StringIO()) as stderr:
             pull.backup_and_install_omp_models(ROOT / 'omp_models.yaml', dst, 'oauth', oauth=True)
-        self.assertEqual(dst.read_text(), 'providers: {}\n')
+        self.assertEqual(dst.read_text(), (ROOT / 'omp_models_oauth.yaml').read_text())
+        for model in ('gpt-6-sol', 'gpt-6-luna', 'gpt-6-sol-fast', 'gpt-6-luna-fast'):
+            self.assertIn(f'      {model}:\n        contextWindow: 272000\n        maxTokens: 128000', dst.read_text())
         self.assertEqual(stderr.getvalue(), '')
         with patch.dict(os.environ, {'CODEX_BASE_URL': 'https://example.invalid/v1'}):
             pull.backup_and_install_omp_models(ROOT / 'omp_models.yaml', dst, 'api')
@@ -159,7 +161,7 @@ class OAuthTests(unittest.TestCase):
         def clone(command, **kwargs):
             destination = Path(command[-1])
             destination.mkdir()
-            for name in ('opencode.jsonc', 'omo.jsonc', 'omp_config.yml', 'omp_models.yaml'):
+            for name in ('opencode.jsonc', 'omo.jsonc', 'omp_config.yml', 'omp_models.yaml', 'omp_models_oauth.yaml'):
                 shutil.copy2(ROOT / name, destination / name)
             return subprocess.CompletedProcess(command, 0)
 
@@ -172,7 +174,8 @@ class OAuthTests(unittest.TestCase):
             self.assertIn('codex', json.loads((self.tmp / 'get_config_dir/opencode.jsonc').read_text())['provider'])
             self.assertNotIn('"codex/', (self.tmp / '.omo/omo.jsonc').read_text())
             self.assertNotIn('codex_api/', (self.tmp / 'get_omp_agent_dir/config.yml').read_text())
-            self.assertEqual((self.tmp / 'get_omp_agent_dir/models.yml').read_text(), 'providers: {}\n')
+            self.assertEqual((self.tmp / 'get_omp_agent_dir/models.yml').read_text(),
+                             (ROOT / 'omp_models_oauth.yaml').read_text())
             wakatime.assert_called_with(self.tmp / 'get_codex_dir',
                                         self.tmp / 'get_claude_config_dir')
             pull.main([])

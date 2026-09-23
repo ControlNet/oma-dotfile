@@ -45,7 +45,8 @@ Windows (PowerShell):
 - OMO: replace `codex/` model prefixes with `openai/` in the installed
   `~/.omo/omo.jsonc`, retaining model IDs and reasoning settings.
 - OMP: switch `codex_api/` selectors to `openai-codex/` and install
-  `providers: {}` in `models.yml` to use the native model catalog.
+  `omp_models_oauth.yaml` as `models.yml` to retain native model discovery with
+  Sol/Luna context limits.
 
 OAuth mode does not require `CODEX_BASE_URL` or `CODEX_API_TOKEN`. It changes routing,
 not credentials: log in through each agent, and verify that the retained model
@@ -353,7 +354,8 @@ Expected: all tests pass and no whitespace errors.
 
 `pull.py` installs oh-my-pi config into `~/.omp/agent` (or `$OMP_AGENT_DIR`, fallback `$PI_CODING_AGENT_DIR`):
 - `omp_config.yml` -> `config.yml`
-- `omp_models.yaml` -> `models.yml`
+- `omp_models.yaml` -> `models.yml` in API mode
+- `omp_models_oauth.yaml` -> `models.yml` in OAuth mode
 - `omp-gotify-notify.js` -> `extensions/omp-gotify-notify.js`
 
 The custom model provider ID is `codex_api`. The shorter `codex` ID is reserved by oh-my-pi's built-in Codex discovery integrations. The repository config also disables oh-my-pi's bundled `azure` model provider; no Azure endpoint is configured.
@@ -362,9 +364,10 @@ In default API mode, before writing `models.yml`, the installer replaces `baseUr
 This is required because oh-my-pi does not auto-expand environment variables for `baseUrl`.
 If `CODEX_BASE_URL` is missing, the placeholder remains and installer prints a warning.
 
-With `--oauth`, the installer writes `providers: {}` to `models.yml` and changes
-all `codex_api/` model role prefixes to `openai-codex/` in `config.yml`.
-It skips gateway URL interpolation and uses OMP's native model catalog.
+With `--oauth`, the installer writes `omp_models_oauth.yaml` to `models.yml` and
+changes all `codex_api/` model role prefixes to `openai-codex/` in `config.yml`.
+The file overrides Sol/Luna context windows to 272K and keeps 128K max output;
+other model metadata comes from OMP's native catalog. It skips gateway URL interpolation.
 
 The installer replaces `config.yml` with the selected rendering of `omp_config.yml`. After making machine-local changes through oh-my-pi setup, update the repository template before running `pull.py` if those changes should be preserved.
 
