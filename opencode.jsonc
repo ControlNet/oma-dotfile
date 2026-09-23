@@ -204,7 +204,7 @@
             }
           }
         },
-        "gpt-5.6-luna": {
+        "gpt-6-luna": {
           "reasoning": true,
           "limit": {
             "context": 272000,
@@ -220,9 +220,10 @@
             ]
           },
           "cost": {
-            "input": 0.25,
-            "output": 1.2,
-            "cache_read": 0.02
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125
           },
           "variants": {
             "low": {
@@ -252,7 +253,7 @@
             }
           }
         },
-        "gpt-5.6-terra": {
+        "gpt-6-sol": {
           "reasoning": true,
           "limit": {
             "context": 272000,
@@ -268,57 +269,10 @@
             ]
           },
           "cost": {
-            "input": 2.5,
-            "output": 12.0,
-            "cache_read": 0.2
-          },
-          "variants": {
-            "low": {
-              "reasoningEffort": "low",
-              "reasoningSummary": "auto",
-              "textVerbosity": "medium"
-            },
-            "medium": {
-              "reasoningEffort": "medium",
-              "reasoningSummary": "auto",
-              "textVerbosity": "medium"
-            },
-            "high": {
-              "reasoningEffort": "high",
-              "reasoningSummary": "detailed",
-              "textVerbosity": "medium"
-            },
-            "xhigh": {
-              "reasoningEffort": "xhigh",
-              "reasoningSummary": "detailed",
-              "textVerbosity": "medium"
-            },
-            "max": {
-              "reasoningEffort": "max",
-              "reasoningSummary": "detailed",
-              "textVerbosity": "medium"
-            }
-          }
-        },
-        "gpt-5.6-sol": {
-          "reasoning": true,
-          "limit": {
-            "context": 272000,
-            "output": 128000
-          },
-          "modalities": {
-            "input": [
-              "text",
-              "image"
-            ],
-            "output": [
-              "text"
-            ]
-          },
-          "cost": {
-            "input": 6.25,
-            "output": 30.0,
-            "cache_read": 0.5
+            "input": 2.0,
+            "output": 10.0,
+            "cache_read": 0.2,
+            "cache_write": 2.5
           },
           "variants": {
             "low": {
