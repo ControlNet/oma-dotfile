@@ -1,5 +1,9 @@
 # Native OpenAI OAuth configuration investigation
 
+## Follow-up (2026-09-23)
+
+OMP OAuth installation now writes `omp_models_oauth.yaml` to `models.yml`. It retains native `openai-codex` model discovery and adds Sol/Luna `modelOverrides` for a 272K total context window and 128K max output. The original empty-catalog decision below describes the 2026-09-15 implementation.
+
 ## Implemented behavior after user review (2026-09-15)
 
 This section supersedes the original design proposal below. `pull.py --oauth`

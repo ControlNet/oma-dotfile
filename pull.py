@@ -537,9 +537,15 @@ def render_omp_models(content: str, codex_base_url: str) -> tuple[str, bool]:
 def backup_and_install_omp_models(
     src: Path, dst: Path, stamp: str, oauth: bool = False
 ) -> None:
-    """Install native discovery or the configured gateway model catalog."""
+    """Install native OAuth overrides or the configured gateway model catalog."""
     if oauth:
-        install_rendered_text("providers: {}\n", dst, stamp)
+        oauth_src = src.with_name("omp_models_oauth.yaml")
+        try:
+            content = oauth_src.read_text(encoding="utf-8")
+        except OSError as exc:
+            warn(f"Failed to read {oauth_src}: {exc}")
+            return
+        install_rendered_text(content, dst, stamp)
         return
     try:
         content = src.read_text(encoding="utf-8")
@@ -1096,7 +1102,7 @@ def main(argv: list[str] | None = None):
             omp_models_src = repo_path / "omp_models.yaml"
             omp_models_dst = omp_agent_dir / "models.yml"
             if omp_models_src.exists():
-                print("         - models.yml (native discovery)" if args.oauth
+                print("         - omp_models_oauth.yaml (native model overrides)" if args.oauth
                       else "         - omp_models.yaml (render CODEX_BASE_URL)")
                 backup_and_install_omp_models(omp_models_src, omp_models_dst, stamp, oauth=args.oauth)
 
