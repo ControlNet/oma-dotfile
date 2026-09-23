@@ -77,6 +77,9 @@ class OAuthTests(unittest.TestCase):
         parsed = json.loads(dst.read_text())
         self.assertEqual(parsed['provider']['codex'],
                          {'options': {'baseURL': 'https://example.invalid/v1'}})
+        for model in ('gpt-6-sol', 'gpt-6-luna', 'gpt-6-sol-fast', 'gpt-6-luna-fast'):
+            self.assertEqual(parsed['provider']['openai']['models'][model]['limit'],
+                             {'context': 400000, 'input': 272000, 'output': 128000})
         self.assertEqual(parsed['plugin'], json.loads((ROOT / 'opencode.jsonc').read_text())['plugin'])
         self.assertEqual(dst.with_suffix('.jsonc.bak-oauth').read_text(), original)
 
@@ -91,7 +94,10 @@ class OAuthTests(unittest.TestCase):
                 parsed = json.loads((directory / 'opencode.jsonc').read_text())
                 self.assertNotIn('codex', parsed['provider'])
                 pull.install_opencode_config_files(ROOT, directory, 'api')
-                self.assertIn('codex', json.loads((directory / 'opencode.jsonc').read_text())['provider'])
+                installed = json.loads((directory / 'opencode.jsonc').read_text())['provider']
+                for model in ('gpt-6-sol', 'gpt-6-luna'):
+                    self.assertEqual(installed['codex']['models'][model]['limit'],
+                                     {'context': 400000, 'input': 272000, 'output': 128000})
 
     def test_opencode_legacy_json_provider_is_preserved(self):
         (self.tmp / 'opencode.json').write_text('{"provider":{"codex":{"name":"Retained"}}}')
