@@ -12,7 +12,7 @@
       },
       "oracle": {
         "model": "codex/gpt-6-sol",
-        "reasoning": "high"
+        "reasoning": "xhigh"
       },
       "librarian": {
         "model": "codex/gpt-6-luna",
@@ -24,7 +24,7 @@
       },
       "multimodal-looker": {
         "model": "codex/gpt-6-sol",
-        "reasoning": "high"
+        "reasoning": "medium"
       },
       "prometheus": {
         "model": "codex/gpt-6-sol",
@@ -32,11 +32,11 @@
       },
       "metis": {
         "model": "codex/gpt-6-sol",
-        "reasoning": "high"
+        "reasoning": "xhigh"
       },
       "momus": {
         "model": "codex/gpt-6-sol",
-        "reasoning": "xhigh"
+        "reasoning": "max"
       },
       "atlas": {
         "model": "codex/gpt-6-sol",
@@ -54,7 +54,7 @@
       },
       "ultrabrain": {
         "model": "codex/gpt-6-sol",
-        "reasoning": "xhigh"
+        "reasoning": "max"
       },
       "deep-low": {
         "model": "codex/gpt-6-sol",
@@ -62,7 +62,7 @@
       },
       "deep-high": {
         "model": "codex/gpt-6-sol",
-        "reasoning": "high"
+        "reasoning": "max"
       },
       "artistry": {
         "model": "codex/gpt-6-sol",
@@ -70,11 +70,11 @@
       },
       "quick": {
         "model": "codex/gpt-6-luna",
-        "reasoning": "high"
+        "reasoning": "xhigh"
       },
       "unspecified-low": {
-        "model": "codex/gpt-6-sol",
-        "reasoning": "high"
+        "model": "codex/gpt-6-luna",
+        "reasoning": "max"
       },
       "unspecified-high": {
         "model": "codex/gpt-6-sol",
