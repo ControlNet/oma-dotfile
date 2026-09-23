@@ -56,7 +56,11 @@
         "model": "codex/gpt-6-sol",
         "reasoning": "xhigh"
       },
-      "deep": {
+      "deep-low": {
+        "model": "codex/gpt-6-sol",
+        "reasoning": "high"
+      },
+      "deep-high": {
         "model": "codex/gpt-6-sol",
         "reasoning": "high"
       },
