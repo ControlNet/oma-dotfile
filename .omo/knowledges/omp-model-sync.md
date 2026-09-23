@@ -5,11 +5,12 @@
 - `opencode.jsonc` defines the `provider.codex.models` catalog, including model IDs, context/output limits, modalities, and costs.
 - `omo.jsonc` defines the intended OpenCode model tier allocation for agents and categories under `"[opencode]"`.
 - `omp_models.yaml` mirrors the OpenCode Codex model IDs, output limits, modalities, and pricing under `providers.codex_api.models`. The provider ID avoids OMP's built-in `codex` discovery namespace.
+- `omp_models_oauth.yaml` sets `modelOverrides` for native `openai-codex` Sol/Luna models and their fast aliases. OAuth installation copies it to `models.yml` without adding gateway credentials or replacing native model discovery.
 - The custom catalogs omit `gpt-5.4-mini` and `gpt-5.5`; no OMO agent/category or OMP model role selects them. Historical Tokscale aliases and test fixtures remain for their separate purposes.
 - In OAuth mode, `pull.py` preserves the installed `provider.codex` object, so removing a model from the repository template does not prune it from an already installed OAuth config. The active OpenCode file needs a one-time cleanup or an API-mode reinstall.
 - `omp_config.yml` maps `smol` and `tiny` to `gpt-6-luna`; all other OMP roles use `gpt-6-sol` with role-specific thinking levels.
 - GPT-5.6 Sol and Terra roles converge on GPT-6 Sol; GPT-5.6 Luna roles move to GPT-6 Luna. Historical GPT-5.6 aliases remain in `tokscale_model_alias.json` for old usage records.
-- GPT-6 Sol and Luna use the official standard prices for prompts of at most 272K input tokens. OpenCode sets `context: 400000`, `input: 272000`, and `output: 128000` for both the custom `codex` gateway and official `openai` OAuth provider. OMP retains a conservative 272K total context window because its custom-model schema has no separate input limit. Neither client's local compaction metadata is a strict per-request input guard.
+- GPT-6 Sol and Luna use the official standard prices for prompts of at most 272K input tokens. OpenCode sets `context: 400000`, `input: 272000`, and `output: 128000` for both the custom `codex` gateway and official `openai` OAuth provider. Both OMP modes retain a conservative 272K total context window because OMP has no separate input limit. Neither client's local compaction metadata is a strict per-request input guard.
 
 ## Field mapping
 
