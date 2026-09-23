@@ -35,15 +35,9 @@ Windows (PowerShell):
 (Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/ControlNet/oma-dotfile/master/pull.py' -UseBasicParsing).Content | python - --oauth
 ```
 
-- Codex stops selecting the managed `codex_api` provider; other provider
-  selections and profiles remain unchanged.
-- OpenCode retains any existing custom `codex` provider. OMO uses `openai/`
-  model IDs while retaining reasoning settings.
-- OMP uses native `openai-codex` models with the Sol/Luna context limits below.
-
-OAuth mode does not require `CODEX_BASE_URL` or `CODEX_API_TOKEN`. It changes routing,
-not credentials: log in through each agent, and verify that the retained model
-IDs and reasoning levels are available to your account.
+OAuth mode changes model routing for Codex, OpenCode/OMO, and OMP. Existing
+Codex/OpenCode custom provider settings and OMO reasoning levels are retained.
+It does not require `CODEX_BASE_URL` or `CODEX_API_TOKEN`. Sign in separately:
 
 ```bash
 codex login
@@ -70,14 +64,6 @@ be available in that remote revision before running it.
 
 `pull.py` installs configuration only for agents present on the machine.
 
-| Target | Steps | Detected by |
-|---|---|---|
-| OpenCode/OMO | OpenCode config, OMO config, plugins and skills | `opencode` executable |
-| oh-my-pi | oh-my-pi config, extensions, models | `omp` executable |
-| Codex | shared Codex assets, `config.toml` | `codex` executable |
-| Claude Code | managed Claude Code plugin | `claude` executable |
-| Tokscale | model aliases | `~/.config/tokscale` (or `$TOKSCALE_CONFIG_DIR`) exists |
-
 OMO follows OpenCode detection; Tokscale is detected by its configuration directory.
 
 To install everything regardless of detection, for example to pre-seed a machine before
@@ -90,19 +76,16 @@ curl -fsSL https://raw.githubusercontent.com/ControlNet/oma-dotfile/master/pull.
 
 ## Environment variables
 
-Installer environment variables:
-- `INSTALL_ALL=1` (install every target without detecting agents; same as `--all`)
-
-Recommended environment variables:
+Recommended:
 - `OPENCODE_DISABLE_CLAUDE_CODE=1` (disable claude-code support for opencode)
 
-Optional environment variables:
-- `CODEX_BASE_URL` (with `/v1`, required for the third-party API provider; not required by `--oauth`)
-- `CODEX_API_TOKEN` (required for the third-party API provider; not required by `--oauth`)
+Third-party API mode:
+- `CODEX_BASE_URL` (include `/v1`)
+- `CODEX_API_TOKEN`
+
+Optional integrations:
 - `GITHUB_PERSONAL_ACCESS_TOKEN` (used for gh tools)
 - `NOTION_API_TOKEN` (used by the notion-api skill for Notion REST API calls)
-
-Other optional environment variables:
 - `GOTIFY_URL` (used for gotify notifications)
 - `GOTIFY_TOKEN_FOR_OPENCODE` (used for gotify notifications)
   - `GOTIFY_TOKEN_FOR_CODEX` (optional; if missing, Codex notify falls back to `GOTIFY_TOKEN_FOR_OPENCODE`)
@@ -112,6 +95,8 @@ Other optional environment variables:
 - `GOTIFY_NOTIFY_SUMMARIZER_MODEL` (e.g., `gpt-5-nano`)
 - `GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT` (OpenAI-compatible endpoint, e.g., `https://api.openai.com/v1`)
 - `GOTIFY_NOTIFY_SUMMARIZER_API_KEY` (API key used by summarizer requests)
+
+Keep credentials out of this repository. If using `.env.local`, add it to `.gitignore`.
 
 Codex notify hook execution logs are written to:
 - `~/.codex/log/gotify-notify.log`
@@ -130,7 +115,7 @@ For local `plugins/` and `skills/`, it replaces only same-named items shipped by
 OpenCode-specific OMO settings live under the `"[opencode]"` key in that file; `opencode.jsonc` remains the OpenCode core configuration.
 
 Before overwriting an existing `omo.jsonc`, the installer creates a timestamped backup unless `NO_BACKUP=1` is set.
-It also retires obsolete `~/.omo/config.json[c]` and OpenCode-directory `oh-my-opencode.json[c]` / `oh-my-openagent.json[c]` files by renaming them to timestamped backups, so only the current unified configuration remains active.
+Obsolete OMO configuration files are renamed to backups during installation.
 
 ## Codex support
 
@@ -144,23 +129,13 @@ it configures and selects the Codex API provider, including when switching back
 from OAuth mode. With `--oauth`, it preserves other provider selections and
 profiles.
 
-In API mode, it writes the current `CODEX_BASE_URL` value directly into `base_url` because Codex does not expand environment variables there.
-
-Current Codex `notify` payload is completion-focused (`agent-turn-complete`), so this hook notifies when a turn completes.
-Internal recap, title-generation, ACP, and auto approval turns do not notify.
-If all `GOTIFY_NOTIFY_SUMMARIZER_MODEL`, `GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT`, and `GOTIFY_NOTIFY_SUMMARIZER_API_KEY` are set, the hook asks the configured LLM for a one-line summary before sending to Gotify. If any one of them is missing, summarization is skipped and the preview fallback is used.
+The hook notifies completed turns and skips internal recap, title-generation,
+ACP, and auto approval turns. Set all three Gotify summarizer variables above
+to receive one-line summaries; otherwise notifications use a preview.
 
 ## WakaTime plugins
 
-`pull.py` installs the WakaTime plugins through the Codex and Claude Code CLIs:
-
-```bash
-codex plugin marketplace add https://github.com/wakatime/codex-cli-wakatime.git
-codex plugin add codex-cli-wakatime@wakatime
-
-claude plugin marketplace add https://github.com/wakatime/claude-code-wakatime.git
-claude plugin install claude-code-wakatime@wakatime
-```
+`pull.py` installs the WakaTime plugins through the Codex and Claude Code CLIs.
 
 Already installed plugins are skipped, and disabled plugins remain disabled.
 Three follow-ups stay manual:
@@ -169,20 +144,17 @@ Three follow-ups stay manual:
 - The API key belongs in `~/.wakatime.cfg` (or `$WAKATIME_HOME/.wakatime.cfg`); the
   installer only warns when that file is missing and never writes it.
 
-Both plugins manage `wakatime-cli` under `~/.wakatime/` themselves and run their
-hooks through `node`, so the installer warns once when `node` is missing.
+Both plugins require Node.js.
 
 ## Claude Code support
 
-`pull.py` installs the managed Claude Code plugin into `~/.claude/skills/gotify-notify` (or `$CLAUDE_CONFIG_DIR/skills/gotify-notify`). The installer replaces only that directory and preserves `settings.json`, unrelated skills, and other plugins. Claude Code loads personal skills-directory plugins in place; no marketplace installation is required.
+`pull.py` installs the managed Claude Code plugin into `~/.claude/skills/gotify-notify` (or `$CLAUDE_CONFIG_DIR/skills/gotify-notify`). It preserves `settings.json`, unrelated skills, and other plugins.
 
-The plugin sends Gotify notifications for:
-- main-agent response end (`Stop`)
-- API failures ending a turn (`StopFailure`)
-- permission prompts and MCP input dialogs (`Notification`)
-- `AskUserQuestion` input requests (`PreToolUse`)
+The plugin notifies for completed turns, errors, permission prompts, and
+requests for user input.
 
-Subagent completion notifications are disabled by default, and response-end notifications are skipped while Claude reports background tasks or scheduled wakeups. Enable subagent notifications with `CLAUDE_NOTIFY_SUBAGENT=true`. Other event toggles are `CLAUDE_NOTIFY_COMPLETE`, `CLAUDE_NOTIFY_ERROR`, `CLAUDE_NOTIFY_PERMISSION`, and `CLAUDE_NOTIFY_QUESTION`; each is enabled by default.
+Subagent notifications are disabled by default; enable them with
+`CLAUDE_NOTIFY_SUBAGENT=true`.
 
 After installing or updating the plugin, start a new Claude Code session or run `/reload-plugins`. To disable it without deleting files:
 
@@ -214,24 +186,17 @@ Aliases affect report grouping only; model routing and pricing remain unchanged.
 
 ## oh-my-pi support
 
-`pull.py` installs oh-my-pi config into `~/.omp/agent` (or `$OMP_AGENT_DIR`, fallback `$PI_CODING_AGENT_DIR`):
-- `omp_config.yml` -> `config.yml`
-- `omp_models.yaml` -> `models.yml` in API mode
-- `omp_models_oauth.yaml` -> `models.yml` in OAuth mode
-- `omp-gotify-notify.js` -> `extensions/omp-gotify-notify.js`
+`pull.py` installs configuration, models, and the Gotify extension into
+`~/.omp/agent` (or `$OMP_AGENT_DIR`, fallback `$PI_CODING_AGENT_DIR`).
+Default API mode needs `CODEX_BASE_URL`.
 
-Default API mode needs `CODEX_BASE_URL`; the installer writes it into `models.yml`.
+With `--oauth`, OMP uses native `openai-codex` models. Both modes set a 272K
+context window for Sol/Luna and keep 128K max output.
 
-With `--oauth`, the installer writes `omp_models_oauth.yaml` to `models.yml` and
-changes all `codex_api/` model role prefixes to `openai-codex/` in `config.yml`.
-Both model configurations set a 272K context window for Sol/Luna and keep 128K
-max output. In OAuth mode, other model metadata comes from OMP's native catalog.
+The installer replaces `config.yml` on updates. Copy local oh-my-pi setup changes
+back to `omp_config.yml` if you want to keep them.
 
-The installer replaces `config.yml` with the selected rendering of `omp_config.yml`. After making machine-local changes through oh-my-pi setup, update the repository template before running `pull.py` if those changes should be preserved.
-
-`omp-gotify-notify.js` is an oh-my-pi extension (built on official extension events), and can send Gotify notifications for:
-- terminal completion or error (`agent_end`, ignores automatic continuations and aborted turns)
-- ask tool waiting for input (`tool_execution_start` with `ask`)
+The Gotify extension notifies when a turn completes, fails, or needs user input.
 
 The Gotify extension is the only OMP notification channel in this configuration.
 Delivery diagnostics are written to `~/.omp/logs/gotify-notify.log`.
