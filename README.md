@@ -1,6 +1,8 @@
 # oma-dotfile
 
-My opencode configurations.
+My agent configurations.
+
+Requires Python 3.11+ and Git.
 
 Default installation (third-party API mode), Linux/macOS:
 ```bash
@@ -21,8 +23,7 @@ native OpenAI OAuth routing:
 python3 pull.py --oauth
 ```
 
-For a streamed installer, pass arguments after `-` (once the updated script is
-published to the selected remote revision):
+For a streamed installer, pass arguments after `-`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ControlNet/oma-dotfile/master/pull.py | python3 - --oauth
@@ -34,19 +35,11 @@ Windows (PowerShell):
 (Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/ControlNet/oma-dotfile/master/pull.py' -UseBasicParsing).Content | python - --oauth
 ```
 
-- Codex: comment an existing top-level `model_provider = "codex_api"` assignment.
-  If absent, add nothing. Preserve custom provider definitions, other provider
-  selections, and profiles. With no overriding selection, Codex uses `openai`.
-- OpenCode: preserve the existing `provider.codex` object, or leave it absent if
-  not configured. Other settings still sync from the template. OAuth rendering
-  accepts JSONC input and writes formatted JSON; comments are not retained in
-  this file. Legacy `opencode.json` provider settings are carried forward before
-  the existing installer retires that file to a backup.
-- OMO: replace `codex/` model prefixes with `openai/` in the installed
-  `~/.omo/omo.jsonc`, retaining model IDs and reasoning settings.
-- OMP: switch `codex_api/` selectors to `openai-codex/` and install
-  `omp_models_oauth.yaml` as `models.yml` to retain native model discovery with
-  Sol/Luna context limits.
+- Codex stops selecting the managed `codex_api` provider; other provider
+  selections and profiles remain unchanged.
+- OpenCode retains any existing custom `codex` provider. OMO uses `openai/`
+  model IDs while retaining reasoning settings.
+- OMP uses native `openai-codex` models with the Sol/Luna context limits below.
 
 OAuth mode does not require `CODEX_BASE_URL` or `CODEX_API_TOKEN`. It changes routing,
 not credentials: log in through each agent, and verify that the retained model
@@ -54,47 +47,28 @@ IDs and reasoning levels are available to your account.
 
 ```bash
 codex login
-codex login status
 opencode auth login --provider openai
-omp
 ```
 
 In OpenCode choose ChatGPT authentication. Inside OMP run `/login openai-codex`.
 Existing explicit model selections, profiles, project overrides, and resumed
-sessions can override defaults. The Gotify summarizer uses its own configuration.
-OAuth mode neither forces a login method nor copies or rewrites credentials.
+sessions can override defaults.
 
-To restore the third-party configuration for all three agents, run the installer without `--oauth`
+To restore the third-party configuration, rerun the installer without `--oauth`
 with the gateway environment variables configured:
 
 ```bash
 python3 pull.py
 ```
 
-The flag applies per invocation. Ordinary installation restores API routing for
-Codex, OpenCode/OMO, and OMP. With `CODEX_BASE_URL` configured, Codex automatically
-reactivates `model_provider = "codex_api"`; no manual uncommenting is needed.
-If `CODEX_BASE_URL` is missing, Codex provider configuration remains unchanged
-and the installer prints a warning.
+Codex automatically reselects `codex_api` when `CODEX_BASE_URL` is configured.
 
-Existing backup settings apply. The installer always clones `REPO_REV` from GitHub,
-so local template changes are not used until available in that remote revision.
-
-Verification uses Python's standard library and synthetic configurations in
-temporary directories; it does not install into the real home directory:
-
-```bash
-python3 -m unittest discover -s tests -p 'test_pull_oauth.py'
-git diff --check
-```
-
-Expected: all OAuth installer tests pass and the diff check reports no whitespace errors.
+The installer always clones `REPO_REV` from GitHub. Local template changes must
+be available in that remote revision before running it.
 
 ## Conditional installation
 
-`pull.py` installs a target's configuration only when that agent is actually installed on
-the machine. A skipped step creates no directory, so a Codex-only machine no longer ends up
-with an empty `~/.config/opencode` or `~/.omp/agent`.
+`pull.py` installs configuration only for agents present on the machine.
 
 | Target | Steps | Detected by |
 |---|---|---|
@@ -104,17 +78,7 @@ with an empty `~/.config/opencode` or `~/.omp/agent`.
 | Claude Code | managed Claude Code plugin | `claude` executable |
 | Tokscale | model aliases | `~/.config/tokscale` (or `$TOKSCALE_CONFIG_DIR`) exists |
 
-OMO has no executable of its own; it is a plugin layer that requires OpenCode, so the
-`opencode` executable gates its configuration too. The WakaTime step installs each plugin
-behind its own agent: the Codex plugin when Codex is installed, the Claude Code plugin when
-Claude Code is installed.
-
-Detection checks `PATH` first, then per-user bin directories that a non-interactive shell
-often omits (`~/.opencode/bin`, `~/.bun/bin`, `~/.local/bin`, `~/.npm-global/bin`, and
-`~/.nvm/versions/node/*/bin`).
-
-Tokscale ships no CLI, so its configuration directory is the signal. Once that directory
-exists — including after a forced run created it — Tokscale counts as installed.
+OMO follows OpenCode detection; Tokscale is detected by its configuration directory.
 
 To install everything regardless of detection, for example to pre-seed a machine before
 installing the agents:
@@ -122,15 +86,7 @@ installing the agents:
 ```bash
 python3 pull.py --all
 curl -fsSL https://raw.githubusercontent.com/ControlNet/oma-dotfile/master/pull.py | python3 - --all
-INSTALL_ALL=1 python3 pull.py
 ```
-
-```bash
-python3 -m unittest discover -s tests -p 'test_target_detection.py'
-```
-
-Expected: all detection and gating tests pass. They use synthetic `PATH`s and temporary
-home directories and never touch real agent configuration.
 
 ## Environment variables
 
@@ -185,46 +141,18 @@ It also retires obsolete `~/.omo/config.json[c]` and OpenCode-directory `oh-my-o
 
 `pull.py` configures the Gotify notify hook in both modes. In default API mode,
 it configures and selects the Codex API provider, including when switching back
-from OAuth mode. With `--oauth`, it only
-comments an existing top-level `model_provider = "codex_api"` assignment and
-preserves the provider definition; it does not add a selector if one is absent.
+from OAuth mode. With `--oauth`, it preserves other provider selections and
+profiles.
 
 In API mode, it writes the current `CODEX_BASE_URL` value directly into `base_url` because Codex does not expand environment variables there.
 
-Generated provider config in default API mode:
-
-```toml
-model_provider = "codex_api"
-
-[model_providers.codex_api]
-name = "codex_api"
-base_url = "<CODEX_BASE_URL value>"
-env_key = "CODEX_API_TOKEN"
-wire_api = "responses"
-```
-
-Generated Gotify notification hook:
-
-```toml
-notify = ["python3", "/absolute/path/to/.codex/codex-gotify-notify.py"]
-```
-
-Run the installer to auto-configure these entries:
-
-```bash
-python3 pull.py
-```
-
 Current Codex `notify` payload is completion-focused (`agent-turn-complete`), so this hook notifies when a turn completes.
-Hidden title-generation and Conversation recap turns (automatic and manual `/recap`) are filtered by their fixed input prompt signatures before summarization or delivery. Recap remains available in Codex; skipped recap notifications log `run_skip reason=conversation_recap`. These signatures may need updating if Codex changes its internal prompts.
-Turns launched through `codex-acp` are filtered by inspecting the notify hook's ancestor process chain. Other Codex App Server clients remain eligible for notifications.
-Auto approval reviewer turns are filtered out by checking payload/session metadata for `model=codex-auto-review` or approval-reviewer markers. If Codex does not write session metadata for those turns, the hook falls back to scanning recent `~/.codex/log/codex-tui.log` lines for `model=codex-auto-review`. Override that path with `CODEX_NOTIFY_TUI_LOG_FILE` if needed.
+Internal recap, title-generation, ACP, and auto approval turns do not notify.
 If all `GOTIFY_NOTIFY_SUMMARIZER_MODEL`, `GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT`, and `GOTIFY_NOTIFY_SUMMARIZER_API_KEY` are set, the hook asks the configured LLM for a one-line summary before sending to Gotify. If any one of them is missing, summarization is skipped and the preview fallback is used.
 
 ## WakaTime plugins
 
-`pull.py` installs the WakaTime plugins through each agent's own CLI, so Codex
-and Claude Code keep owning their marketplace, plugin, and trust state:
+`pull.py` installs the WakaTime plugins through the Codex and Claude Code CLIs:
 
 ```bash
 codex plugin marketplace add https://github.com/wakatime/codex-cli-wakatime.git
@@ -234,32 +162,8 @@ claude plugin marketplace add https://github.com/wakatime/claude-code-wakatime.g
 claude plugin install claude-code-wakatime@wakatime
 ```
 
-Marketplaces are added by clone URL rather than by `owner/repo` shorthand: with
-the shorthand, Claude Code tries SSH first and falls back to HTTPS only when SSH
-is unconfigured, so the installer would depend on working GitHub SSH
-credentials. Reading existing state still accepts both forms.
-
-Every command runs with `CODEX_HOME` or `CLAUDE_CONFIG_DIR` pinned to the
-installer's directory for that agent, with `stdin` closed; both CLIs are
-non-interactive and idempotent here.
-
-- Codex appends only `[marketplaces.wakatime]` and
-  `[plugins."codex-cli-wakatime@wakatime"]` to `config.toml`, preserving existing
-  sections and comments.
-- Claude Code merges `extraKnownMarketplaces` and `enabledPlugins` into
-  `settings.json`, preserving unrelated settings such as `hooks` and `model`.
-
-The installer inspects `codex plugin list --json` and `claude plugin list --json`
-first and skips an already installed plugin. A plugin that is installed but
-disabled is reported and left alone, so a deliberate opt-out is not undone on the
-next run. If the `wakatime` marketplace name already points at a different
-source, the installer warns instead of replacing it. `claude plugin install` runs
-without `-y`: a marketplace that starts declaring an install command stops the
-installer rather than running that command unattended.
-
-A missing `codex` or `claude` on `PATH` skips only that agent's plugin, and every
-failure is reported without aborting the rest of the installation. Three
-follow-ups stay manual:
+Already installed plugins are skipped, and disabled plugins remain disabled.
+Three follow-ups stay manual:
 - Codex plugin hooks must be approved in the next Codex session before tracking starts.
 - Claude Code must be restarted to load the plugin hooks.
 - The API key belongs in `~/.wakatime.cfg` (or `$WAKATIME_HOME/.wakatime.cfg`); the
@@ -267,13 +171,6 @@ follow-ups stay manual:
 
 Both plugins manage `wakatime-cli` under `~/.wakatime/` themselves and run their
 hooks through `node`, so the installer warns once when `node` is missing.
-
-```bash
-python3 -m unittest discover -s tests -p 'test_wakatime_plugins.py'
-```
-
-Expected: all WakaTime plugin installer tests pass. The tests mock both agent
-CLIs and never contact the marketplace.
 
 ## Claude Code support
 
@@ -293,38 +190,19 @@ After installing or updating the plugin, start a new Claude Code session or run 
 claude plugin disable gotify-notify@skills-dir
 ```
 
-The handler uses Python's standard library, bounds network timeouts, redacts diagnostics, and deduplicates concurrent hook deliveries through `$CLAUDE_CONFIG_DIR/gotify-notify/state.sqlite3`. Credentials are read only from environment variables; do not store them in repository files.
+Credentials are read from environment variables; do not store them in repository files.
 
 ## Tokscale model aliases
 
-`tokscale_model_alias.json` is a flat mapping from reported model names to upstream
-model IDs, such as `codex_api/gpt-6-astra` -> `gpt-6-astra` and
-`azure_anthropic/claude-opus-4-6` -> `claude-opus-4-6`. It covers the current
-OpenCode/Codex/OMP GPT catalog and provider-prefixed OpenAI/Anthropic model IDs
-observed in local reports. OAuth display labels are omitted because OpenCode now
-uses model IDs and local OMP reports already record model IDs. Unknown model identities
-are not guessed; add an explicit entry when another spelling appears.
+`tokscale_model_alias.json` groups equivalent model IDs across OpenCode, Codex,
+and OMP usage reports.
 
-`pull.py` merges this mapping into `settings.json` under `modelAliases`. Unrelated
-settings and local aliases are preserved; repository entries win for identical
-keys. Existing settings are backed up unless `NO_BACKUP=1`; unchanged settings
-are not rewritten. Invalid JSON or a non-object `modelAliases` is left untouched
-with a warning.
+`pull.py` merges these aliases into Tokscale's `settings.json`, preserving
+unrelated settings and local aliases.
 
 The default directory is `~/.config/tokscale` on Linux/macOS and
 `%APPDATA%\tokscale` on Windows. `TOKSCALE_CONFIG_DIR` overrides it; Linux also
 honors `XDG_CONFIG_HOME`.
-
-To install only the aliases from this checkout using Python 3.11+ (standard
-library only):
-
-```bash
-python3 - <<'PY'
-from pathlib import Path
-import pull
-pull.install_tokscale_model_aliases(Path.cwd(), pull.get_tokscale_config_dir(), pull.timestamp())
-PY
-```
 
 Inspect a single row per model across clients and providers:
 
@@ -332,23 +210,7 @@ Inspect a single row per model across clients and providers:
 bunx tokscale models --light --group-by model
 ```
 
-Aliases affect local report grouping only, preserving client/provider attribution,
-pricing totals, and exported/submitted model identities. Tokscale 4.15.1 gives
-OpenCode's configured `name` precedence over aliases. The repository therefore
-omits model-level `name` fields in `opencode.jsonc`, allowing model IDs and aliases
-to determine grouping. OpenCode's model picker also displays the IDs. Install the
-updated OpenCode configuration as well as the aliases for this change to take
-effect; installing only the aliases leaves existing local display names active.
-See the [upstream grouping implementation](https://github.com/junhoyeo/tokscale/blob/main/crates/tokscale-core/src/lib.rs).
-
-Verification (synthetic settings in temporary directories, no user settings changed):
-
-```bash
-python3 -m unittest discover -s tests -p 'test_tokscale_model_aliases.py'
-git diff --check
-```
-
-Expected: all tests pass and no whitespace errors.
+Aliases affect report grouping only; model routing and pricing remain unchanged.
 
 ## oh-my-pi support
 
@@ -358,16 +220,12 @@ Expected: all tests pass and no whitespace errors.
 - `omp_models_oauth.yaml` -> `models.yml` in OAuth mode
 - `omp-gotify-notify.js` -> `extensions/omp-gotify-notify.js`
 
-The custom model provider ID is `codex_api`. The shorter `codex` ID is reserved by oh-my-pi's built-in Codex discovery integrations. The repository config also disables oh-my-pi's bundled `azure` model provider; no Azure endpoint is configured.
-
-In default API mode, before writing `models.yml`, the installer replaces `baseUrl: CODEX_BASE_URL` with the real value from `CODEX_BASE_URL`.
-This is required because oh-my-pi does not auto-expand environment variables for `baseUrl`.
-If `CODEX_BASE_URL` is missing, the placeholder remains and installer prints a warning.
+Default API mode needs `CODEX_BASE_URL`; the installer writes it into `models.yml`.
 
 With `--oauth`, the installer writes `omp_models_oauth.yaml` to `models.yml` and
 changes all `codex_api/` model role prefixes to `openai-codex/` in `config.yml`.
-The file overrides Sol/Luna context windows to 272K and keeps 128K max output;
-other model metadata comes from OMP's native catalog. It skips gateway URL interpolation.
+Both model configurations set a 272K context window for Sol/Luna and keep 128K
+max output. In OAuth mode, other model metadata comes from OMP's native catalog.
 
 The installer replaces `config.yml` with the selected rendering of `omp_config.yml`. After making machine-local changes through oh-my-pi setup, update the repository template before running `pull.py` if those changes should be preserved.
 
@@ -375,4 +233,5 @@ The installer replaces `config.yml` with the selected rendering of `omp_config.y
 - terminal completion or error (`agent_end`, ignores automatic continuations and aborted turns)
 - ask tool waiting for input (`tool_execution_start` with `ask`)
 
-The extension is the sole OMP notification channel in the repository config, so OMP's native completion, error, and ask notifications are disabled. Summarizer requests are capped at 8 seconds per compatible route and Gotify delivery is capped at 5 seconds, keeping worst-case network waiting to about 21 seconds within OMP's 30-second extension-handler budget. Redacted delivery diagnostics are written to `~/.omp/logs/gotify-notify.log`.
+The Gotify extension is the only OMP notification channel in this configuration.
+Delivery diagnostics are written to `~/.omp/logs/gotify-notify.log`.
