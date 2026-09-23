@@ -1,7 +1,7 @@
 {
   "plugin": [
     "opencode-openai-codex-auth",
-    "oh-my-openagent@latest",
+    "oh-my-openagent@beta",
     "opencode-wakatime"
   ],
   "provider": {
