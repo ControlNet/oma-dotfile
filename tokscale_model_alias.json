@@ -148,5 +148,21 @@
   "azure/gpt-6-astra": "gpt-6-astra",
   "azure_openai/gpt-6-astra": "gpt-6-astra",
   "opencode/gpt-6-astra": "gpt-6-astra",
-  "omp/gpt-6-astra": "gpt-6-astra"
+  "omp/gpt-6-astra": "gpt-6-astra",
+  "openai/gpt-6-luna": "gpt-6-luna",
+  "codex/gpt-6-luna": "gpt-6-luna",
+  "codex_api/gpt-6-luna": "gpt-6-luna",
+  "privnode_codex/gpt-6-luna": "gpt-6-luna",
+  "azure/gpt-6-luna": "gpt-6-luna",
+  "azure_openai/gpt-6-luna": "gpt-6-luna",
+  "opencode/gpt-6-luna": "gpt-6-luna",
+  "omp/gpt-6-luna": "gpt-6-luna",
+  "openai/gpt-6-sol": "gpt-6-sol",
+  "codex/gpt-6-sol": "gpt-6-sol",
+  "codex_api/gpt-6-sol": "gpt-6-sol",
+  "privnode_codex/gpt-6-sol": "gpt-6-sol",
+  "azure/gpt-6-sol": "gpt-6-sol",
+  "azure_openai/gpt-6-sol": "gpt-6-sol",
+  "opencode/gpt-6-sol": "gpt-6-sol",
+  "omp/gpt-6-sol": "gpt-6-sol"
 }
