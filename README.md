@@ -106,6 +106,11 @@ Already installed plugins are skipped, and disabled plugins remain disabled. The
 
 ## Claude Code support
 
+`pull.py` installs `_AGENTS.md` as a user-level rule at `~/.claude/rules/oma-dotfile.md`
+(or `$CLAUDE_CONFIG_DIR/rules/oma-dotfile.md`). Claude Code loads this rule in every
+session, alongside any existing `~/.claude/CLAUDE.md`. When the managed rule
+changes, the installer backs up the previous copy unless `NO_BACKUP=1` is set.
+
 `pull.py` installs the managed Claude Code plugin into `~/.claude/skills/gotify-notify` (or `$CLAUDE_CONFIG_DIR/skills/gotify-notify`). It preserves `settings.json`, unrelated skills, and other plugins.
 
 The plugin notifies for completed turns, errors, permission prompts, and requests for user input.
