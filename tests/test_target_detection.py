@@ -189,6 +189,30 @@ class InstallGatingTests(unittest.TestCase):
         for name in ("get_config_dir", "get_omo_dir", "get_omp_agent_dir"):
             self.assertFalse(self.target_dir(name).exists(), name)
 
+    def test_claude_instructions_preserve_existing_user_memory(self) -> None:
+        # Existing personal instructions must remain separate from the shared rules.
+        claude_dir = self.target_dir("get_claude_config_dir")
+        rules_dir = claude_dir / "rules"
+        rules_dir.mkdir(parents=True)
+        personal = claude_dir / "CLAUDE.md"
+        _ = personal.write_text("Personal instructions\n", encoding="utf-8")
+        managed = rules_dir / "oma-dotfile.md"
+        _ = managed.write_text("Old shared instructions\n", encoding="utf-8")
+
+        with patch.object(pull, "NO_BACKUP", False):
+            self.run_main(claude=True)
+            self.assertEqual(managed.read_text(encoding="utf-8"),
+                             (ROOT / "_AGENTS.md").read_text(encoding="utf-8"))
+            self.assertEqual(personal.read_text(encoding="utf-8"),
+                             "Personal instructions\n")
+            backups = list(rules_dir.glob("oma-dotfile.md.bak-*"))
+            self.assertEqual(len(backups), 1)
+            self.assertEqual(backups[0].read_text(encoding="utf-8"),
+                             "Old shared instructions\n")
+
+            self.run_main(claude=True)
+            self.assertEqual(list(rules_dir.glob("oma-dotfile.md.bak-*")), backups)
+
     def test_wakatime_step_follows_either_agent(self) -> None:
         # Given each combination of the two agents that carry a WakaTime plugin.
         for detected, expected_calls in (({"codex": True}, 1), ({"claude": True}, 1),

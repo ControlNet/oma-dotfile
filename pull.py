@@ -1142,9 +1142,17 @@ def main(argv: list[str] | None = None):
                 prepare_target_dir(claude_config_dir)
             ensure_wakatime_plugins(codex_dir, claude_config_dir)
 
-        if begin_step("9/10", f"Installing Claude Code plugin to: {claude_config_dir}",
+        if begin_step("9/10", f"Installing Claude Code assets to: {claude_config_dir}",
                       targets["claude"], "claude not found"):
             prepare_target_dir(claude_config_dir)
+            instructions_src = repo_path / "_AGENTS.md"
+            if instructions_src.exists():
+                print("         - _AGENTS.md -> rules/oma-dotfile.md")
+                install_rendered_text(
+                    instructions_src.read_text(encoding="utf-8"),
+                    claude_config_dir / "rules" / "oma-dotfile.md",
+                    stamp,
+                )
             install_claude_plugin(repo_path, claude_config_dir, stamp)
 
         if begin_step("10/10", "Configuring Tokscale model aliases",
