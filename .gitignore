@@ -4,6 +4,8 @@ __pycache__/
 # OMO runtime state; keep .omo/knowledges, .omo/notepads, and .omo/plans trackable.
 .omo/boulder.json
 .omo/run-continuation/
+.omo/senpi-task/
+.omo/thread-tools/
 .vscode/
 .DS_Store
 .idea/

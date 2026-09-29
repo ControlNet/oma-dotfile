@@ -115,7 +115,10 @@ class OAuthTests(unittest.TestCase):
     def test_omo_rewrites_model_prefix_preserving_ids(self):
         pull.install_omo_config(ROOT, self.tmp, 'oauth', oauth=True)
         actual = (self.tmp / 'omo.jsonc').read_text()
-        self.assertEqual(actual, (ROOT / 'omo.jsonc').read_text().replace('"codex/', '"openai/'))
+        # Native routing lives in its own block; see tests/test_omo_native.py.
+        opencode = pull.read_jsonc_object(self.tmp / 'omo.jsonc')['[opencode]']
+        self.assertNotIn('"codex/', json.dumps(opencode))
+        self.assertIn('"openai/gpt-6-sol"', actual)
         pull.install_omo_config(ROOT, self.tmp, 'api')
         self.assertEqual((self.tmp / 'omo.jsonc').read_text(), (ROOT / 'omo.jsonc').read_text())
 

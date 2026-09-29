@@ -44,7 +44,8 @@ codex login
 opencode auth login --provider openai
 ```
 
-In OpenCode choose ChatGPT authentication. Inside OMP run `/login openai-codex`.
+In OpenCode choose ChatGPT authentication. Inside OMP run `/login openai-codex`, and inside
+OMO Native run `/login chatgpt-subscription`.
 Existing explicit model selections, profiles, project overrides, and resumed
 sessions can override defaults.
 
@@ -90,6 +91,20 @@ For local `plugins/` and `skills/`, it replaces only same-named items shipped by
 
 `pull.py` also installs the unified Oh My OpenAgent configuration as `~/.omo/omo.jsonc`.
 OpenCode-specific OMO settings live under the `"[opencode]"` key in that file; `opencode.jsonc` remains the OpenCode core configuration.
+Anonymous OMO telemetry is disabled for both harnesses.
+
+## OMO Native support
+
+When the `omo` CLI is detected, OMO Native reads its routing from the `"[native]"` key of
+`~/.omo/omo.jsonc`. The routing uses the same models and reasoning levels as OpenCode. `pull.py`
+also installs these files into `~/.omo/agent` (or `$OMO_CODING_AGENT_DIR`):
+- `AGENTS.md` (shared rules)
+- `models.json`: the `codex` gateway provider, with `CODEX_BASE_URL` rendered literally. Other
+  providers are preserved, and the file is left unchanged in OAuth mode or without `CODEX_BASE_URL`.
+- `settings.json`: only `"rules"` is added to `disabledBuiltinExtensions`, so OMO Native stops
+  reading `~/.claude` rules and `CLAUDE.md`; other settings are preserved.
+
+Skills are not installed; run `omo setup` once to import them from OpenCode.
 
 ## Codex support
 

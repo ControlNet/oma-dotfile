@@ -83,6 +83,7 @@ class AgentDetectionTests(unittest.TestCase):
         self.assertTrue(targets["omp"])
         self.assertFalse(targets["codex"])
         self.assertFalse(targets["claude"])
+        self.assertFalse(targets["omo"])
 
     def test_tokscale_follows_its_config_directory(self) -> None:
         # Given Tokscale, which ships no CLI on PATH.
@@ -136,7 +137,7 @@ class InstallGatingTests(unittest.TestCase):
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.enterContext(patch.object(pull, "NO_BACKUP", True))
         self.enterContext(patch.object(pull, "INSTALL_ALL", False))
-        for name in ("get_config_dir", "get_omo_dir", "get_codex_dir",
+        for name in ("get_config_dir", "get_omo_dir", "get_omo_agent_dir", "get_codex_dir",
                      "get_claude_config_dir", "get_omp_agent_dir", "get_tokscale_config_dir"):
             self.enterContext(patch.object(pull, name, return_value=self.tmp / name))
         self.enterContext(patch.object(Path, "home", return_value=self.tmp))
@@ -177,6 +178,24 @@ class InstallGatingTests(unittest.TestCase):
             self.assertFalse(self.target_dir(name).exists(), name)
         self.wakatime.assert_not_called()
         self.tokscale.assert_not_called()
+
+    def test_omo_only_machine_gets_unified_and_native_config(self) -> None:
+        # Given a machine with OMO Native but no OpenCode.
+        with patch.dict(os.environ, {"CODEX_BASE_URL": "https://example.invalid/v1"}):
+            self.run_main(omo=True)
+        # Then the shared OMO config and the native agent files are installed.
+        self.assertTrue((self.target_dir("get_omo_dir") / "omo.jsonc").is_file())
+        agent_dir = self.target_dir("get_omo_agent_dir")
+        for name in ("AGENTS.md", "models.json", "settings.json"):
+            self.assertTrue((agent_dir / name).is_file(), name)
+        # And OpenCode itself is left alone.
+        self.assertFalse(self.target_dir("get_config_dir").exists())
+
+    def test_opencode_only_machine_does_not_create_native_agent_dir(self) -> None:
+        with patch.dict(os.environ, {"CODEX_BASE_URL": "https://example.invalid/v1"}):
+            self.run_main(opencode=True)
+        self.assertTrue((self.target_dir("get_omo_dir") / "omo.jsonc").is_file())
+        self.assertFalse(self.target_dir("get_omo_agent_dir").exists())
 
     def test_codex_only_machine_leaves_the_other_agents_alone(self) -> None:
         # Given a machine with Codex but nothing else.
