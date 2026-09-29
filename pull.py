@@ -12,6 +12,8 @@ Env:
   CLAUDE_CONFIG_DIR=<optional override for ~/.claude>
   OMP_AGENT_DIR=<optional override for ~/.omp/agent>
   PI_CODING_AGENT_DIR=<oh-my-pi native override; used when OMP_AGENT_DIR is not set>
+  OMO_CODING_AGENT_DIR=<OMO Native override for ~/.omo/agent; SENPI_CODING_AGENT_DIR and
+                        PI_CODING_AGENT_DIR follow, matching omo's own lookup>
   TOKSCALE_CONFIG_DIR=<optional override for tokscale settings directory>
   WAKATIME_HOME=<optional override for the .wakatime.cfg location>
   INSTALL_ALL=1 (optional; install every target without detecting agents)
@@ -166,6 +168,19 @@ def get_omo_dir() -> Path:
     return Path.home() / ".omo"
 
 
+# omo-ai bin/lib/agent-dir.js AGENT_DIR_ENV_NAMES, most specific first.
+OMO_AGENT_DIR_ENV_NAMES = ("OMO_CODING_AGENT_DIR", "SENPI_CODING_AGENT_DIR", "PI_CODING_AGENT_DIR")
+
+
+def get_omo_agent_dir() -> Path:
+    """Determine the OMO Native engine state directory the way omo itself does."""
+    for name in OMO_AGENT_DIR_ENV_NAMES:
+        configured = os.environ.get(name, "").strip()
+        if configured:
+            return Path(configured).expanduser()
+    return get_omo_dir() / "agent"
+
+
 def get_tokscale_config_dir() -> Path:
     """Follow Tokscale's platform defaults and native directory override."""
     override = os.environ.get("TOKSCALE_CONFIG_DIR", "")
@@ -178,10 +193,11 @@ def get_tokscale_config_dir() -> Path:
     return Path.home() / ".config" / "tokscale"
 
 
-# Targets are reported in this order. OMO has no executable of its own: it is a
-# plugin layer that requires OpenCode, so the OpenCode target gates its config too.
+# Targets are reported in this order. The OMO OpenCode plugin has no executable of its
+# own, so the OpenCode target gates its config; OMO Native ships the `omo` CLI.
 TARGET_LABELS = {
     "opencode": "OpenCode/OMO",
+    "omo": "OMO Native",
     "omp": "oh-my-pi",
     "codex": "Codex",
     "claude": "Claude Code",
@@ -190,6 +206,7 @@ TARGET_LABELS = {
 
 AGENT_EXECUTABLES = {
     "opencode": "opencode",
+    "omo": "omo",
     "omp": "omp",
     "codex": "codex",
     "claude": "claude",
@@ -372,20 +389,146 @@ def merge_config_objects(base: dict, override: dict) -> dict:
     return result
 
 
+JSONC_STRUCTURE_TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|//[^\n]*|/\*.*?\*/|[{}]', re.DOTALL)
+
+
+def find_jsonc_top_level_object(content: str, key: str) -> tuple[int, int] | None:
+    """Return the span of a top-level member's object value, skipping strings and comments."""
+    quoted_key = json.dumps(key)
+    depth = 0
+    armed = False
+    start = None
+    for match in JSONC_STRUCTURE_TOKEN.finditer(content):
+        token = match.group()
+        if token == "{":
+            depth += 1
+            if armed and depth == 2:
+                start, armed = match.start(), False
+        elif token == "}":
+            depth -= 1
+            if start is not None and depth == 1:
+                return start, match.end()
+        elif depth == 1 and start is None:
+            armed = token == quoted_key
+    return None
+
+
+def rewrite_model_prefix(content: str, prefix: str) -> str:
+    """Point every `"codex/<model>"` string at another provider, keeping the model ids."""
+    return JSONC_TOKEN.sub(
+        lambda match: match.group().replace('"codex/', f'"{prefix}/', 1)
+        if match.group().startswith('"codex/') else match.group(),
+        content,
+    )
+
+
+def render_omo_oauth_config(content: str) -> str:
+    """OpenCode reaches ChatGPT OAuth as `openai/`; OMO Native calls it `chatgpt-subscription/`."""
+    native = find_jsonc_top_level_object(content, "[native]")
+    if native is None:
+        return rewrite_model_prefix(content, "openai")
+    start, end = native
+    return (rewrite_model_prefix(content[:start], "openai")
+            + rewrite_model_prefix(content[start:end], "chatgpt-subscription")
+            + rewrite_model_prefix(content[end:], "openai"))
+
+
 def install_omo_config(
     repo_path: Path, omo_dir: Path, stamp: str, oauth: bool = False
 ) -> None:
     src = repo_path / "omo.jsonc"
     print("         - omo.jsonc")
     if oauth:
-        content = JSONC_TOKEN.sub(
-            lambda match: match.group().replace('"codex/', '"openai/', 1)
-            if match.group().startswith('"codex/') else match.group(),
-            src.read_text(encoding="utf-8"),
-        )
+        content = render_omo_oauth_config(src.read_text(encoding="utf-8"))
         install_rendered_text(content, omo_dir / "omo.jsonc", stamp)
     else:
         backup_and_install(src, omo_dir / "omo.jsonc", stamp)
+
+
+# OpenCode reasoning variants that OMO Native only offers once a model maps them explicitly.
+OMO_NATIVE_THINKING_LEVELS = ("low", "medium", "high", "xhigh", "max")
+
+
+def build_omo_native_gateway_provider(repo_path: Path, codex_base_url: str) -> dict:
+    """Mirror OpenCode's `codex` gateway provider in OMO Native's models.json shape."""
+    opencode = read_jsonc_object(repo_path / "opencode.jsonc")
+    models = []
+    for model_id, entry in opencode["provider"]["codex"]["models"].items():
+        limit = entry.get("limit", {})
+        cost = entry.get("cost", {})
+        variants = entry.get("variants", {})
+        models.append({
+            "id": model_id,
+            "reasoning": bool(entry.get("reasoning")),
+            "input": entry.get("modalities", {}).get("input", ["text"]),
+            # A separate input cap is what the gateway enforces, as omp_models.yaml records.
+            "contextWindow": limit.get("input", limit.get("context")),
+            "maxTokens": limit.get("output"),
+            "cost": {
+                "input": cost.get("input", 0),
+                "output": cost.get("output", 0),
+                "cacheRead": cost.get("cache_read", 0),
+                "cacheWrite": cost.get("cache_write", 0),
+            },
+            "thinkingLevelMap": {
+                level: variants[level].get("reasoningEffort", level)
+                for level in OMO_NATIVE_THINKING_LEVELS if level in variants
+            },
+        })
+    return {
+        # The engine sends baseUrl verbatim; only apiKey and headers are interpolated.
+        "baseUrl": codex_base_url,
+        "api": "openai-responses",
+        "apiKey": "${CODEX_API_TOKEN}",
+        "models": models,
+    }
+
+
+def install_omo_native_models(
+    repo_path: Path, agent_dir: Path, stamp: str, oauth: bool = False
+) -> None:
+    """Register the gateway as the `codex` provider, preserving unrelated providers."""
+    if oauth:
+        info("         OAuth mode: models.json unchanged; ChatGPT is the built-in chatgpt-subscription provider")
+        return
+    codex_base_url = os.environ.get("CODEX_BASE_URL", "").strip()
+    if not codex_base_url:
+        warn("CODEX_BASE_URL is not set; skipping OMO Native models.json, so codex/ models stay unavailable")
+        return
+    dst = agent_dir / "models.json"
+    try:
+        document = read_jsonc_object(dst) if dst.exists() else {}
+        providers = document.setdefault("providers", {})
+        if not isinstance(providers, dict):
+            raise ValueError("providers must be a JSON object")
+        providers["codex"] = build_omo_native_gateway_provider(repo_path, codex_base_url)
+    except (OSError, ValueError, KeyError) as exc:
+        warn(f"Failed to update {dst} ({type(exc).__name__}); leaving models.json unchanged")
+        return
+    print("         - models.json (codex gateway provider, render CODEX_BASE_URL)")
+    install_rendered_text(json.dumps(document, indent=2, ensure_ascii=False) + "\n", dst, stamp)
+
+
+def ensure_omo_native_settings(agent_dir: Path, stamp: str) -> None:
+    """Disable the builtin rules extension, which reads ~/.claude rules and CLAUDE.md."""
+    if (agent_dir / "settings.jsonc").exists():
+        warn(f"{agent_dir / 'settings.jsonc'} takes precedence over settings.json; "
+             'add "rules" to its disabledBuiltinExtensions by hand')
+        return
+    dst = agent_dir / "settings.json"
+    try:
+        settings = read_jsonc_object(dst) if dst.exists() else {}
+        disabled = settings.get("disabledBuiltinExtensions", [])
+        if not isinstance(disabled, list):
+            raise ValueError("disabledBuiltinExtensions must be a list")
+    except (OSError, ValueError) as exc:
+        warn(f"Failed to read {dst} ({type(exc).__name__}); leaving settings.json unchanged")
+        return
+    if "rules" in disabled:
+        return
+    settings["disabledBuiltinExtensions"] = [*disabled, "rules"]
+    print("         - settings.json (disable builtin rules extension)")
+    install_rendered_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n", dst, stamp)
 
 
 def install_omp_config(src: Path, dst: Path, stamp: str, oauth: bool = False) -> None:
@@ -1020,6 +1163,7 @@ def main(argv: list[str] | None = None):
     codex_dir = get_codex_dir()
     claude_config_dir = get_claude_config_dir()
     omp_agent_dir = get_omp_agent_dir()
+    omo_agent_dir = get_omo_agent_dir()
     stamp = timestamp()
 
     repo_url = f"https://github.com/{REPO_OWNER}/{REPO_NAME}.git"
@@ -1028,7 +1172,7 @@ def main(argv: list[str] | None = None):
         tmp_path = Path(tmp_dir)
         repo_path = tmp_path / REPO_NAME
 
-        info(f"[1/10] Cloning repository (branch/tag: {REPO_REV})...")
+        info(f"[1/11] Cloning repository (branch/tag: {REPO_REV})...")
         result = subprocess.run(
             [
                 "git",
@@ -1053,20 +1197,34 @@ def main(argv: list[str] | None = None):
                 error(f"Required repository file is missing: {required_name}")
                 sys.exit(1)
 
-        if begin_step("2/10", f"Installing OpenCode config files to: {config_dir}",
+        if begin_step("2/11", f"Installing OpenCode config files to: {config_dir}",
                       targets["opencode"], "opencode not found"):
             prepare_target_dir(config_dir)
             install_opencode_config_files(repo_path, config_dir, stamp, oauth=args.oauth)
             rename_path_if_exists(config_dir / "opencode.json", stamp)
             retire_legacy_openagent_files(config_dir, stamp)
 
-        if begin_step("3/10", f"Installing unified OMO config to: {omo_dir}",
-                      targets["opencode"], "opencode not found"):
+        if begin_step("3/11", f"Installing unified OMO config to: {omo_dir}",
+                      targets["opencode"] or targets["omo"], "neither opencode nor omo found"):
             prepare_target_dir(omo_dir)
             install_omo_config(repo_path, omo_dir, stamp, oauth=args.oauth)
             retire_legacy_omo_files(omo_dir, stamp)
 
-        if begin_step("4/10", "Installing OpenCode plugins and skills...",
+        if begin_step("4/11", f"Installing OMO Native config to: {omo_agent_dir}",
+                      targets["omo"], "omo not found"):
+            prepare_target_dir(omo_agent_dir)
+            instructions_src = repo_path / "_AGENTS.md"
+            if instructions_src.exists():
+                print("         - _AGENTS.md -> AGENTS.md")
+                install_rendered_text(
+                    instructions_src.read_text(encoding="utf-8"),
+                    omo_agent_dir / "AGENTS.md",
+                    stamp,
+                )
+            install_omo_native_models(repo_path, omo_agent_dir, stamp, oauth=args.oauth)
+            ensure_omo_native_settings(omo_agent_dir, stamp)
+
+        if begin_step("5/11", "Installing OpenCode plugins and skills...",
                       targets["opencode"], "opencode not found"):
             prepare_target_dir(config_dir)
             for dir_name in ["plugins", "skills"]:
@@ -1076,7 +1234,7 @@ def main(argv: list[str] | None = None):
                     print(f"         - {dir_name}/ (replace managed items)")
                     copy_directory_items_replace(src_dir, dst_dir)
 
-        if begin_step("5/10", f"Installing oh-my-pi config files to: {omp_agent_dir}",
+        if begin_step("6/11", f"Installing oh-my-pi config files to: {omp_agent_dir}",
                       targets["omp"], "omp not found"):
             prepare_target_dir(omp_agent_dir)
             omp_config_files = [
@@ -1106,7 +1264,7 @@ def main(argv: list[str] | None = None):
                       else "         - omp_models.yaml (render CODEX_BASE_URL)")
                 backup_and_install_omp_models(omp_models_src, omp_models_dst, stamp, oauth=args.oauth)
 
-        if begin_step("6/10", f"Installing shared Codex assets to: {codex_dir}",
+        if begin_step("7/11", f"Installing shared Codex assets to: {codex_dir}",
                       targets["codex"], "codex not found"):
             prepare_target_dir(codex_dir)
             codex_files = [
@@ -1126,12 +1284,12 @@ def main(argv: list[str] | None = None):
                 print("         - skills/ (merge)")
                 copy_directory_merge(codex_skills_src, codex_skills_dst)
 
-        if begin_step("7/10", "Configuring Codex config",
+        if begin_step("8/11", "Configuring Codex config",
                       targets["codex"], "codex not found"):
             prepare_target_dir(codex_dir)
             ensure_codex_config(codex_dir, stamp, oauth=args.oauth)
 
-        if begin_step("8/10", "Installing WakaTime plugins for Codex and Claude Code",
+        if begin_step("9/11", "Installing WakaTime plugins for Codex and Claude Code",
                       targets["codex"] or targets["claude"],
                       "neither codex nor claude found"):
             # Each plugin follows its own agent inside ensure_wakatime_plugins; both
@@ -1142,7 +1300,7 @@ def main(argv: list[str] | None = None):
                 prepare_target_dir(claude_config_dir)
             ensure_wakatime_plugins(codex_dir, claude_config_dir)
 
-        if begin_step("9/10", f"Installing Claude Code assets to: {claude_config_dir}",
+        if begin_step("10/11", f"Installing Claude Code assets to: {claude_config_dir}",
                       targets["claude"], "claude not found"):
             prepare_target_dir(claude_config_dir)
             instructions_src = repo_path / "_AGENTS.md"
@@ -1155,7 +1313,7 @@ def main(argv: list[str] | None = None):
                 )
             install_claude_plugin(repo_path, claude_config_dir, stamp)
 
-        if begin_step("10/10", "Configuring Tokscale model aliases",
+        if begin_step("11/11", "Configuring Tokscale model aliases",
                       targets["tokscale"], "tokscale config directory not found"):
             install_tokscale_model_aliases(repo_path, get_tokscale_config_dir(), stamp)
 
@@ -1168,6 +1326,8 @@ def main(argv: list[str] | None = None):
             logins.append("codex login")
         if targets["opencode"]:
             logins.append("opencode auth login --provider openai")
+        if targets["omo"]:
+            logins.append("omo /login chatgpt-subscription")
         if targets["omp"]:
             logins.append("OMP /login openai-codex")
         if logins:

@@ -1,5 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-openagent/dev/assets/omo.schema.json",
+  "telemetry": {
+    "enabled": false
+  },
   "[opencode]": {
     "agents": {
       "sisyphus": {
@@ -99,6 +102,84 @@
     },
     "team_mode": {
       "enabled": true
+    }
+  },
+  "[native]": {
+    "agents": {
+      "explore": {
+        "model": "codex/gpt-6-luna",
+        "reasoning": "xhigh"
+      },
+      "librarian": {
+        "model": "codex/gpt-6-luna",
+        "reasoning": "xhigh"
+      },
+      "plan-consultant": {
+        "model": "codex/gpt-6-sol",
+        "reasoning": "xhigh"
+      },
+      "plan-reviewer": {
+        "model": "codex/gpt-6-sol",
+        "reasoning": "max"
+      },
+      "omo-native-code-reviewer": {
+        "model": "codex/gpt-6-sol",
+        "reasoning": "xhigh"
+      },
+      "omo-native-gate-reviewer": {
+        "model": "codex/gpt-6-sol",
+        "reasoning": "max"
+      },
+      "omo-native-qa-executor": {
+        "model": "codex/gpt-6-sol",
+        "reasoning": "high"
+      }
+    },
+    "categories": {
+      "visual-engineering": {
+        "model": "codex/gpt-6-sol",
+        "reasoning": "high"
+      },
+      "ultrabrain": {
+        "model": "codex/gpt-6-sol",
+        "reasoning": "max"
+      },
+      "deep-low": {
+        "model": "codex/gpt-6-sol",
+        "reasoning": "high"
+      },
+      "deep-high": {
+        "model": "codex/gpt-6-sol",
+        "reasoning": "max"
+      },
+      "artistry": {
+        "model": "codex/gpt-6-sol",
+        "reasoning": "high"
+      },
+      "quick": {
+        "model": "codex/gpt-6-luna",
+        "reasoning": "xhigh"
+      },
+      "unspecified-low": {
+        "model": "codex/gpt-6-luna",
+        "reasoning": "max"
+      },
+      "unspecified-high": {
+        "model": "codex/gpt-6-sol",
+        "reasoning": "high"
+      },
+      "writing": {
+        "model": "codex/gpt-6-sol",
+        "reasoning": "medium"
+      },
+      "architect": {
+        "model": "codex/gpt-6-sol",
+        "reasoning": "max"
+      }
+    },
+    "git_master": {
+      "commit_footer": false,
+      "include_co_authored_by": false
     }
   }
 }
