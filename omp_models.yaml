@@ -38,14 +38,14 @@ providers:
         contextWindow: 272000
         maxTokens: 128000
 
-      - id: gpt-6-sol
-        name: GPT 6 Sol (OAuth)
+      - id: gpt-6.1-sol
+        name: GPT 6.1 Sol (OAuth)
         reasoning: true
         input: [text, image]
         cost:
           input: 2.0
           output: 10.0
-          cacheRead: 0.2
+          cacheRead: 0.1
           cacheWrite: 2.5
         contextWindow: 272000
         maxTokens: 128000

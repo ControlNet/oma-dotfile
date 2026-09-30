@@ -6,15 +6,15 @@
   "[opencode]": {
     "agents": {
       "sisyphus": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "high"
       },
       "hephaestus": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "high"
       },
       "oracle": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "xhigh"
       },
       "librarian": {
@@ -26,49 +26,49 @@
         "reasoning": "xhigh"
       },
       "multimodal-looker": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "medium"
       },
       "prometheus": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "high"
       },
       "metis": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "xhigh"
       },
       "momus": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "max"
       },
       "atlas": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "medium"
       },
       "sisyphus-junior": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "high"
       }
     },
     "categories": {
       "visual-engineering": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "high"
       },
       "ultrabrain": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "max"
       },
       "deep-low": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "high"
       },
       "deep-high": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "max"
       },
       "artistry": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "high"
       },
       "quick": {
@@ -80,11 +80,11 @@
         "reasoning": "max"
       },
       "unspecified-high": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "high"
       },
       "writing": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "medium"
       }
     },
@@ -115,45 +115,45 @@
         "reasoning": "xhigh"
       },
       "plan-consultant": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "xhigh"
       },
       "plan-reviewer": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "max"
       },
       "omo-native-code-reviewer": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "xhigh"
       },
       "omo-native-gate-reviewer": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "max"
       },
       "omo-native-qa-executor": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "high"
       }
     },
     "categories": {
       "visual-engineering": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "high"
       },
       "ultrabrain": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "max"
       },
       "deep-low": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "high"
       },
       "deep-high": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "max"
       },
       "artistry": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "high"
       },
       "quick": {
@@ -165,15 +165,15 @@
         "reasoning": "max"
       },
       "unspecified-high": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "high"
       },
       "writing": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "medium"
       },
       "architect": {
-        "model": "codex/gpt-6-sol",
+        "model": "codex/gpt-6.1-sol",
         "reasoning": "max"
       }
     },
