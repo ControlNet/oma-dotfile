@@ -89,3 +89,22 @@ was deliberately not used as the reference.
   - With `disabledBuiltinExtensions: ["rules"]`, the `/rules` command does not exist.
 - `omo --offline --list-models` lists the generated `codex` gateway models. Without auth they load
   but are listed as unavailable, so set a dummy `CODEX_API_TOKEN` to see them.
+
+## Tokscale and OMO Native usage (checked 2026-09-29, Tokscale 4.17.0)
+
+- Tokscale's `senpi` client ("Senpi (OmO Native)") reads `$SENPI_CODING_AGENT_DIR/sessions`, which
+  defaults to `~/.senpi/agent`. Branded omo writes `~/.omo/agent/sessions`, so by default Tokscale
+  counts nothing.
+- Subagent (task child) discovery already exists upstream:
+  - It reads each main session's header `cwd` and scans `<cwd>/.omo/senpi-task/children`.
+  - It honors `task.state_dir` from project/user `omo.jsonc`.
+  - Sources: junhoyeo/tokscale PRs #1113, #1248, #1255.
+- Discovery runs only over the senpi agent dir. `TOKSCALE_EXTRA_DIRS=senpi:...` and
+  `scanner.extraScanPaths` add plain scan roots without child discovery, and globs are not expanded.
+- Verified run: `SENPI_CODING_AGENT_DIR=~/.omo/agent bunx tokscale@latest -c senpi`, launched from `~`.
+  - It counted every main-session and task-child message.
+  - That matches a direct parse of the main and child session files.
+  - The parent session does not duplicate child usage.
+- No upstream issue asked for the `~/.omo/agent` default as of 2026-09-29. The related omo issue is
+  #6717, about `~/.senpi` vs branded dirs.
+- Reported upstream as junhoyeo/tokscale#1375 (2026-09-29).
