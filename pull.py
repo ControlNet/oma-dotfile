@@ -26,11 +26,15 @@ import os
 import re
 import shutil
 import sys
-import tomllib
 import subprocess
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python < 3.11; fall back to the small scanners below.
+    tomllib = None
 
 # Config from environment
 REPO_OWNER = os.environ.get("REPO_OWNER", "ControlNet")
@@ -751,6 +755,81 @@ def ensure_top_level_config_line(lines: list[str], desired_line: str, key: str) 
     return [*lines[:insert_idx], desired_line, *lines[insert_idx:]]
 
 
+TOML_STRING_ASSIGNMENT = re.compile(
+    r"""^\s*([A-Za-z0-9_-]+)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|'([^']*)')\s*(?:#.*)?$"""
+)
+
+
+def is_escaped(value: str, idx: int) -> bool:
+    backslashes = 0
+    while idx - backslashes > 0 and value[idx - backslashes - 1] == "\\":
+        backslashes += 1
+    return backslashes % 2 == 1
+
+
+def toml_value_is_complete(value: str) -> bool:
+    """Return whether brackets and strings in a TOML value are balanced."""
+    depth = 0
+    seen_value = False
+    idx = 0
+    while idx < len(value):
+        char = value[idx]
+        if char == "#":
+            newline = value.find("\n", idx)
+            if newline == -1:
+                break
+            idx = newline + 1
+            continue
+        if char in "\"'":
+            quote = char * 3 if value.startswith(char * 3, idx) else char
+            end = value.find(quote, idx + len(quote))
+            # Only basic strings support escapes; skip quotes after an odd backslash run.
+            while char == '"' and end != -1 and is_escaped(value, end):
+                end = value.find(quote, end + 1)
+            if end == -1:
+                return False
+            seen_value = True
+            idx = end + len(quote)
+            continue
+        if char in "[{":
+            depth += 1
+        elif char in "]}":
+            depth -= 1
+        if not char.isspace():
+            seen_value = True
+        idx += 1
+    return seen_value and depth <= 0
+
+
+def toml_assignment_is_complete(key: str, value: str) -> bool:
+    if tomllib is None:
+        return toml_value_is_complete(value)
+    try:
+        _ = tomllib.loads(f"{key} = {value}\n")
+    except tomllib.TOMLDecodeError:
+        return False
+    return True
+
+
+def read_toml_string_assignment(line: str, key: str) -> str | None:
+    """Return the string value of a single-line `key = "..."` assignment."""
+    if tomllib is not None:
+        try:
+            value = tomllib.loads(line).get(key)
+        except tomllib.TOMLDecodeError:
+            return None
+        return value if isinstance(value, str) else None
+    match = TOML_STRING_ASSIGNMENT.match(line)
+    if match is None or match.group(1) != key:
+        return None
+    if match.group(3) is not None:
+        return match.group(3)
+    try:
+        return json.loads(f'"{match.group(2)}"')
+    except ValueError:
+        return None
+
+
 def find_toml_key_assignment_end_idx(lines: list[str], start_idx: int, key: str) -> int:
     key_pattern = re.compile(rf"^\s*{re.escape(key)}\s*=(.*)$")
     match = key_pattern.match(lines[start_idx])
@@ -759,14 +838,11 @@ def find_toml_key_assignment_end_idx(lines: list[str], start_idx: int, key: str)
 
     value_lines = [match.group(1)]
     for end_idx in range(start_idx + 1, len(lines) + 1):
-        candidate = f"{key} = " + "\n".join(value_lines) + "\n"
-        try:
-            _ = tomllib.loads(candidate)
+        if toml_assignment_is_complete(key, "\n".join(value_lines)):
             return end_idx
-        except tomllib.TOMLDecodeError:
-            if end_idx == len(lines):
-                return end_idx
-            value_lines.append(lines[end_idx])
+        if end_idx == len(lines):
+            return end_idx
+        value_lines.append(lines[end_idx])
     return len(lines)
 
 
@@ -815,7 +891,7 @@ def ensure_codex_oauth_provider_config(lines: list[str]) -> list[str]:
     result = list(lines)
     for idx in range(end):
         if re.match(r"^\s*model_provider\s*=", lines[idx]):
-            if tomllib.loads(lines[idx]).get("model_provider") == "codex_api":
+            if read_toml_string_assignment(lines[idx], "model_provider") == "codex_api":
                 result[idx] = "# " + lines[idx]
     return result
 
@@ -833,11 +909,7 @@ def ensure_codex_api_provider_config(lines: list[str]) -> list[str]:
     for idx in range(end):
         match = re.match(r"^\s*#\s*(model_provider\s*=.*)$", lines[idx])
         if match:
-            try:
-                value = tomllib.loads(match.group(1)).get("model_provider")
-            except tomllib.TOMLDecodeError:
-                continue
-            if value == "codex_api":
+            if read_toml_string_assignment(match.group(1), "model_provider") == "codex_api":
                 lines[idx] = match.group(1)
     lines = ensure_top_level_config_line(
         lines, 'model_provider = "codex_api"', "model_provider"

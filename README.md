@@ -2,7 +2,7 @@
 
 My agent configurations.
 
-Requires Python 3.11+ and Git.
+Requires Python 3.10+ and Git.
 
 Default installation (third-party API mode), Linux/macOS:
 ```bash
