@@ -164,5 +164,13 @@
   "azure/gpt-6-sol": "gpt-6-sol",
   "azure_openai/gpt-6-sol": "gpt-6-sol",
   "opencode/gpt-6-sol": "gpt-6-sol",
-  "omp/gpt-6-sol": "gpt-6-sol"
+  "omp/gpt-6-sol": "gpt-6-sol",
+  "openai/gpt-6.1-sol": "gpt-6.1-sol",
+  "codex/gpt-6.1-sol": "gpt-6.1-sol",
+  "codex_api/gpt-6.1-sol": "gpt-6.1-sol",
+  "privnode_codex/gpt-6.1-sol": "gpt-6.1-sol",
+  "azure/gpt-6.1-sol": "gpt-6.1-sol",
+  "azure_openai/gpt-6.1-sol": "gpt-6.1-sol",
+  "opencode/gpt-6.1-sol": "gpt-6.1-sol",
+  "omp/gpt-6.1-sol": "gpt-6.1-sol"
 }
