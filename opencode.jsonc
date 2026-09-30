@@ -163,7 +163,7 @@
             }
           }
         },
-        "gpt-6-sol": {
+        "gpt-6.1-sol": {
           "reasoning": true,
           "limit": {
             "context": 400000,
@@ -182,7 +182,7 @@
           "cost": {
             "input": 2.0,
             "output": 10.0,
-            "cache_read": 0.2,
+            "cache_read": 0.1,
             "cache_write": 2.5
           },
           "variants": {
@@ -231,14 +231,14 @@
             "output": 128000
           }
         },
-        "gpt-6-sol": {
+        "gpt-6.1-sol": {
           "limit": {
             "context": 400000,
             "input": 272000,
             "output": 128000
           }
         },
-        "gpt-6-sol-fast": {
+        "gpt-6.1-sol-fast": {
           "limit": {
             "context": 400000,
             "input": 272000,

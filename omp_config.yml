@@ -1,12 +1,12 @@
 modelRoles:
-  default: codex_api/gpt-6-sol:high
-  slow: codex_api/gpt-6-sol:max
-  vision: codex_api/gpt-6-sol:medium
-  plan: codex_api/gpt-6-sol:xhigh
-  designer: codex_api/gpt-6-sol:high
-  commit: codex_api/gpt-6-sol:medium
-  advisor: codex_api/gpt-6-sol:high
-  task: codex_api/gpt-6-sol:high
+  default: codex_api/gpt-6.1-sol:high
+  slow: codex_api/gpt-6.1-sol:max
+  vision: codex_api/gpt-6.1-sol:medium
+  plan: codex_api/gpt-6.1-sol:xhigh
+  designer: codex_api/gpt-6.1-sol:high
+  commit: codex_api/gpt-6.1-sol:medium
+  advisor: codex_api/gpt-6.1-sol:high
+  task: codex_api/gpt-6.1-sol:high
   smol: codex_api/gpt-6-luna:max
   tiny: codex_api/gpt-6-luna:high
 disabledProviders:

@@ -9,9 +9,9 @@ providers:
       gpt-6-luna-fast:
         contextWindow: 272000
         maxTokens: 128000
-      gpt-6-sol:
+      gpt-6.1-sol:
         contextWindow: 272000
         maxTokens: 128000
-      gpt-6-sol-fast:
+      gpt-6.1-sol-fast:
         contextWindow: 272000
         maxTokens: 128000
