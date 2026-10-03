@@ -1,11 +1,14 @@
 """Synthetic notification events; all delivery and summarization are mocked."""
 
+from contextlib import closing
 import importlib.util
 import io
 import json
 import os
 from pathlib import Path
+import sqlite3
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -125,6 +128,135 @@ class RecapNotificationTests(unittest.TestCase):
             "Do not answer the request. User prompt: Investigate notifications."
         )
         self.assert_skipped("thread_title_generation")
+
+
+# Schema copied from codex-cli 0.160.0 goals_1.sqlite; rows are synthetic.
+GOALS_SCHEMA = """
+CREATE TABLE thread_goals (
+    thread_id TEXT PRIMARY KEY NOT NULL,
+    goal_id TEXT NOT NULL,
+    objective TEXT NOT NULL,
+    status TEXT NOT NULL,
+    token_budget INTEGER,
+    tokens_used INTEGER NOT NULL DEFAULT 0,
+    time_used_seconds INTEGER NOT NULL DEFAULT 0,
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+);
+CREATE TABLE thread_goal_continuation_deferrals (
+    thread_id TEXT PRIMARY KEY NOT NULL
+);
+"""
+GOAL_THREAD = "synthetic-goal-thread"
+
+
+class GoalContinuationTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.goals_db = self.tmp / "goals_1.sqlite"
+        self.enterContext(patch.dict(os.environ, {
+            "GOTIFY_URL": "https://gotify.invalid",
+            "GOTIFY_TOKEN_FOR_CODEX": "synthetic-test-only-not-a-credential",
+            "CODEX_NOTIFY_GOALS_DB": str(self.goals_db),
+        }, clear=True))
+        self.log = self.enterContext(patch.object(notify, "_log_line"))
+        self.enterContext(
+            patch.object(notify, "_is_codex_acp_process_tree", return_value=False)
+        )
+        self.enterContext(patch.object(notify, "_thread_source_flags", return_value={}))
+        self.summary = self.enterContext(
+            patch.object(notify, "_summarize_with_llm", return_value="Test summary")
+        )
+        self.enterContext(patch.object(notify, "_should_send", return_value=True))
+        self.push = self.enterContext(patch.object(notify, "_push_gotify"))
+        self.enterContext(patch.object(
+            notify.urllib.request, "urlopen",
+            side_effect=AssertionError("Network access is forbidden in this test"),
+        ))
+
+    def write_goal(self, status, *, deferred=False):
+        with closing(sqlite3.connect(self.goals_db)) as conn, conn:
+            conn.executescript(GOALS_SCHEMA)
+            conn.execute(
+                "INSERT INTO thread_goals (thread_id, goal_id, objective, status, "
+                "created_at_ms, updated_at_ms) VALUES (?, 'goal-1', 'Watch job', ?, 1, 1)",
+                (GOAL_THREAD, status),
+            )
+            if deferred:
+                conn.execute(
+                    "INSERT INTO thread_goal_continuation_deferrals VALUES (?)",
+                    (GOAL_THREAD,),
+                )
+
+    def run_event(self, *, event_type="agent-turn-complete"):
+        payload = {
+            "type": event_type,
+            "thread-id": GOAL_THREAD,
+            "input-messages": ["Keep watching the queue."],
+            "last-assistant-message": "Queue still running; waiting for exit.",
+        }
+        with patch.object(sys, "argv", [str(SCRIPT), json.dumps(payload)]):
+            self.assertEqual(notify.main(), 0)
+
+    def test_active_goal_turn_is_skipped_before_summary(self):
+        self.write_goal("active")
+        self.run_event()
+        self.summary.assert_not_called()
+        self.push.assert_not_called()
+        self.assertTrue(any(
+            "run_skip reason=goal_continuation" in call.args[0]
+            for call in self.log.call_args_list
+        ))
+
+    def test_finished_or_stopped_goal_still_notifies(self):
+        for status in ("complete", "paused", "blocked", "usage_limited", "budget_limited"):
+            with self.subTest(status=status):
+                self.goals_db.unlink(missing_ok=True)
+                self.push.reset_mock()
+                self.write_goal(status)
+                self.run_event()
+                self.push.assert_called_once()
+
+    def test_deferred_continuation_still_notifies(self):
+        self.write_goal("active", deferred=True)
+        self.run_event()
+        self.push.assert_called_once()
+
+    def test_thread_without_goal_still_notifies(self):
+        self.write_goal("active")
+        with closing(sqlite3.connect(self.goals_db)) as conn, conn:
+            conn.execute("UPDATE thread_goals SET thread_id = 'other-thread'")
+        self.run_event()
+        self.push.assert_called_once()
+
+    def test_missing_or_unreadable_goals_db_fails_open(self):
+        self.run_event()
+        self.push.assert_called_once()
+
+        self.push.reset_mock()
+        self.goals_db.write_text("not a sqlite database")
+        self.run_event()
+        self.push.assert_called_once()
+
+    def test_opt_in_env_keeps_goal_continuation_notifications(self):
+        self.write_goal("active")
+        with patch.dict(os.environ, {"CODEX_NOTIFY_GOAL_CONTINUATION": "true"}):
+            self.run_event()
+        self.push.assert_called_once()
+
+    def test_permission_request_during_active_goal_still_notifies(self):
+        self.write_goal("active")
+        self.run_event(event_type="permission-request")
+        self.push.assert_called_once()
+
+    def test_default_goals_db_uses_newest_schema_version(self):
+        codex_home = self.tmp / ".codex"
+        codex_home.mkdir()
+        for name in ("goals_1.sqlite", "goals_2.sqlite", "goals_10.sqlite"):
+            (codex_home / name).touch()
+        with patch.dict(os.environ, {"CODEX_NOTIFY_GOALS_DB": ""}), \
+                patch.object(notify.Path, "home", return_value=self.tmp):
+            self.assertEqual(notify._goals_db_path(), codex_home / "goals_10.sqlite")
 
 
 if __name__ == "__main__":
