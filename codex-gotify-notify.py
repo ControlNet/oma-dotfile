@@ -17,6 +17,8 @@ Optional:
   CODEX_NOTIFY_COMPLETE (default: true)
   CODEX_NOTIFY_NONINTERACTIVE (default: false)
   CODEX_NOTIFY_SUBAGENT (default: false)
+  CODEX_NOTIFY_GOAL_CONTINUATION (default: false; notify turns that an active /goal auto-continues)
+  CODEX_NOTIFY_GOALS_DB (optional; default: newest ~/.codex/goals_*.sqlite)
   CODEX_NOTIFY_PERMISSION (default: true)
   CODEX_NOTIFY_ERROR (default: true)
   CODEX_NOTIFY_QUESTION (default: true)
@@ -42,6 +44,7 @@ import os
 import re
 import shlex
 import socket
+import sqlite3
 import subprocess
 import sys
 import time
@@ -745,6 +748,51 @@ def _sessions_root_path() -> Path:
     return Path.home() / ".codex" / "sessions"
 
 
+def _goals_db_path() -> Path | None:
+    custom = _env("CODEX_NOTIFY_GOALS_DB")
+    if custom:
+        return Path(custom).expanduser()
+    candidates: list[tuple[int, Path]] = []
+    for path in (Path.home() / ".codex").glob("goals_*.sqlite"):
+        version = path.stem.removeprefix("goals_")
+        if version.isdigit():
+            candidates.append((int(version), path))
+    if not candidates:
+        return None
+    return max(candidates)[1]
+
+
+def _goal_will_auto_continue(thread_id: str) -> bool:
+    """Return True when Codex will start another goal turn by itself.
+
+    Codex keeps one goal row per thread. Only an `active` goal without a
+    continuation deferral is resumed automatically; every other state (no goal,
+    complete, paused, blocked, usage/budget limited, deferred) waits for the
+    user. Any read failure returns False so the notification is still sent.
+    """
+    db_path = _goals_db_path()
+    if db_path is None or not db_path.is_file():
+        return False
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=1.0)
+        try:
+            row = conn.execute(
+                "SELECT status FROM thread_goals WHERE thread_id = ?", (thread_id,)
+            ).fetchone()
+            if not row or row[0] != "active":
+                return False
+            deferred = conn.execute(
+                "SELECT 1 FROM thread_goal_continuation_deferrals WHERE thread_id = ?",
+                (thread_id,),
+            ).fetchone()
+            return deferred is None
+        finally:
+            conn.close()
+    except sqlite3.Error as exc:
+        _log_line(f"goal_state_unreadable path={db_path} detail={_log_preview(exc)}")
+        return False
+
+
 def _tui_log_path() -> Path:
     custom = _env("CODEX_NOTIFY_TUI_LOG_FILE")
     if custom:
@@ -1343,6 +1391,16 @@ def main() -> int:
     )
     if not notify_noninteractive and thread_id != "-" and _is_noninteractive_root_thread(thread_id):
         _log_line(f"run_skip reason=noninteractive_root_session event={event_type} thread_id={thread_id}")
+        return 0
+
+    notify_goal_continuation = _is_true(_env("CODEX_NOTIFY_GOAL_CONTINUATION", "false"))
+    if (
+        not notify_goal_continuation
+        and event_type == "agent-turn-complete"
+        and thread_id != "-"
+        and _goal_will_auto_continue(thread_id)
+    ):
+        _log_line(f"run_skip reason=goal_continuation event={event_type} thread_id={thread_id}")
         return 0
 
     gotify_url = _normalize_base(_env("GOTIFY_URL"))
