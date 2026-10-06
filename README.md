@@ -1,154 +1,76 @@
 # oma-dotfile
 
-My agent configurations.
+My agent configs for OpenCode/OMO, OMO Native, oh-my-pi (OMP), Codex and Claude Code.
+
+## Install
 
 Requires Python 3.10+ and Git.
 
-Default installation (third-party API mode), Linux/macOS:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ControlNet/oma-dotfile/master/pull.py | python3
 ```
 
-Windows (PowerShell):
 ```powershell
 (Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/ControlNet/oma-dotfile/master/pull.py' -UseBasicParsing).Content | python
 ```
 
-Before replacing a config file whose content changed, the installer keeps the previous copy as
-`*.bak-<timestamp>` (the latest one per file; `NO_BACKUP=1` disables this). Plugin and extension
-code managed by this repo is replaced without backups, and unchanged files are left untouched.
+- Only detected agents are configured; `--all` or `INSTALL_ALL=1` installs all of them.
+- Changed config files are backed up as `*.bak-<timestamp>`; `NO_BACKUP=1` skips this.
 
-## Native OpenAI OAuth routing
+## OpenAI OAuth
 
-The installer defaults to the existing third-party API configuration. To select
-native OpenAI OAuth routing:
-
-```bash
-python3 pull.py --oauth
-```
-
-For a streamed installer, pass arguments after `-`:
+Models go through a third-party gateway by default. To use OpenAI OAuth, append `- --oauth`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ControlNet/oma-dotfile/master/pull.py | python3 - --oauth
 ```
 
-Windows (PowerShell):
-
 ```powershell
 (Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/ControlNet/oma-dotfile/master/pull.py' -UseBasicParsing).Content | python - --oauth
 ```
 
-OAuth mode changes model routing for Codex, OpenCode/OMO, and OMP. Existing
-Codex/OpenCode custom provider settings and OMO reasoning levels are retained.
-It does not require `CODEX_BASE_URL` or `CODEX_API_TOKEN`. Sign in separately:
-
-```bash
-codex login
-opencode auth login --provider openai
-```
-
-In OpenCode choose ChatGPT authentication. Inside OMP run `/login openai-codex`, and inside
-OMO Native run `/login chatgpt-subscription`.
-Existing explicit model selections, profiles, project overrides, and resumed
-sessions can override defaults.
-
-To restore the third-party configuration, rerun the installer without `--oauth`
-with the gateway environment variables configured.
-
-Codex automatically reselects `codex_api` when `CODEX_BASE_URL` is configured.
+Then sign in: `codex login`, `opencode auth login --provider openai` (choose ChatGPT),
+`/login openai-codex` in OMP, `/login chatgpt-subscription` in OMO Native.
+Rerun without `--oauth` to switch back.
 
 ## Environment variables
 
-Recommended:
-- `OPENCODE_DISABLE_CLAUDE_CODE=1` (disable claude-code support for opencode)
+| Variable | Use |
+|---|---|
+| `CODEX_BASE_URL` (with `/v1`), `CODEX_API_TOKEN` | Gateway, default mode |
+| `OPENCODE_DISABLE_CLAUDE_CODE=1` | Recommended; OpenCode ignores Claude Code config |
+| `GITHUB_PERSONAL_ACCESS_TOKEN` | gh tools |
+| `NOTION_API_TOKEN` | notion-api skill |
+| `GOTIFY_URL`, `GOTIFY_TOKEN_FOR_OPENCODE` | Gotify |
+| `GOTIFY_TOKEN_FOR_CODEX`, `GOTIFY_TOKEN_FOR_OMP`, `GOTIFY_TOKEN_FOR_CLAUDE` | Per-agent token; defaults to `GOTIFY_TOKEN_FOR_OPENCODE` |
+| `OPENCODE_NOTIFY_TITLE`, `CODEX_NOTIFY_TITLE`, `OMP_NOTIFY_TITLE`, `CLAUDE_NOTIFY_TITLE` | Gotify title; default `<Agent> :: <project>@<hostname>` |
+| `GOTIFY_NOTIFY_SUMMARIZER_MODEL`, `GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT`, `GOTIFY_NOTIFY_SUMMARIZER_API_KEY` | Summarize notifications with an OpenAI-compatible API |
+| `OMP_WAKATIME_SYNC=false`, `OMP_WAKATIME_SYNC_INTERVAL_SEC` (default 120) | OMP WakaTime sync |
+| `WAKATIME_HOME` | Directory of `.wakatime.cfg` |
+| `CONFIG_DIR`, `CODEX_DIR`/`CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `OMP_AGENT_DIR`/`PI_CODING_AGENT_DIR`, `OMO_CODING_AGENT_DIR` | Override install directories |
 
-Third-party API mode:
-- `CODEX_BASE_URL` (include `/v1`)
-- `CODEX_API_TOKEN`
+## Installed files
 
-Optional integrations:
-- `GITHUB_PERSONAL_ACCESS_TOKEN` (used for gh tools)
-- `NOTION_API_TOKEN` (used by the notion-api skill for Notion REST API calls)
-- `GOTIFY_URL` (used for gotify notifications)
-- `GOTIFY_TOKEN_FOR_OPENCODE` (used for gotify notifications)
-  - `GOTIFY_TOKEN_FOR_CODEX` (optional; if missing, Codex notify falls back to `GOTIFY_TOKEN_FOR_OPENCODE`)
-  - `GOTIFY_TOKEN_FOR_OMP` (optional; if missing, OMP notify falls back to `GOTIFY_TOKEN_FOR_OPENCODE`/`GOTIFY_TOKEN_FOR_CODEX`)
-  - `GOTIFY_TOKEN_FOR_CLAUDE` (optional; if missing, Claude Code notify falls back to the other Gotify tokens)
-- `OPENCODE_NOTIFY_TITLE`, `CODEX_NOTIFY_TITLE`, `OMP_NOTIFY_TITLE`, `CLAUDE_NOTIFY_TITLE` (optional; override the default Gotify title format `<Agent> :: <project>@<hostname>`)
-- `GOTIFY_NOTIFY_SUMMARIZER_MODEL` (e.g., `gpt-5-nano`)
-- `GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT` (OpenAI-compatible endpoint, e.g., `https://api.openai.com/v1`)
-- `GOTIFY_NOTIFY_SUMMARIZER_API_KEY` (API key used by summarizer requests)
+| Agent | Directory | Contents |
+|---|---|---|
+| OpenCode/OMO | `~/.config/opencode`, `~/.omo/omo.jsonc` | Config, plugins, skills; OMO settings under `"[opencode]"` |
+| OMO Native | `~/.omo/agent` | `AGENTS.md`, `models.json`, `settings.json` (ignores `~/.claude` rules); routing under `"[native]"` in `omo.jsonc`. Run `omo setup` once to import skills |
+| OMP | `~/.omp/agent` | Config, models, Gotify and WakaTime extensions |
+| Codex | `~/.codex` | `AGENTS.md`, skills, Gotify notifier, WakaTime plugin |
+| Claude Code | `~/.claude` | Rule `rules/oma-dotfile.md`, Gotify plugin, WakaTime plugin |
+| Tokscale | Tokscale `settings.json` | Model aliases from `tokscale_model_alias.json` |
 
-Keep credentials out of this repository. If using `.env.local`, add it to `.gitignore`.
+## WakaTime
 
-Codex notify hook execution logs are written to:
-- `~/.codex/log/gotify-notify.log`
+Put the API key in `~/.wakatime.cfg`. OpenCode uses `opencode-wakatime`; Codex and Claude Code
+use the official plugins. OMP runs `wakatime-cli --sync-ai-activity` after each agent run, which
+needs an installed `wakatime-cli` v2.24.0+.
 
-Claude Code notify hook execution logs are written to:
-- `~/.claude/logs/gotify-notify.log` (or `$CLAUDE_CONFIG_DIR/logs/gotify-notify.log`)
+## Logs
 
-## OpenCode/OMO support
-
-`pull.py` installs OpenCode config into `~/.config/opencode` (or `$CONFIG_DIR` if set).
-For local `plugins/` and `skills/`, it replaces only same-named items shipped by this repo and preserves unrelated existing plugins/skills that users added locally.
-
-`pull.py` also installs the unified Oh My OpenAgent configuration as `~/.omo/omo.jsonc`.
-OpenCode-specific OMO settings live under the `"[opencode]"` key in that file; `opencode.jsonc` remains the OpenCode core configuration.
-Anonymous OMO telemetry is disabled for both harnesses.
-
-## OMO Native support
-
-When the `omo` CLI is detected, OMO Native reads its routing from the `"[native]"` key of
-`~/.omo/omo.jsonc`. The routing uses the same models and reasoning levels as OpenCode. `pull.py`
-also installs these files into `~/.omo/agent` (or `$OMO_CODING_AGENT_DIR`):
-- `AGENTS.md` (shared rules)
-- `models.json`: the `codex` gateway provider, with `CODEX_BASE_URL` rendered literally. Other
-  providers are preserved, and the file is left unchanged in OAuth mode or without `CODEX_BASE_URL`.
-- `settings.json`: only `"rules"` is added to `disabledBuiltinExtensions`, so OMO Native stops
-  reading `~/.claude` rules and `CLAUDE.md`; other settings are preserved.
-
-Skills are not installed; run `omo setup` once to import them from OpenCode.
-
-## Codex support
-
-`pull.py` installs shared Codex assets into `~/.codex` (or `$CODEX_DIR` if set):
-- `AGENTS.md`
-- `skills/` (merge-copy, preserves unrelated existing skills)
-- `codex-gotify-notify.py`
-
-## WakaTime plugins
-
-`pull.py` installs the WakaTime plugins through the Codex and Claude Code CLIs.
-
-Already installed plugins are skipped, and disabled plugins remain disabled. The API key belongs in `~/.wakatime.cfg` (or `$WAKATIME_HOME/.wakatime.cfg`); the installer only warns when that file is missing and never writes it.
-
-OMP has no WakaTime plugin; `wakatime-cli` v2.24.0+ parses `~/.omp/agent/sessions` itself.
-`pull.py` installs `omp-wakatime-sync.js` into `~/.omp/agent/extensions`, which runs
-`wakatime-cli --sync-ai-activity` in the background after completed agent runs (at most every
-120 seconds, `OMP_WAKATIME_SYNC_INTERVAL_SEC`) and on session shutdown. It uses an existing
-`wakatime-cli` from `~/.wakatime` or `PATH` and never downloads one. Set `OMP_WAKATIME_SYNC=false`
-to disable it; logs go to `~/.omp/logs/wakatime-sync.log`.
-
-## Claude Code support
-
-`pull.py` installs `_AGENTS.md` as a user-level rule at `~/.claude/rules/oma-dotfile.md`
-(or `$CLAUDE_CONFIG_DIR/rules/oma-dotfile.md`). Claude Code loads this rule in every
-session, alongside any existing `~/.claude/CLAUDE.md`. When the managed rule
-changes, the installer backs up the previous copy unless `NO_BACKUP=1` is set.
-
-`pull.py` installs the managed Claude Code plugin into `~/.claude/skills/gotify-notify` (or `$CLAUDE_CONFIG_DIR/skills/gotify-notify`). It preserves `settings.json`, unrelated skills, and other plugins.
-
-The plugin notifies for completed turns, errors, permission prompts, and requests for user input.
-
-## Tokscale model aliases
-
-`tokscale_model_alias.json` groups equivalent model IDs across OpenCode, Codex,
-and OMP usage reports. `pull.py` merges these aliases into Tokscale's `settings.json`, preserving
-unrelated settings and local aliases.
-
-## oh-my-pi support
-
-`pull.py` installs configuration, models, and the Gotify and WakaTime sync extensions into
-`~/.omp/agent` (or `$OMP_AGENT_DIR`, fallback `$PI_CODING_AGENT_DIR`).
-Default API mode needs `CODEX_BASE_URL`.
+| Agent | Log |
+|---|---|
+| OpenCode | `~/.local/share/opencode/gotify-notify.log` |
+| OMP | `~/.omp/logs/gotify-notify.log`, `~/.omp/logs/wakatime-sync.log` |
+| Codex | `~/.codex/log/gotify-notify.log` |
+| Claude Code | `~/.claude/logs/gotify-notify.log` |
