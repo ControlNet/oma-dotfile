@@ -148,7 +148,8 @@ class InstallGatingTests(unittest.TestCase):
             destination = Path(command[-1])
             destination.mkdir()
             for name in ("opencode.jsonc", "omo.jsonc", "omp_config.yml", "omp_models.yaml",
-                         "_AGENTS.md", "tui.json", "codex-gotify-notify.py"):
+                         "_AGENTS.md", "tui.json", "codex-gotify-notify.py",
+                         "omp-gotify-notify.js", "omp-wakatime-sync.js"):
                 _ = shutil.copy2(ROOT / name, destination / name)
             return subprocess.CompletedProcess(command, 0)
 
@@ -207,6 +208,15 @@ class InstallGatingTests(unittest.TestCase):
         # And the OpenCode, OMO, and oh-my-pi directories are never created.
         for name in ("get_config_dir", "get_omo_dir", "get_omp_agent_dir"):
             self.assertFalse(self.target_dir(name).exists(), name)
+
+    def test_omp_only_machine_gets_both_extensions(self) -> None:
+        # Given a machine with oh-my-pi but nothing else.
+        with patch.dict(os.environ, {"CODEX_BASE_URL": "https://example.invalid/v1"}):
+            self.run_main(omp=True)
+        # Then the Gotify notifier and the WakaTime sync trigger are both installed.
+        extensions = self.target_dir("get_omp_agent_dir") / "extensions"
+        for name in ("omp-gotify-notify.js", "omp-wakatime-sync.js"):
+            self.assertEqual((extensions / name).read_bytes(), (ROOT / name).read_bytes(), name)
 
     def test_claude_instructions_preserve_existing_user_memory(self) -> None:
         # Existing personal instructions must remain separate from the shared rules.

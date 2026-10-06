@@ -1321,6 +1321,7 @@ def main(argv: list[str] | None = None):
 
             omp_extension_files = [
                 ("omp-gotify-notify.js", "extensions/omp-gotify-notify.js"),
+                ("omp-wakatime-sync.js", "extensions/omp-wakatime-sync.js"),
             ]
             for src_name, dst_name in omp_extension_files:
                 src = repo_path / src_name
