@@ -218,6 +218,33 @@ class InstallGatingTests(unittest.TestCase):
         for name in ("omp-gotify-notify.js", "omp-wakatime-sync.js"):
             self.assertEqual((extensions / name).read_bytes(), (ROOT / name).read_bytes(), name)
 
+    def test_reinstall_backs_up_changed_config_but_not_plugin_code(self) -> None:
+        # Given stale copies of shared config and of repo-managed plugin code.
+        codex_dir = self.target_dir("get_codex_dir")
+        extensions = self.target_dir("get_omp_agent_dir") / "extensions"
+        extensions.mkdir(parents=True)
+        codex_dir.mkdir(parents=True)
+        stale = {
+            codex_dir / "AGENTS.md": "local rules\n",
+            codex_dir / "codex-gotify-notify.py": "old notifier\n",
+            extensions / "omp-gotify-notify.js": "old extension\n",
+            extensions / "omp-wakatime-sync.js": "old extension\n",
+        }
+        for path, content in stale.items():
+            _ = path.write_text(content, encoding="utf-8")
+        # When the installer runs with backups enabled.
+        with patch.object(pull, "NO_BACKUP", False), \
+                patch.dict(os.environ, {"CODEX_BASE_URL": "https://example.invalid/v1"}):
+            self.run_main(omp=True, codex=True)
+        # Then every file is updated from the repo.
+        self.assertEqual((codex_dir / "AGENTS.md").read_bytes(), (ROOT / "_AGENTS.md").read_bytes())
+        for path in list(stale)[1:]:
+            self.assertEqual(path.read_bytes(), (ROOT / path.name).read_bytes(), path.name)
+        # And only the user-editable config keeps a backup.
+        self.assertEqual(len(list(codex_dir.glob("AGENTS.md.bak-*"))), 1)
+        self.assertEqual(list(codex_dir.glob("codex-gotify-notify.py.bak-*")), [])
+        self.assertEqual(list(extensions.glob("*.bak-*")), [])
+
     def test_claude_instructions_preserve_existing_user_memory(self) -> None:
         # Existing personal instructions must remain separate from the shared rules.
         claude_dir = self.target_dir("get_claude_config_dir")
