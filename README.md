@@ -14,6 +14,10 @@ Windows (PowerShell):
 (Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/ControlNet/oma-dotfile/master/pull.py' -UseBasicParsing).Content | python
 ```
 
+Before replacing a config file whose content changed, the installer keeps the previous copy as
+`*.bak-<timestamp>` (the latest one per file; `NO_BACKUP=1` disables this). Plugin and extension
+code managed by this repo is replaced without backups, and unchanged files are left untouched.
+
 ## Native OpenAI OAuth routing
 
 The installer defaults to the existing third-party API configuration. To select

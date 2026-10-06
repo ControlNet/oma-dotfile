@@ -17,10 +17,12 @@ Env:
   TOKSCALE_CONFIG_DIR=<optional override for tokscale settings directory>
   WAKATIME_HOME=<optional override for the .wakatime.cfg location>
   INSTALL_ALL=1 (optional; install every target without detecting agents)
-  NO_BACKUP=1 (optional)
+  NO_BACKUP=1 (optional; changed config files are otherwise kept as *.bak-<stamp>.
+              Repo-managed plugin code is replaced without backups.)
 """
 
 import argparse
+import filecmp
 import json
 import os
 import re
@@ -294,11 +296,22 @@ def cleanup_old_backups(file_path: Path) -> None:
 
 
 def backup_and_install(src: Path, dst: Path, stamp: str) -> None:
+    """Install user-editable config, backing up the previous copy only when it changes."""
     dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.is_file() and filecmp.cmp(src, dst, shallow=False):
+        return
     if not NO_BACKUP and dst.exists():
         backup_path = dst.with_suffix(f"{dst.suffix}.bak-{stamp}")
         _ = shutil.copy2(dst, backup_path)
         cleanup_old_backups(dst)
+    _ = shutil.copy2(src, dst)
+
+
+def install_managed_file(src: Path, dst: Path) -> None:
+    """Install repo-managed plugin code without backups; git history already keeps old versions."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.is_file() and filecmp.cmp(src, dst, shallow=False):
+        return
     _ = shutil.copy2(src, dst)
 
 
@@ -710,13 +723,8 @@ def backup_and_install_omp_models(
     else:
         warn("CODEX_BASE_URL is not set; leaving `baseUrl: CODEX_BASE_URL` in omp models.yml. oh-my-pi will not auto-expand it.")
 
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    if not NO_BACKUP and dst.exists():
-        backup_path = dst.with_suffix(f"{dst.suffix}.bak-{stamp}")
-        _ = shutil.copy2(dst, backup_path)
-        cleanup_old_backups(dst)
     try:
-        _ = dst.write_text(content, encoding="utf-8")
+        install_rendered_text(content, dst, stamp)
     except OSError as exc:
         warn(f"Failed to write {dst}: {exc}")
 
@@ -1328,7 +1336,7 @@ def main(argv: list[str] | None = None):
                 dst = omp_agent_dir / dst_name
                 if src.exists():
                     print(f"         - {src_name}")
-                    backup_and_install(src, dst, stamp)
+                    install_managed_file(src, dst)
 
             omp_models_src = repo_path / "omp_models.yaml"
             omp_models_dst = omp_agent_dir / "models.yml"
@@ -1340,16 +1348,15 @@ def main(argv: list[str] | None = None):
         if begin_step("7/11", f"Installing shared Codex assets to: {codex_dir}",
                       targets["codex"], "codex not found"):
             prepare_target_dir(codex_dir)
-            codex_files = [
-                ("_AGENTS.md", "AGENTS.md"),
-                ("codex-gotify-notify.py", "codex-gotify-notify.py"),
-            ]
-            for src_name, dst_name in codex_files:
-                src = repo_path / src_name
-                dst = codex_dir / dst_name
-                if src.exists():
-                    print(f"         - {src_name}")
-                    backup_and_install(src, dst, stamp)
+            codex_agents_src = repo_path / "_AGENTS.md"
+            if codex_agents_src.exists():
+                print("         - _AGENTS.md")
+                backup_and_install(codex_agents_src, codex_dir / "AGENTS.md", stamp)
+
+            codex_notify_src = repo_path / "codex-gotify-notify.py"
+            if codex_notify_src.exists():
+                print("         - codex-gotify-notify.py")
+                install_managed_file(codex_notify_src, codex_dir / "codex-gotify-notify.py")
 
             codex_skills_src = repo_path / "skills"
             codex_skills_dst = codex_dir / "skills"
