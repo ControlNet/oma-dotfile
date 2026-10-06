@@ -119,6 +119,13 @@ Skills are not installed; run `omo setup` once to import them from OpenCode.
 
 Already installed plugins are skipped, and disabled plugins remain disabled. The API key belongs in `~/.wakatime.cfg` (or `$WAKATIME_HOME/.wakatime.cfg`); the installer only warns when that file is missing and never writes it.
 
+OMP has no WakaTime plugin; `wakatime-cli` v2.24.0+ parses `~/.omp/agent/sessions` itself.
+`pull.py` installs `omp-wakatime-sync.js` into `~/.omp/agent/extensions`, which runs
+`wakatime-cli --sync-ai-activity` in the background after completed agent runs (at most every
+120 seconds, `OMP_WAKATIME_SYNC_INTERVAL_SEC`) and on session shutdown. It uses an existing
+`wakatime-cli` from `~/.wakatime` or `PATH` and never downloads one. Set `OMP_WAKATIME_SYNC=false`
+to disable it; logs go to `~/.omp/logs/wakatime-sync.log`.
+
 ## Claude Code support
 
 `pull.py` installs `_AGENTS.md` as a user-level rule at `~/.claude/rules/oma-dotfile.md`
@@ -138,6 +145,6 @@ unrelated settings and local aliases.
 
 ## oh-my-pi support
 
-`pull.py` installs configuration, models, and the Gotify extension into
+`pull.py` installs configuration, models, and the Gotify and WakaTime sync extensions into
 `~/.omp/agent` (or `$OMP_AGENT_DIR`, fallback `$PI_CODING_AGENT_DIR`).
 Default API mode needs `CODEX_BASE_URL`.
