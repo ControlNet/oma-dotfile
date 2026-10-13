@@ -19,6 +19,7 @@ DEFAULT_MAX_CHARS = 280
 DEFAULT_HEAD = 80
 DEFAULT_TAIL = 80
 DEFAULT_DEDUP_WINDOW_SEC = 15
+DEFAULT_SUMMARIZER_TIMEOUT_SEC = 120
 MAX_LOG_BYTES = 256 * 1024
 MAX_RESPONSE_BYTES = 1024 * 1024
 
@@ -241,7 +242,7 @@ def summarize(text: str) -> str:
         "api-key": api_key,
         "User-Agent": "ClaudeCodeGotifyNotify/1.0",
     }
-    timeout = env_int("CLAUDE_NOTIFY_SUMMARIZER_TIMEOUT_SEC", 8, minimum=1, maximum=8)
+    timeout = env_int("CLAUDE_NOTIFY_SUMMARIZER_TIMEOUT_SEC", DEFAULT_SUMMARIZER_TIMEOUT_SEC, minimum=1)
     chat = post_json(
         endpoint(base, "/chat/completions"),
         {"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": 80},
