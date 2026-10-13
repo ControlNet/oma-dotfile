@@ -148,6 +148,20 @@ class NotificationTests(unittest.TestCase):
             self.assertTrue(self.post.call_args_list[0].args[0].endswith("/chat/completions"))
             self.assertTrue(self.post.call_args_list[1].args[0].endswith("/responses"))
 
+    def test_summary_timeout_matches_codex_default_and_allows_override(self):
+        summarizer_env = {
+            "GOTIFY_NOTIFY_SUMMARIZER_MODEL": "synthetic-model",
+            "GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT": "https://summary.invalid/v1",
+            "GOTIFY_NOTIFY_SUMMARIZER_API_KEY": "synthetic-test-only-not-a-credential",
+        }
+        self.post.return_value = {"choices": [{"message": {"content": "Concise result"}}]}
+        with patch.dict(os.environ, summarizer_env):
+            notify.summarize("Final response")
+        self.assertEqual(self.post.call_args.args[3], 120)
+        with patch.dict(os.environ, {**summarizer_env, "CLAUDE_NOTIFY_SUMMARIZER_TIMEOUT_SEC": "300"}):
+            notify.summarize("Final response")
+        self.assertEqual(self.post.call_args.args[3], 300)
+
     def test_network_errors_do_not_log_request_or_credentials(self):
         with patch.object(notify.urllib.request, "urlopen", side_effect=OSError("sensitive request details")):
             self.assertIsNone(self.post._mock_wraps)
