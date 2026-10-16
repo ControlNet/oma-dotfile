@@ -338,6 +338,8 @@ async function pushGotify(title, message) {
 
 export default function OmpGotifyNotify(pi) {
 	const sentCache = new Map();
+	let goalStatus = null;
+	let goalTurn = false;
 
 	const maxChars = Math.max(1, envInt("OMP_NOTIFY_MAX_CHARS", DEFAULT_MAX_CHARS));
 	const head = Math.max(0, envInt("OMP_NOTIFY_HEAD", DEFAULT_HEAD));
@@ -408,29 +410,57 @@ export default function OmpGotifyNotify(pi) {
 		return null;
 	}
 
+	function restoreGoalState(_event, ctx) {
+		if (ctx?.agent?.kind === "sub") return;
+		goalStatus = null;
+		goalTurn = false;
+		try {
+			const branch = ctx?.sessionManager?.getBranch?.() || [];
+			for (let i = branch.length - 1; i >= 0; i -= 1) {
+				const entry = branch[i];
+				if (entry.type !== "mode_change") continue;
+				if (entry.mode === "goal" || entry.mode === "goal_paused") {
+					goalStatus = entry.data?.goal?.status || null;
+				}
+				break;
+			}
+			goalTurn = goalStatus === "active" || goalStatus === "budget-limited";
+		} catch {
+			// Never fail the host runtime due to notifier errors.
+		}
+	}
+
+	for (const eventName of ["session_start", "session_switch", "session_branch", "session_tree", "agent_start"]) {
+		pi.on(eventName, restoreGoalState);
+	}
+
+	pi.on("goal_updated", (event, ctx) => {
+		if (ctx?.agent?.kind === "sub") return;
+		goalStatus = event?.goal?.status || null;
+		// Pausing or dropping a goal is not a successful completion of this turn.
+		// The next agent_start restores ordinary notifications for non-goal work.
+		goalTurn = goalTurn || goalStatus !== null;
+	});
+
 	pi.on("agent_end", async (event, ctx) => {
 		try {
-			if (event?.willContinue) return;
+			if (ctx?.agent?.kind === "sub" || event?.willContinue) return;
+
+			const message = findLastAssistantMessage(event?.messages);
+			if (message?.stopReason === "aborted") return;
+			const failed = message?.stopReason === "error";
+			// Decide before awaiting: another turn may start while notification I/O runs.
+			if (failed ? !notifyError : !notifyComplete || (goalTurn && goalStatus !== "complete")) return;
 
 			const sessionId = String(ctx?.sessionManager?.getSessionId?.() || "-");
 			const cwd = await resolveContextCwd(ctx);
-			const message = findLastAssistantMessage(event?.messages);
-			if (!message) {
-				if (!notifyComplete) return;
-				await send(sessionId, "agent_complete", "✅ Agent turn completed", "", cwd);
-				return;
-			}
-			if (message.stopReason === "aborted") return;
-
-			if (message.stopReason === "error") {
-				if (!notifyError) return;
+			if (failed) {
 				const reason = preview(message.errorMessage || "", head, tail);
 				const body = reason ? `❌ Agent turn failed: ${reason}` : "❌ Agent turn failed";
 				await send(sessionId, "agent_error", body, "", cwd);
 				return;
 			}
 
-			if (!notifyComplete) return;
 			const assistantText = extractAssistantText(message);
 			if (assistantText) {
 				await send(
@@ -450,7 +480,7 @@ export default function OmpGotifyNotify(pi) {
 
 	pi.on("tool_execution_start", async (event, ctx) => {
 		try {
-			if (!notifyQuestion) return;
+			if (ctx?.agent?.kind === "sub" || !notifyQuestion) return;
 			if (!event || event.toolName !== "ask") return;
 
 			const sessionId = String(ctx?.sessionManager?.getSessionId?.() || "-");

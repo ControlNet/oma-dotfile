@@ -60,6 +60,17 @@ Rerun without `--oauth` to switch back.
 | Claude Code | `~/.claude` | Rule `rules/oma-dotfile.md`, Gotify plugin, WakaTime plugin |
 | Tokscale | Tokscale `settings.json` | Model aliases from `tokscale_model_alias.json` |
 
+## OMP Gotify notifications
+
+Only the main agent sends notifications; subagent completions, errors and questions are silent.
+During an active goal, intermediate agent turns do not report success. A completed goal notifies
+after its terminal turn settles, not when the `goal complete` tool first runs. Main-agent questions
+and terminal errors still notify during goal execution.
+
+Pausing or dropping a goal does not report success; subsequent ordinary turns notify normally.
+Goal suppression is restored when loading, switching, branching or navigating sessions.
+After updating the installed extension, restart OMP to load the new behavior.
+
 ## WakaTime
 
 Put the API key in `~/.wakatime.cfg`. OpenCode uses `opencode-wakatime`; Codex and Claude Code

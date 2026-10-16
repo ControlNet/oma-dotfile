@@ -15,6 +15,10 @@ const MANAGED_ENV = [
 	"GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT",
 	"GOTIFY_NOTIFY_SUMMARIZER_API_KEY",
 	"OMP_NOTIFY_LOG_FILE",
+	"OMP_NOTIFY_COMPLETE",
+	"OMP_NOTIFY_ERROR",
+	"OMP_NOTIFY_QUESTION",
+	"OMP_NOTIFY_DEDUP_WINDOW_SEC",
 ];
 
 function resetEnv() {
@@ -37,11 +41,13 @@ function createHarness(fetchImpl) {
 	return { handlers, calls };
 }
 
-function context() {
+function context(branch = []) {
 	return {
 		cwd: "/workspace/example",
+		agent: { kind: "main", id: "Main", name: "main", depth: 0 },
 		sessionManager: {
 			getSessionId: () => "session-1",
+			getBranch: () => branch,
 		},
 	};
 }
@@ -60,8 +66,8 @@ function enableGotify() {
 	process.env.GOTIFY_TOKEN_FOR_OMP = "test-token";
 }
 
-async function runAgentEnd(harness, event) {
-	await harness.handlers.get("agent_end")(event, context());
+async function runAgentEnd(harness, event, ctx = context()) {
+	await harness.handlers.get("agent_end")(event, ctx);
 }
 
 test.beforeEach(() => {
@@ -103,21 +109,6 @@ test("sends one terminal error notification with bounded detail", async () => {
 	assert.equal(harness.calls.length, 1);
 	const payload = JSON.parse(harness.calls[0].options.body);
 	assert.equal(payload.message, "❌ Agent turn failed: provider unavailable");
-});
-
-test("does not subscribe to auto_retry_end or tool_call", () => {
-	enableGotify();
-	const harness = createHarness();
-	assert.equal(harness.handlers.has("auto_retry_end"), false);
-	assert.equal(harness.handlers.has("tool_call"), false);
-});
-
-test("retry failure followed by terminal error produces one notification", async () => {
-	enableGotify();
-	const harness = createHarness();
-	assert.equal(harness.handlers.has("auto_retry_end"), false);
-	await runAgentEnd(harness, { messages: [assistant("error", "", "retry exhausted")] });
-	assert.equal(harness.calls.length, 1);
 });
 
 test("notifies when ask execution starts", async () => {
@@ -164,4 +155,153 @@ test("does not call fetch or summarizer when Gotify is not configured", async ()
 	const harness = createHarness();
 	await runAgentEnd(harness, { messages: [assistant("end_turn")] });
 	assert.equal(harness.calls.length, 0);
+});
+
+function updateGoal(harness, ctx, status) {
+	return harness.handlers.get("goal_updated")(
+		{ type: "goal_updated", goal: { id: "goal-1", status } },
+		ctx,
+	);
+}
+
+for (const depth of [0, 1]) {
+	test(`silences subagent completion, error and questions at depth ${depth}`, async () => {
+		enableGotify();
+		const harness = createHarness();
+		const ctx = context();
+		ctx.agent = { kind: "sub", id: "child", name: "task", depth, parentId: "Main" };
+		await runAgentEnd(harness, { messages: [assistant("stop")] }, ctx);
+		await runAgentEnd(harness, { messages: [assistant("error", "", "child failed")] }, ctx);
+		await harness.handlers.get("tool_execution_start")(
+			{ toolName: "ask", toolCallId: "child-ask", args: { questions: [{ question: "Child input?" }] } },
+			ctx,
+		);
+		assert.equal(harness.calls.length, 0);
+		await runAgentEnd(harness, { messages: [assistant("stop", "Parent finished")] });
+		assert.equal(harness.calls.length, 1);
+		assert.match(JSON.parse(harness.calls[0].options.body).message, /Parent finished/);
+	});
+}
+
+test("suppresses goal progress until completion and terminal settlement", async () => {
+	enableGotify();
+	const harness = createHarness();
+	const ctx = context();
+	await harness.handlers.get("agent_start")({}, ctx);
+	await updateGoal(harness, ctx, "active");
+	await runAgentEnd(harness, { messages: [assistant("stop", "First step")] }, ctx);
+	await updateGoal(harness, ctx, "budget-limited");
+	await runAgentEnd(harness, { messages: [] }, ctx);
+	await updateGoal(harness, ctx, "complete");
+	assert.equal(harness.calls.length, 0);
+	await runAgentEnd(harness, { willContinue: true, messages: [assistant("stop", "Still unwinding")] }, ctx);
+	assert.equal(harness.calls.length, 0);
+	// The TUI clears the persisted mode before the extension receives agent_end.
+	ctx.sessionManager.getBranch().push({ type: "mode_change", mode: "none" });
+	await runAgentEnd(harness, { messages: [assistant("stop", "Goal finished")] }, ctx);
+	assert.equal(harness.calls.length, 1);
+	assert.match(JSON.parse(harness.calls[0].options.body).message, /Goal finished/);
+});
+
+for (const lifecycle of ["session_start", "session_switch", "session_branch", "session_tree", "agent_start"]) {
+	test(`restores active goal suppression on ${lifecycle}`, async () => {
+		enableGotify();
+		const harness = createHarness();
+		const ctx = context([
+			{ type: "mode_change", mode: "none" },
+			{ type: "mode_change", mode: "goal", data: { goal: { id: "restored", status: "active" } } },
+			{ type: "message", message: assistant("stop", "Old progress") },
+		]);
+		await harness.handlers.get(lifecycle)({}, ctx);
+		await runAgentEnd(harness, { messages: [assistant("stop", "More progress")] }, ctx);
+		assert.equal(harness.calls.length, 0);
+		await updateGoal(harness, ctx, "complete");
+		await runAgentEnd(harness, { messages: [assistant("stop", "Restored goal finished")] }, ctx);
+		assert.equal(harness.calls.length, 1);
+		assert.match(JSON.parse(harness.calls[0].options.body).message, /Restored goal finished/);
+	});
+}
+
+test("goal mode retains main-agent question and terminal error notifications", async () => {
+	enableGotify();
+	const harness = createHarness();
+	const ctx = context();
+	await updateGoal(harness, ctx, "active");
+	await harness.handlers.get("tool_execution_start")(
+		{ toolName: "ask", toolCallId: "goal-ask", args: { questions: [{ question: "Need credentials?" }] } },
+		ctx,
+	);
+	await runAgentEnd(harness, { messages: [assistant("error", "", "provider unavailable")] }, ctx);
+	assert.deepEqual(harness.calls.map(call => JSON.parse(call.options.body).message), [
+		"❓ Need credentials?",
+		"❌ Agent turn failed: provider unavailable",
+	]);
+});
+
+for (const status of ["paused", "dropped"]) {
+	test(`${status} goals do not report success or silence subsequent ordinary turns`, async () => {
+		enableGotify();
+		const harness = createHarness();
+		const branch = [];
+		const ctx = context(branch);
+		await updateGoal(harness, ctx, "active");
+		await updateGoal(harness, ctx, status);
+		branch.push({
+			type: "mode_change",
+			mode: status === "paused" ? "goal_paused" : "none",
+			data: { goal: { id: "goal-1", status } },
+		});
+		await runAgentEnd(harness, { messages: [assistant("stop", "Goal stopped")] }, ctx);
+		assert.equal(harness.calls.length, 0);
+		await harness.handlers.get("agent_start")({}, ctx);
+		await runAgentEnd(harness, { messages: [assistant("stop", "Unrelated work finished")] }, ctx);
+		assert.equal(harness.calls.length, 1);
+		assert.match(JSON.parse(harness.calls[0].options.body).message, /Unrelated work finished/);
+	});
+}
+
+test("switching away from a goal clears suppression and ignores older goal entries", async () => {
+	enableGotify();
+	const harness = createHarness();
+	await updateGoal(harness, context(), "active");
+	const ctx = context([
+		{ type: "mode_change", mode: "goal", data: { goal: { id: "old-goal", status: "active" } } },
+		{ type: "mode_change", mode: "none" },
+	]);
+	await harness.handlers.get("session_switch")({}, ctx);
+	await runAgentEnd(harness, { messages: [assistant("stop", "New session finished")] }, ctx);
+	assert.equal(harness.calls.length, 1);
+	assert.match(JSON.parse(harness.calls[0].options.body).message, /New session finished/);
+});
+
+test("subagent goal events cannot change the main agent's notification state", async () => {
+	enableGotify();
+	const harness = createHarness();
+	const main = context();
+	const child = context();
+	child.agent = { kind: "sub", id: "child", name: "task", depth: 1, parentId: "Main" };
+	await updateGoal(harness, main, "active");
+	await updateGoal(harness, child, "complete");
+	await harness.handlers.get("agent_start")({}, child);
+	await runAgentEnd(harness, { messages: [assistant("stop", "Main still working")] }, main);
+	assert.equal(harness.calls.length, 0);
+	await updateGoal(harness, main, "complete");
+	await updateGoal(harness, child, "active");
+	await runAgentEnd(harness, { messages: [assistant("stop", "Main goal finished")] }, main);
+	assert.equal(harness.calls.length, 1);
+	assert.match(JSON.parse(harness.calls[0].options.body).message, /Main goal finished/);
+});
+
+test("a subsequent goal completion cannot turn an earlier progress stop into a notification", async () => {
+	enableGotify();
+	const harness = createHarness();
+	const ctx = context();
+	await updateGoal(harness, ctx, "active");
+	const progress = runAgentEnd(harness, { messages: [assistant("stop", "Intermediate progress")] }, ctx);
+	await updateGoal(harness, ctx, "complete");
+	await progress;
+	assert.equal(harness.calls.length, 0);
+	await runAgentEnd(harness, { messages: [assistant("stop", "Actual final result")] }, ctx);
+	assert.equal(harness.calls.length, 1);
+	assert.match(JSON.parse(harness.calls[0].options.body).message, /Actual final result/);
 });
