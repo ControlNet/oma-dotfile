@@ -153,6 +153,7 @@ class InstallGatingTests(unittest.TestCase):
                          "_AGENTS.md", "tui.json", "codex-gotify-notify.py",
                          "omp-gotify-notify.js", "omp-wakatime-sync.js"):
                 _ = shutil.copy2(ROOT / name, destination / name)
+            _ = shutil.copytree(ROOT / "skills", destination / "skills")
             return subprocess.CompletedProcess(command, 0)
 
         self.enterContext(patch.object(pull.subprocess, "run", side_effect=clone))
@@ -219,6 +220,43 @@ class InstallGatingTests(unittest.TestCase):
         extensions = self.target_dir("get_omp_agent_dir") / "extensions"
         for name in ("omp-gotify-notify.js", "omp-wakatime-sync.js"):
             self.assertEqual((extensions / name).read_bytes(), (ROOT / name).read_bytes(), name)
+
+    def test_omp_gets_user_level_instructions(self) -> None:
+        # Given an OMP agent dir with locally edited instructions. OMP ignores
+        # ~/.config/opencode/AGENTS.md unless opencode is in enabledProviders.
+        agent_dir = self.target_dir("get_omp_agent_dir")
+        agent_dir.mkdir(parents=True)
+        _ = (agent_dir / "AGENTS.md").write_text("local rules\n", encoding="utf-8")
+        with patch.object(pull, "NO_BACKUP", False), \
+                patch.dict(os.environ, {"CODEX_BASE_URL": "https://example.invalid/v1"}):
+            self.run_main(omp=True)
+        # Then OMP's native user-level AGENTS.md holds the shared rules.
+        self.assertEqual((agent_dir / "AGENTS.md").read_bytes(), (ROOT / "_AGENTS.md").read_bytes())
+        # And the edited copy is kept as a backup, like other user-editable config.
+        backups = list(agent_dir.glob("AGENTS.md.bak-*"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_text(encoding="utf-8"), "local rules\n")
+
+    def test_omp_gets_repo_skills_and_keeps_user_skills(self) -> None:
+        # Given OMP skills: one of the user's own, a stale copy of a managed one,
+        # and autolearn output, which lives in a separate directory.
+        agent_dir = self.target_dir("get_omp_agent_dir")
+        own = agent_dir / "skills" / "my-skill" / "SKILL.md"
+        stale = agent_dir / "skills" / "github-cli" / "removed.md"
+        learned = agent_dir / "managed-skills" / "learned" / "SKILL.md"
+        for path in (own, stale, learned):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _ = path.write_text("kept\n", encoding="utf-8")
+        with patch.dict(os.environ, {"CODEX_BASE_URL": "https://example.invalid/v1"}):
+            self.run_main(omp=True)
+        # Then every repo skill is installed in OMP's native user skills directory.
+        for skill in (ROOT / "skills").iterdir():
+            self.assertEqual((agent_dir / "skills" / skill.name / "SKILL.md").read_bytes(),
+                             (skill / "SKILL.md").read_bytes(), skill.name)
+        # And managed skills are replaced whole, while other skills are left alone.
+        self.assertFalse(stale.exists())
+        self.assertEqual(own.read_text(encoding="utf-8"), "kept\n")
+        self.assertEqual(learned.read_text(encoding="utf-8"), "kept\n")
 
     def test_reinstall_backs_up_changed_config_but_not_plugin_code(self) -> None:
         # Given stale copies of shared config and of repo-managed plugin code.

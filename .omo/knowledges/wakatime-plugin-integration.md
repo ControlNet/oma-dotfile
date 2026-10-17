@@ -152,3 +152,10 @@ install.
   real `~/.wakatime.cfg`.
 - Verified with the real wakatime-cli v2.27.8: `--config-read api_url/api_key`
   returns the rendered values from an isolated `WAKATIME_HOME`.
+
+## GitHub push protection rejects key-shaped test values (2026-10-17)
+
+The repo has GitHub secret-scanning push protection. A fake test key in the real
+format (`waka_` + UUID) blocked the push as a "WakaTime API Key". Test values must not
+match a real credential format; `pull.py` does not validate the key, so the tests use
+`test-only-fake-wakatime-key`.
