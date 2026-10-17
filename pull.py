@@ -1402,6 +1402,23 @@ def main(argv: list[str] | None = None):
                     print(f"         - {src_name}")
                     install_omp_config(src, dst, stamp, oauth=args.oauth)
 
+            # OMP loads ~/.config/opencode/AGENTS.md only when opencode is in
+            # enabledProviders, which would also pull in OpenCode's plugins and MCP.
+            instructions_src = repo_path / "_AGENTS.md"
+            if instructions_src.exists():
+                print("         - _AGENTS.md -> AGENTS.md")
+                install_rendered_text(
+                    instructions_src.read_text(encoding="utf-8"),
+                    omp_agent_dir / "AGENTS.md",
+                    stamp,
+                )
+
+            # Same reason for skills/; autolearn's managed-skills/ is a separate directory.
+            omp_skills_src = repo_path / "skills"
+            if omp_skills_src.exists():
+                print("         - skills/ (replace managed items)")
+                copy_directory_items_replace(omp_skills_src, omp_agent_dir / "skills")
+
             omp_extension_files = [
                 ("omp-gotify-notify.js", "extensions/omp-gotify-notify.js"),
                 ("omp-wakatime-sync.js", "extensions/omp-wakatime-sync.js"),

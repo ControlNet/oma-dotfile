@@ -56,7 +56,7 @@ Rerun without `--oauth` to switch back.
 |---|---|---|
 | OpenCode/OMO | `~/.config/opencode`, `~/.omo/omo.jsonc` | Config, plugins, skills; OMO settings under `"[opencode]"` |
 | OMO Native | `~/.omo/agent` | `AGENTS.md`, `models.json`, `settings.json` (ignores `~/.claude` rules); routing under `"[native]"` in `omo.jsonc`. Run `omo setup` once to import skills |
-| OMP | `~/.omp/agent` | Config, models, Gotify and WakaTime extensions |
+| OMP | `~/.omp/agent` | `AGENTS.md`, config, models, skills, Gotify and WakaTime extensions |
 | Codex | `~/.codex` | `AGENTS.md`, skills, Gotify notifier, WakaTime plugin |
 | Claude Code | `~/.claude` | Rule `rules/oma-dotfile.md`, Gotify plugin, WakaTime plugin |
 | Tokscale | Tokscale `settings.json` | Model aliases from `tokscale_model_alias.json` |
