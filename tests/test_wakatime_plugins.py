@@ -356,24 +356,117 @@ class WakatimePrerequisiteTests(unittest.TestCase):
         # Then the shared WakaTime prerequisites are not reported at all.
         config_path.assert_not_called()
 
-    def test_missing_wakatime_config_is_reported_once(self) -> None:
-        # Given both plugins are already installed but the config file is absent.
-        with tempfile.TemporaryDirectory() as tmp:
-            missing = Path(tmp) / "absent.cfg"
-            fake = FakeCli({"plugin list": INSTALLED_PLUGIN_LIST})
-            fake_claude = FakeCli({"plugin list": CLAUDE_PLUGIN_LIST})
 
-            def run(argv, **kwargs):
-                return (fake_claude if argv[0] == "claude" else fake)(argv, **kwargs)
+# Test-only fake credentials; they never reach a WakaTime server.
+FAKE_KEY = "test-only-fake-wakatime-key"
+FAKE_URL = "https://wakapi.example.invalid/api"
+WAKATIME_ENV_NAMES = ("WAKATIME_HOME", "WAKATIME_API_KEY", "WAKATIME_API_URL")
 
-            executables = {"codex": "/c", "claude": "/c", "node": "/n"}
-            with patch.object(pull.subprocess, "run", run), \
-                    patch.object(pull.shutil, "which", lambda name: executables.get(name)), \
-                    patch.object(pull, "get_wakatime_config_path", lambda: missing), \
-                    contextlib.redirect_stderr(io.StringIO()) as stderr:
-                pull.ensure_wakatime_plugins(Path(tmp), Path(tmp))
-        # Then exactly one warning names the missing config file.
-        self.assertEqual(stderr.getvalue().count(str(missing)), 1)
+
+class WakatimeConfigTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.cfg = self.tmp / ".wakatime.cfg"
+        self.enterContext(patch.object(pull, "get_wakatime_config_path", lambda: self.cfg))
+        # Backups are on, to show that the cfg is still written without one.
+        self.enterContext(patch.object(pull, "NO_BACKUP", False))
+        # The developer's own WakaTime variables must not leak into these tests.
+        self.enterContext(patch.dict(pull.os.environ))
+        for name in WAKATIME_ENV_NAMES:
+            pull.os.environ.pop(name, None)
+
+    def ensure(self, **env: str) -> tuple[str, str]:
+        with patch.dict(pull.os.environ, env), \
+                contextlib.redirect_stdout(io.StringIO()) as out, \
+                contextlib.redirect_stderr(io.StringIO()) as err:
+            pull.ensure_wakatime_config()
+        return out.getvalue(), err.getvalue()
+
+    def test_env_creates_private_config(self) -> None:
+        # Given no config file and both variables set.
+        out, err = self.ensure(WAKATIME_API_URL=FAKE_URL, WAKATIME_API_KEY=FAKE_KEY)
+        # Then a [settings] section holds both values and only the owner can read it.
+        self.assertEqual(self.cfg.read_text(encoding="utf-8"),
+                         f"[settings]\napi_url = {FAKE_URL}\napi_key = {FAKE_KEY}\n")
+        self.assertEqual(self.cfg.stat().st_mode & 0o777, 0o600)
+        # And the key is never printed.
+        self.assertNotIn(FAKE_KEY, out + err)
+
+    def test_env_replaces_only_managed_keys(self) -> None:
+        # Given a config with other settings, comments, sections and the legacy apikey alias.
+        self.cfg.write_text(
+            "; personal settings\n"
+            "[settings]\n"
+            "debug = true\n"
+            "apikey = old-key\n"
+            "api_url = https://old.example.invalid/api\n"
+            "proxy = http://127.0.0.1:3128\n"
+            "\n"
+            "[api_urls]\n"
+            ".* = https://other.example.invalid|other-key\n",
+            encoding="utf-8",
+        )
+        self.cfg.chmod(0o640)
+        self.ensure(WAKATIME_API_URL=FAKE_URL, WAKATIME_API_KEY=FAKE_KEY)
+        # Then the two keys change in place and everything else survives.
+        self.assertEqual(
+            self.cfg.read_text(encoding="utf-8"),
+            "; personal settings\n"
+            "[settings]\n"
+            "debug = true\n"
+            f"api_key = {FAKE_KEY}\n"
+            f"api_url = {FAKE_URL}\n"
+            "proxy = http://127.0.0.1:3128\n"
+            "\n"
+            "[api_urls]\n"
+            ".* = https://other.example.invalid|other-key\n",
+        )
+        # And the file keeps its mode, with no backup holding the old key.
+        self.assertEqual(self.cfg.stat().st_mode & 0o777, 0o640)
+        self.assertEqual(list(self.tmp.glob(".wakatime.cfg.bak-*")), [])
+
+    def test_key_only_leaves_api_url_alone(self) -> None:
+        # Given a config whose section has no api_url and ends before another section.
+        self.cfg.write_text("[settings]\ndebug = false\n\n[internal]\nx = 1\n", encoding="utf-8")
+        self.ensure(WAKATIME_API_KEY=FAKE_KEY)
+        # Then only api_key is added, at the end of [settings].
+        self.assertEqual(self.cfg.read_text(encoding="utf-8"),
+                         f"[settings]\ndebug = false\napi_key = {FAKE_KEY}\n\n[internal]\nx = 1\n")
+
+    def test_missing_settings_section_is_appended(self) -> None:
+        self.cfg.write_text("[git]\nsubmodules_disabled = true\n", encoding="utf-8")
+        self.ensure(WAKATIME_API_URL=FAKE_URL)
+        self.assertEqual(self.cfg.read_text(encoding="utf-8"),
+                         f"[git]\nsubmodules_disabled = true\n\n[settings]\napi_url = {FAKE_URL}\n")
+
+    def test_unchanged_config_is_not_rewritten(self) -> None:
+        # Given a config that already matches the environment.
+        self.ensure(WAKATIME_API_URL=FAKE_URL, WAKATIME_API_KEY=FAKE_KEY)
+        with patch.object(pull.os, "open") as open_file:
+            out, _ = self.ensure(WAKATIME_API_URL=FAKE_URL, WAKATIME_API_KEY=FAKE_KEY)
+        # Then the file is not opened for writing.
+        open_file.assert_not_called()
+        self.assertIn("skip", out)
+
+    def test_line_break_in_value_is_rejected(self) -> None:
+        # Given a value that would inject another INI line.
+        _, err = self.ensure(WAKATIME_API_URL=f"{FAKE_URL}\ndebug = true")
+        # Then nothing is written and the variable is named.
+        self.assertFalse(self.cfg.exists())
+        self.assertIn("WAKATIME_API_URL", err)
+
+    def test_without_env_nothing_is_created(self) -> None:
+        # Given neither variable set and no config file.
+        _, err = self.ensure()
+        # Then no file appears and exactly one warning names the missing config.
+        self.assertFalse(self.cfg.exists())
+        self.assertEqual(err.count(str(self.cfg)), 1)
+
+    def test_existing_config_without_env_is_left_quietly(self) -> None:
+        self.cfg.write_text("[settings]\napi_key = kept\n", encoding="utf-8")
+        _, err = self.ensure()
+        self.assertEqual(self.cfg.read_text(encoding="utf-8"), "[settings]\napi_key = kept\n")
+        self.assertEqual(err, "")
 
 
 if __name__ == "__main__":

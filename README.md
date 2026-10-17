@@ -47,6 +47,7 @@ Rerun without `--oauth` to switch back.
 | `GOTIFY_NOTIFY_SUMMARIZER_MODEL`, `GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT`, `GOTIFY_NOTIFY_SUMMARIZER_API_KEY` | Summarize notifications with an OpenAI-compatible API |
 | `OMP_WAKATIME_SYNC=false`, `OMP_WAKATIME_SYNC_INTERVAL_SEC` (default 120) | OMP WakaTime sync |
 | `WAKATIME_HOME` | Directory of `.wakatime.cfg` |
+| `WAKATIME_API_KEY`, `WAKATIME_API_URL` | Written to `.wakatime.cfg`; wakatime-cli reads only the key itself |
 | `CONFIG_DIR`, `CODEX_DIR`/`CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `OMP_AGENT_DIR`/`PI_CODING_AGENT_DIR`, `OMO_CODING_AGENT_DIR` | Override install directories |
 
 ## Installed files
@@ -73,7 +74,9 @@ After updating the installed extension, restart OMP to load the new behavior.
 
 ## WakaTime
 
-Put the API key in `~/.wakatime.cfg`. OpenCode uses `opencode-wakatime`; Codex and Claude Code
+Set `WAKATIME_API_KEY` (and `WAKATIME_API_URL` for a self-hosted server) before running
+`pull.py`; it writes them to `api_key`/`api_url` under `[settings]` in `~/.wakatime.cfg`, replacing
+those two values and keeping the rest of the file. Without them, edit the cfg by hand. OpenCode uses `opencode-wakatime`; Codex and Claude Code
 use the official plugins. OMP runs `wakatime-cli --sync-ai-activity` after each agent run, which
 needs an installed `wakatime-cli` v2.24.0+.
 

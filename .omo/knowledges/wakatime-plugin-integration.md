@@ -110,3 +110,45 @@ install.
   the URL form is used for adding. Codex records `source` either way; Claude Code
   records `{"source":"github","repo":...}` for the shorthand and
   `{"source":"git","url":...}` for the URL, so state checks accept both.
+
+## Env-based configuration (checked 2026-10-17, wakatime-cli v2.27.8)
+
+- wakatime-cli reads only two WakaTime env vars (`grep Getenv` over the v2.27.8 source):
+  - `WAKATIME_HOME`: moves `.wakatime.cfg` and the `.wakatime/` resource dir.
+  - `WAKATIME_API_KEY` (`pkg/params/params.go` `loadAPIKey`): last fallback, after
+    `--key`, the cfg `api_key`/`apikey`, and `api_key_vault_cmd`. A key in the cfg
+    wins over the env var. Documented in USAGE.md "Api Key Environment Variable".
+- `api_url` has **no** env var. Only `--api-url` or the cfg (`settings.api_url`,
+  `api_urls`) set it, so a self-hosted server still needs a cfg file. No upstream
+  issue or PR asks for `WAKATIME_API_URL`. Proxy can come from `HTTPS_PROXY`
+  (`httpproxy.FromEnvironment`) when the cfg sets no `proxy`.
+- Verified: an empty `WAKATIME_HOME` with only `WAKATIME_API_KEY` set logs
+  "loaded api key from env var". Without the env var it fails with
+  "api key not found or empty". So a missing cfg file is not an error by itself.
+- Plugins (claude-code-wakatime 4.1.0, codex-cli-wakatime 1.0.0, opencode-wakatime)
+  read only `WAKATIME_HOME` themselves and pass `process.env` to wakatime-cli, so
+  `WAKATIME_API_KEY` reaches the CLI. They read only `debug`, `proxy` and
+  `no_ssl_verify` from the cfg, and none of them requires `api_key` to be in it.
+
+## Implemented: cfg rendered from env (2026-10-17)
+
+- `pull.py` `ensure_wakatime_config` (step 9) writes `WAKATIME_API_URL` ->
+  `api_url` and `WAKATIME_API_KEY` -> `api_key` under `[settings]`. `WAKATIME_API_URL`
+  is an installer-only name; wakatime-cli ignores it.
+- Line-based edit, not `configparser` (which lowercases keys and rewrites the file).
+  Only those keys change, plus the legacy `apikey` alias, which becomes `api_key`.
+  Comments, other keys and other sections stay. Each variable is applied on its own;
+  with neither set, nothing is written.
+- The env value wins over the cfg on every run (same contract as `CODEX_BASE_URL`).
+  No backup is made (decided by the user): only env-sourced values change, and a
+  backup would keep the old key on disk. A new cfg is created with mode 0600; an
+  existing file keeps its mode.
+- Values with line breaks are rejected, since they could inject INI lines.
+- Step 9 now runs for opencode/omp/codex/claude (all use the cfg); plugins are
+  still installed only for codex/claude. The missing-cfg warning moved here and
+  is silent when `WAKATIME_API_KEY` is set.
+- Tests: `WakatimeConfigTests` in `tests/test_wakatime_plugins.py`;
+  `InstallGatingTests` patches `ensure_wakatime_config` so no test reaches the
+  real `~/.wakatime.cfg`.
+- Verified with the real wakatime-cli v2.27.8: `--config-read api_url/api_key`
+  returns the rendered values from an isolated `WAKATIME_HOME`.

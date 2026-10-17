@@ -142,6 +142,8 @@ class InstallGatingTests(unittest.TestCase):
             self.enterContext(patch.object(pull, name, return_value=self.tmp / name))
         self.enterContext(patch.object(Path, "home", return_value=self.tmp))
         self.wakatime = self.enterContext(patch.object(pull, "ensure_wakatime_plugins"))
+        # Never reach the developer's real ~/.wakatime.cfg.
+        self.wakatime_config = self.enterContext(patch.object(pull, "ensure_wakatime_config"))
         self.tokscale = self.enterContext(patch.object(pull, "install_tokscale_model_aliases"))
 
         def clone(command, **kwargs):
@@ -279,6 +281,20 @@ class InstallGatingTests(unittest.TestCase):
                     self.run_main(**detected)
                 # Then the step runs whenever at least one of them is installed.
                 self.assertEqual(self.wakatime.call_count, expected_calls)
+
+    def test_wakatime_config_follows_any_tracked_agent(self) -> None:
+        # Given each agent alone; OMO Native and Tokscale have no WakaTime integration.
+        for name in pull.TARGET_LABELS:
+            with self.subTest(target=name):
+                self.wakatime_config.reset_mock()
+                self.wakatime.reset_mock()
+                with patch.dict(os.environ, {"CODEX_BASE_URL": "https://example.invalid/v1"}):
+                    self.run_main(**{name: True})
+                # Then the cfg is rendered for every agent that WakaTime tracks.
+                tracked = name in ("opencode", "omp", "codex", "claude")
+                self.assertEqual(self.wakatime_config.call_count, int(tracked))
+                # And plugins are still installed only for Codex and Claude Code.
+                self.assertEqual(self.wakatime.call_count, int(name in ("codex", "claude")))
 
     def test_nothing_detected_writes_nothing_but_still_clones(self) -> None:
         # Given a machine with no agent at all.
