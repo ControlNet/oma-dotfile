@@ -16,6 +16,8 @@ Env:
                         PI_CODING_AGENT_DIR follow, matching omo's own lookup>
   TOKSCALE_CONFIG_DIR=<optional override for tokscale settings directory>
   WAKATIME_HOME=<optional override for the .wakatime.cfg location>
+  WAKATIME_API_URL, WAKATIME_API_KEY=<optional; written to [settings] api_url/api_key in
+                        .wakatime.cfg. WAKATIME_API_URL is read only by this installer>
   INSTALL_ALL=1 (optional; install every target without detecting agents)
   NO_BACKUP=1 (optional; changed config files are otherwise kept as *.bak-<stamp>.
               Repo-managed plugin code is replaced without backups.)
@@ -1011,6 +1013,83 @@ def get_wakatime_config_path() -> Path:
     return Path.home() / ".wakatime.cfg"
 
 
+# Installer env var -> [settings] key. wakatime-cli itself reads WAKATIME_API_KEY but
+# has no env var for api_url, so a self-hosted server needs it written to the cfg.
+WAKATIME_ENV_SETTINGS = {"WAKATIME_API_URL": "api_url", "WAKATIME_API_KEY": "api_key"}
+# Spellings wakatime-cli accepts in [settings]; all are replaced by the canonical key.
+WAKATIME_SETTING_ALIASES = {"api_url": ("api_url",), "api_key": ("api_key", "apikey")}
+
+
+def render_wakatime_config(content: str, settings: dict[str, str]) -> str:
+    """Set keys in the INI [settings] section, keeping every other line as it is."""
+    lines = content.splitlines()
+    start = next((idx for idx, line in enumerate(lines)
+                  if line.strip().lower() == "[settings]"), None)
+    if start is None:
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.append("[settings]")
+        start = len(lines) - 1
+    end = next((idx for idx in range(start + 1, len(lines))
+                if lines[idx].strip().startswith("[")), len(lines))
+    section = lines[start + 1:end]
+
+    for key, value in settings.items():
+        aliases = "|".join(re.escape(alias) for alias in WAKATIME_SETTING_ALIASES[key])
+        pattern = re.compile(rf"^\s*(?:{aliases})\s*[=:]")
+        matches = [idx for idx, line in enumerate(section) if pattern.match(line)]
+        desired = f"{key} = {value}"
+        if matches:
+            section[matches[0]] = desired
+            section = [line for idx, line in enumerate(section) if idx not in matches[1:]]
+        else:
+            # Insert after the last setting, before the blank lines that end the section.
+            insert_idx = len(section)
+            while insert_idx > 0 and not section[insert_idx - 1].strip():
+                insert_idx -= 1
+            section.insert(insert_idx, desired)
+
+    return "\n".join([*lines[:start + 1], *section, *lines[end:]]) + "\n"
+
+
+def ensure_wakatime_config() -> None:
+    """Write WAKATIME_API_URL and WAKATIME_API_KEY into the cfg, keeping other settings."""
+    path = get_wakatime_config_path()
+    settings: dict[str, str] = {}
+    for env_name, key in WAKATIME_ENV_SETTINGS.items():
+        value = os.environ.get(env_name, "").strip()
+        if not value:
+            continue
+        if "\n" in value or "\r" in value:
+            warn(f"{env_name} contains a line break; not written to {path}")
+            continue
+        settings[key] = value
+
+    if not settings:
+        if not path.is_file() and not os.environ.get("WAKATIME_API_KEY", "").strip():
+            warn(f"WakaTime config not found: {path}; set WAKATIME_API_KEY "
+                 "(and WAKATIME_API_URL for a self-hosted server) and rerun")
+        return
+
+    try:
+        content = path.read_text(encoding="utf-8") if path.is_file() else ""
+        rendered = render_wakatime_config(content, settings)
+        if rendered == content:
+            info(f"WakaTime config already matches the environment; skip: {path}")
+            return
+        # No backup: only env-sourced values change, and a backup would keep the old key.
+        # A new file is owner-only because it holds the API key; an existing one keeps its mode.
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(rendered)
+    except (OSError, UnicodeDecodeError) as exc:
+        warn(f"Failed to update {path} ({type(exc).__name__}); leaving it unchanged")
+        return
+    # Name the keys only; their values may be secrets.
+    success(f"Configured WakaTime {', '.join(settings)}: {path}")
+
+
 def run_plugin_process(
     command: list[str], env_var: str, config_dir: Path
 ) -> subprocess.CompletedProcess[str] | None:
@@ -1207,10 +1286,6 @@ def ensure_wakatime_plugins(codex_dir: Path, claude_config_dir: Path) -> None:
     if shutil.which("node") is None:
         warn("node not found on PATH; the WakaTime plugin hooks require it")
 
-    wakatime_config = get_wakatime_config_path()
-    if not wakatime_config.is_file():
-        warn(f"WakaTime config not found: {wakatime_config}; add your api_key there")
-
 
 def begin_step(label: str, message: str, enabled: bool, reason: str) -> bool:
     """Announce a step and report why it is skipped; return whether to run it."""
@@ -1369,16 +1444,19 @@ def main(argv: list[str] | None = None):
             prepare_target_dir(codex_dir)
             ensure_codex_config(codex_dir, stamp, oauth=args.oauth)
 
-        if begin_step("9/11", "Installing WakaTime plugins for Codex and Claude Code",
-                      targets["codex"] or targets["claude"],
-                      "neither codex nor claude found"):
-            # Each plugin follows its own agent inside ensure_wakatime_plugins; both
-            # directories are created first so neither CLI is handed a missing one.
-            if targets["codex"]:
-                prepare_target_dir(codex_dir)
-            if targets["claude"]:
-                prepare_target_dir(claude_config_dir)
-            ensure_wakatime_plugins(codex_dir, claude_config_dir)
+        if begin_step("9/11", "Configuring WakaTime config and plugins",
+                      targets["opencode"] or targets["omp"] or targets["codex"] or targets["claude"],
+                      "no WakaTime-tracked agent found"):
+            # OpenCode and OMP use the cfg too; only Codex and Claude Code need plugins.
+            ensure_wakatime_config()
+            if targets["codex"] or targets["claude"]:
+                # Each plugin follows its own agent inside ensure_wakatime_plugins; both
+                # directories are created first so neither CLI is handed a missing one.
+                if targets["codex"]:
+                    prepare_target_dir(codex_dir)
+                if targets["claude"]:
+                    prepare_target_dir(claude_config_dir)
+                ensure_wakatime_plugins(codex_dir, claude_config_dir)
 
         if begin_step("10/11", f"Installing Claude Code assets to: {claude_config_dir}",
                       targets["claude"], "claude not found"):
