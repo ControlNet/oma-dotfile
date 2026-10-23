@@ -69,6 +69,50 @@ class CodexProviderConfigTests(unittest.TestCase):
         self.assertEqual(result, lines)
 
 
+class TomlStructureTests(unittest.TestCase):
+    def provider_update(self, content: str) -> dict:
+        with patch.dict(os.environ, {"CODEX_BASE_URL": "https://example.test/v1"}):
+            lines = pull.ensure_codex_api_provider_config(content.splitlines())
+        return tomllib.loads("\n".join(lines))
+
+    def test_commented_header_after_provider_survives(self) -> None:
+        # Given a table header with a trailing comment right after the managed provider.
+        document = self.provider_update(
+            '[model_providers.codex_api]\nname = "old"\n\n[profiles.work] # work profile\nmodel = "x"\n'
+        )
+        # Then the profile is kept, and the provider is rewritten.
+        self.assertEqual(document["profiles"]["work"], {"model": "x"})
+        self.assertEqual(document["model_providers"]["codex_api"]["base_url"], "https://example.test/v1")
+
+    def test_commented_provider_header_is_replaced_in_place(self) -> None:
+        # Given the managed provider header itself carrying a comment and quoted key parts.
+        document = self.provider_update('[ model_providers . "codex_api" ] # gateway\nname = "old"\n')
+        # Then it is replaced instead of declared a second time.
+        self.assertEqual(document["model_providers"]["codex_api"]["name"], "codex_api")
+
+    def test_multiline_string_is_not_parsed_as_config(self) -> None:
+        # Given instructions whose text contains config-looking lines.
+        text = 'notify = ["x"]\n[model_providers.codex_api]\nmodel_provider = "codex_api"'
+        content = f'developer_instructions = """\n{text}\n"""\n'
+        lines = pull.ensure_codex_notify_config_lines(content.splitlines(), Path("/codex"))
+        with patch.dict(os.environ, {"CODEX_BASE_URL": "https://example.test/v1"}):
+            lines = pull.ensure_codex_api_provider_config(lines)
+            lines = pull.ensure_codex_oauth_provider_config(lines)
+        document = tomllib.loads("\n".join(lines))
+        # Then the text is untouched, and the real top-level keys are added.
+        self.assertEqual(document["developer_instructions"], text + "\n")
+        self.assertEqual(document["notify"][1], str(Path("/codex") / "codex-gotify-notify.py"))
+        self.assertIn("codex_api", document["model_providers"])
+
+
+    def test_unparsable_value_does_not_hide_later_tables(self) -> None:
+        # Given a typo tomllib rejects, then a multiline inline table (TOML 1.1).
+        lines = ["model = oops", "tui = {", "  theme = 1,", "}", "[profiles.work]", 'model = "x"']
+        # Then each value ends where its brackets balance, and the table is still found.
+        self.assertEqual(pull.toml_statement_starts(lines), [0, 1, 4, 5])
+        self.assertEqual(pull.find_first_toml_section_idx(lines), 4)
+
+
 class CodexNotifyPathTests(unittest.TestCase):
     def render_notify(self, python_bin: str, codex_dir: str) -> list:
         with patch.object(pull.sys, "executable", python_bin):

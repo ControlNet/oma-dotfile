@@ -733,25 +733,63 @@ def backup_and_install_omp_models(
         warn(f"Failed to write {dst}: {exc}")
 
 
+# One bare or quoted key part; dotted keys join them with optional spaces.
+TOML_KEY_PART = r"""(?:[A-Za-z0-9_-]+|"(?:[^"\\]|\\.)*"|'[^']*')"""
+TOML_DOTTED_KEY = rf"{TOML_KEY_PART}(?:\s*\.\s*{TOML_KEY_PART})*"
+# A header may carry a trailing comment: `[profiles.work] # note` is valid TOML.
+TOML_TABLE_HEADER = re.compile(rf"^\s*\[\[?\s*({TOML_DOTTED_KEY})\s*\]\]?\s*(?:#.*)?$")
+TOML_ASSIGNMENT_START = re.compile(rf"^\s*({TOML_DOTTED_KEY})\s*=(.*)$")
+
+
+def toml_key_name(raw: str) -> str:
+    """Normalize a dotted key so `a . "b"` and `a.b` compare equal."""
+    parts = []
+    for part in re.findall(TOML_KEY_PART, raw):
+        if part.startswith('"'):
+            try:
+                part = json.loads(part)
+            except ValueError:
+                part = part[1:-1]
+        elif part.startswith("'"):
+            part = part[1:-1]
+        parts.append(part)
+    return ".".join(parts)
+
+
+def toml_table_name(line: str) -> str | None:
+    """Return the name of a `[table]` header line; array tables do not count."""
+    match = TOML_TABLE_HEADER.match(line)
+    if match is None or line.lstrip().startswith("[["):
+        return None
+    return toml_key_name(match.group(1))
+
+
+def toml_statement_starts(lines: list[str]) -> list[int]:
+    """Indexes of lines that begin a statement; lines inside multiline values are skipped."""
+    starts: list[int] = []
+    idx = 0
+    while idx < len(lines):
+        starts.append(idx)
+        match = TOML_ASSIGNMENT_START.match(lines[idx])
+        idx = toml_value_end_idx(lines, idx, match.group(1), match.group(2)) if match else idx + 1
+    return starts
+
+
 def find_first_toml_section_idx(lines: list[str]) -> int | None:
-    for idx, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            return idx
-    return None
+    return next((idx for idx in toml_statement_starts(lines)
+                 if TOML_TABLE_HEADER.match(lines[idx])), None)
 
 
 def ensure_top_level_config_line(lines: list[str], desired_line: str, key: str) -> list[str]:
     first_section_idx = find_first_toml_section_idx(lines)
-    key_pattern = re.compile(rf"^\s*{re.escape(key)}\s*=")
-    matching_indexes = [
-        idx
-        for idx, line in enumerate(lines)
-        if key_pattern.match(line) and (first_section_idx is None or idx < first_section_idx)
+    top_level_ranges = [
+        (start, end) for start, end in find_toml_key_assignment_ranges(lines, key)
+        if first_section_idx is None or start < first_section_idx
     ]
 
-    if matching_indexes:
-        matching_set = set(matching_indexes)
+    if top_level_ranges:
+        # Drop whole assignments, so a multiline value leaves no continuation lines behind.
+        matching_set = {idx for start, end in top_level_ranges for idx in range(start, end)}
         new_lines: list[str] = []
         wrote_line = False
         for idx, line in enumerate(lines):
@@ -814,13 +852,16 @@ def toml_value_is_complete(value: str) -> bool:
 
 
 def toml_assignment_is_complete(key: str, value: str) -> bool:
-    if tomllib is None:
-        return toml_value_is_complete(value)
-    try:
-        _ = tomllib.loads(f"{key} = {value}\n")
-    except tomllib.TOMLDecodeError:
-        return False
-    return True
+    if tomllib is not None:
+        try:
+            _ = tomllib.loads(f"{key} = {value}\n")
+        except tomllib.TOMLDecodeError:
+            pass
+        else:
+            return True
+    # Balanced brackets and quotes also end a value tomllib rejects (a typo, or a
+    # TOML 1.1 multiline inline table), instead of swallowing the rest of the file.
+    return toml_value_is_complete(value)
 
 
 def read_toml_string_assignment(line: str, key: str) -> str | None:
@@ -842,13 +883,9 @@ def read_toml_string_assignment(line: str, key: str) -> str | None:
         return None
 
 
-def find_toml_key_assignment_end_idx(lines: list[str], start_idx: int, key: str) -> int:
-    key_pattern = re.compile(rf"^\s*{re.escape(key)}\s*=(.*)$")
-    match = key_pattern.match(lines[start_idx])
-    if match is None:
-        return start_idx + 1
-
-    value_lines = [match.group(1)]
+def toml_value_end_idx(lines: list[str], start_idx: int, key: str, first_value: str) -> int:
+    """Return the index after the last line of the value that starts on `start_idx`."""
+    value_lines = [first_value]
     for end_idx in range(start_idx + 1, len(lines) + 1):
         if toml_assignment_is_complete(key, "\n".join(value_lines)):
             return end_idx
@@ -858,40 +895,33 @@ def find_toml_key_assignment_end_idx(lines: list[str], start_idx: int, key: str)
     return len(lines)
 
 
+def find_toml_key_assignment_end_idx(lines: list[str], start_idx: int, key: str) -> int:
+    match = TOML_ASSIGNMENT_START.match(lines[start_idx])
+    if match is None or toml_key_name(match.group(1)) != key:
+        return start_idx + 1
+    return toml_value_end_idx(lines, start_idx, match.group(1), match.group(2))
+
+
 def find_toml_key_assignment_ranges(lines: list[str], key: str) -> list[tuple[int, int]]:
-    key_pattern = re.compile(rf"^\s*{re.escape(key)}\s*=")
+    starts = toml_statement_starts(lines)
     ranges: list[tuple[int, int]] = []
-    idx = 0
-    while idx < len(lines):
-        if key_pattern.match(lines[idx]):
-            end_idx = find_toml_key_assignment_end_idx(lines, idx, key)
-            ranges.append((idx, end_idx))
-            idx = end_idx
-            continue
-        idx += 1
+    for pos, start in enumerate(starts):
+        match = TOML_ASSIGNMENT_START.match(lines[start])
+        if match and toml_key_name(match.group(1)) == key:
+            ranges.append((start, starts[pos + 1] if pos + 1 < len(starts) else len(lines)))
     return ranges
 
 
 def replace_toml_section(lines: list[str], section_name: str, section_lines: list[str]) -> list[str]:
-    section_header = f"[{section_name}]"
-    section_start = None
-    for idx, line in enumerate(lines):
-        if line.strip() == section_header:
-            section_start = idx
-            break
+    headers = [idx for idx in toml_statement_starts(lines) if TOML_TABLE_HEADER.match(lines[idx])]
+    section_start = next((idx for idx in headers if toml_table_name(lines[idx]) == section_name), None)
 
     if section_start is None:
         if lines and lines[-1].strip():
             return [*lines, "", *section_lines]
         return [*lines, *section_lines]
 
-    section_end = len(lines)
-    for idx in range(section_start + 1, len(lines)):
-        stripped = lines[idx].strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            section_end = idx
-            break
-
+    section_end = next((idx for idx in headers if idx > section_start), len(lines))
     return [*lines[:section_start], *section_lines, *lines[section_end:]]
 
 
@@ -901,7 +931,7 @@ def ensure_codex_oauth_provider_config(lines: list[str]) -> list[str]:
     if end is None:
         end = len(lines)
     result = list(lines)
-    for idx in range(end):
+    for idx in toml_statement_starts(lines[:end]):
         if re.match(r"^\s*model_provider\s*=", lines[idx]):
             if read_toml_string_assignment(lines[idx], "model_provider") == "codex_api":
                 result[idx] = "# " + lines[idx]
@@ -918,7 +948,7 @@ def ensure_codex_api_provider_config(lines: list[str]) -> list[str]:
     first_section = find_first_toml_section_idx(lines)
     end = len(lines) if first_section is None else first_section
     lines = list(lines)
-    for idx in range(end):
+    for idx in toml_statement_starts(lines[:end]):
         match = re.match(r"^\s*#\s*(model_provider\s*=.*)$", lines[idx])
         if match:
             if read_toml_string_assignment(match.group(1), "model_provider") == "codex_api":
