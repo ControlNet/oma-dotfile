@@ -70,6 +70,22 @@ class AgentDetectionTests(unittest.TestCase):
                 # Then the known install location is searched too.
                 self.assertEqual(found, home / relative)
 
+    def test_newest_nvm_node_wins(self) -> None:
+        # Given the same CLI under several nvm versions; string order would pick v20 and
+        # put v9 after v10.
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            for version in ("v9.11.2", "v10.0.0", "v20.13.1", "v24.11.1"):
+                make_executable(home / f".nvm/versions/node/{version}/bin/codex")
+            with patch.object(Path, "home", return_value=home), \
+                    patch.object(pull.shutil, "which", which_only_via_extra_path):
+                found = pull.find_agent_executable("codex")
+                nvm_dirs = [Path(d).parent.name for d in pull.extra_bin_search_path().split(os.pathsep)
+                            if ".nvm" in d]
+        # Then the newest install is used, as a fresh nvm shell would.
+        self.assertEqual(found, home / ".nvm/versions/node/v24.11.1/bin/codex")
+        self.assertEqual(nvm_dirs, ["v24.11.1", "v20.13.1", "v10.0.0", "v9.11.2"])
+
     def test_detect_targets_reads_every_agent(self) -> None:
         # Given a machine with only opencode and omp installed.
         installed = {"opencode", "omp"}

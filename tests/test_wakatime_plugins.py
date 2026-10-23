@@ -55,11 +55,14 @@ class FakeCli:
 
     def __init__(self, responses: dict[str, object]) -> None:
         self.responses = responses
+        # Commands run by absolute path; calls keep the bare name, executables the path.
         self.calls: list[list[str]] = []
+        self.executables: list[str] = []
         self.envs: list[dict[str, str]] = []
 
     def __call__(self, argv, **kwargs):
-        self.calls.append(list(argv))
+        self.executables.append(argv[0])
+        self.calls.append([Path(argv[0]).name, *argv[1:]])
         self.envs.append(dict(kwargs.get("env") or {}))
         for key, payload in self.responses.items():
             if key in " ".join(argv):
@@ -74,7 +77,7 @@ def run_ensure(responses: dict[str, object], codex_dir: Path, has_node: bool = T
     if has_node:
         executables["node"] = "/usr/bin/node"
     with patch.object(pull.subprocess, "run", fake), \
-            patch.object(pull.shutil, "which", lambda name: executables.get(name)):
+            patch.object(pull.shutil, "which", lambda name, path=None: executables.get(name)):
         pull.ensure_codex_wakatime_plugin(codex_dir)
     return fake
 
@@ -83,7 +86,7 @@ def run_claude_ensure(responses: dict[str, object], claude_config_dir: Path):
     fake = FakeCli(responses)
     executables = {"claude": "/usr/bin/claude", "node": "/usr/bin/node"}
     with patch.object(pull.subprocess, "run", fake), \
-            patch.object(pull.shutil, "which", lambda name: executables.get(name)):
+            patch.object(pull.shutil, "which", lambda name, path=None: executables.get(name)):
         installed = pull.ensure_claude_wakatime_plugin(claude_config_dir)
     return fake, installed
 
@@ -180,7 +183,7 @@ class CodexWakatimePluginTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             fake = FakeCli({})
             with patch.object(pull.subprocess, "run", fake), \
-                    patch.object(pull.shutil, "which", lambda name: None):
+                    patch.object(pull.shutil, "which", lambda name, path=None: None):
                 pull.ensure_codex_wakatime_plugin(Path(tmp))
             # Then no Codex command is attempted.
             self.assertEqual(fake.calls, [])
@@ -339,18 +342,35 @@ class ClaudeWakatimePluginTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             fake = FakeCli({})
             with patch.object(pull.subprocess, "run", fake), \
-                    patch.object(pull.shutil, "which", lambda name: None):
+                    patch.object(pull.shutil, "which", lambda name, path=None: None):
                 installed = pull.ensure_claude_wakatime_plugin(Path(tmp))
             # Then no Claude Code command is attempted.
             self.assertFalse(installed)
             self.assertEqual(fake.calls, [])
 
 
+class AgentCliLookupTests(unittest.TestCase):
+    def test_cli_only_in_extra_bin_dir_is_used_by_path(self) -> None:
+        # Given codex installed only in an extra bin dir that a piped install's PATH lacks.
+        extra = "/home/me/.bun/bin/codex"
+        fake = FakeCli({"plugin list": INSTALLED_PLUGIN_LIST})
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(pull.subprocess, "run", fake), \
+                patch.object(pull.shutil, "which",
+                             lambda name, path=None: extra if path and name == "codex" else None):
+            # When the WakaTime step runs.
+            installed = pull.ensure_codex_wakatime_plugin(Path(tmp))
+        # Then it finds the CLI there, calls it by path, and puts its dir on PATH for its runtime.
+        self.assertTrue(installed)
+        self.assertEqual(fake.executables[0], extra)
+        self.assertEqual(fake.envs[0]["PATH"].split(pull.os.pathsep)[0], "/home/me/.bun/bin")
+
+
 class WakatimePrerequisiteTests(unittest.TestCase):
     def test_prerequisites_are_not_checked_when_both_steps_skip(self) -> None:
         # Given neither agent CLI is available.
         with tempfile.TemporaryDirectory() as tmp, \
-                patch.object(pull.shutil, "which", lambda name: None), \
+                patch.object(pull.shutil, "which", lambda name, path=None: None), \
                 patch.object(pull, "get_wakatime_config_path") as config_path:
             pull.ensure_wakatime_plugins(Path(tmp), Path(tmp))
         # Then the shared WakaTime prerequisites are not reported at all.
