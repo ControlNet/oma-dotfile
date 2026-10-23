@@ -148,6 +148,27 @@ test("logs Gotify HTTP failures without throwing or leaking request data", async
 	}
 });
 
+test("a failed push does not suppress the same notification inside the dedup window", async () => {
+	const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-notifier-test-"));
+	try {
+		process.env.OMP_NOTIFY_LOG_FILE = path.join(tempDir, "gotify.log");
+		enableGotify();
+		// Gotify fails once with 503, then recovers.
+		const statuses = [503, 200];
+		const harness = createHarness(() => {
+			const status = statuses.shift() ?? 200;
+			return { ok: status < 400, status };
+		});
+		await runAgentEnd(harness, { messages: [assistant("end_turn")] });
+		await runAgentEnd(harness, { messages: [assistant("end_turn")] });
+		await runAgentEnd(harness, { messages: [assistant("end_turn")] });
+		// The failed attempt is retried once; the delivered one is still deduplicated.
+		assert.equal(harness.calls.length, 2);
+	} finally {
+		fs.rmSync(tempDir, { recursive: true, force: true });
+	}
+});
+
 test("does not call fetch or summarizer when Gotify is not configured", async () => {
 	process.env.GOTIFY_NOTIFY_SUMMARIZER_MODEL = "test-model";
 	process.env.GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT = "https://summarizer.invalid/v1";

@@ -350,10 +350,9 @@ export default function OmpGotifyNotify(pi) {
 	const notifyError = envBool("OMP_NOTIFY_ERROR", true);
 	const notifyQuestion = envBool("OMP_NOTIFY_QUESTION", true);
 
-	function shouldSend(sessionId, eventName, message) {
+	function shouldSend(key) {
 		if (dedupWindowSec <= 0) return true;
 		const now = Math.floor(Date.now() / 1000);
-		const key = `${sessionId}|${eventName}|${message}`;
 		const last = sentCache.get(key);
 		if (typeof last === "number" && now - last < dedupWindowSec) return false;
 
@@ -386,7 +385,8 @@ export default function OmpGotifyNotify(pi) {
 	async function send(sessionId, eventName, message, summarizeSource = "", cwd = "") {
 		if (!message) return;
 		if (!gotifyConfig()) return;
-		if (!shouldSend(sessionId, eventName, message)) return;
+		const dedupKey = `${sessionId}|${eventName}|${message}`;
+		if (!shouldSend(dedupKey)) return;
 
 		let finalMessage = message;
 		if (summarizeSource) {
@@ -396,7 +396,10 @@ export default function OmpGotifyNotify(pi) {
 			}
 		}
 
-		await pushGotify(buildNotifyTitle("OMP", cwd), truncate(finalMessage, maxChars));
+		const delivered = await pushGotify(buildNotifyTitle("OMP", cwd), truncate(finalMessage, maxChars));
+		// The key is reserved before the push so concurrent duplicates are dropped; release it
+		// on failure, so a retry inside the window is not suppressed by an attempt that failed.
+		if (!delivered) sentCache.delete(dedupKey);
 	}
 
 	function findLastAssistantMessage(messages) {
