@@ -476,6 +476,14 @@ class WakatimeConfigTests(unittest.TestCase):
         open_file.assert_not_called()
         self.assertIn("skip", out)
 
+    def test_unchanged_config_with_key_is_still_made_private(self) -> None:
+        # Given a shared-readable config an older installer already wrote the key into.
+        self.ensure(WAKATIME_API_URL=FAKE_URL, WAKATIME_API_KEY=FAKE_KEY)
+        self.cfg.chmod(0o644)
+        self.ensure(WAKATIME_API_URL=FAKE_URL, WAKATIME_API_KEY=FAKE_KEY)
+        # Then rerunning makes it owner-only even though its content does not change.
+        self.assertEqual(self.cfg.stat().st_mode & 0o777, 0o600)
+
     def test_line_break_in_value_is_rejected(self) -> None:
         # Given a value that would inject another INI line.
         _, err = self.ensure(WAKATIME_API_URL=f"{FAKE_URL}\ndebug = true")

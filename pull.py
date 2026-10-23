@@ -1121,15 +1121,16 @@ def ensure_wakatime_config() -> None:
     try:
         content = path.read_text(encoding="utf-8") if path.is_file() else ""
         rendered = render_wakatime_config(content, settings)
+        # A new file is owner-only. An existing one is made owner-only before the key is
+        # written into it, or when an older run already put it there; without a key to
+        # write, it keeps the mode the user chose.
+        if "api_key" in settings and path.exists():
+            path.chmod(0o600)
         if rendered == content:
             info(f"WakaTime config already matches the environment; skip: {path}")
             return
         # No backup: only env-sourced values change, and a backup would keep the old key.
-        # A new file is owner-only. An existing one is made owner-only before the key is
-        # written into it; without a key to write, it keeps the mode the user chose.
         path.parent.mkdir(parents=True, exist_ok=True)
-        if "api_key" in settings and path.exists():
-            path.chmod(0o600)
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(rendered)
