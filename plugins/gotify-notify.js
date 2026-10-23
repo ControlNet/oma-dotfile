@@ -20,6 +20,7 @@ import path from "node:path";
 //   OPENCODE_NOTIFY_QUESTION          default true (notify on question tool calls)
 //   OPENCODE_NOTIFY_MAX_CHARS         default 280
 //   OPENCODE_NOTIFY_USER_AGENT        optional; default mimics browser UA
+//   OPENCODE_NOTIFY_GOTIFY_TIMEOUT_SEC default 5, maximum 5 (Gotify request timeout)
 //   GOTIFY_NOTIFY_SUMMARIZER_MODEL    e.g. "gpt-5-nano"
 //   GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT OpenAI-compatible endpoint, e.g. "https://api.openai.com/v1"
 //   GOTIFY_NOTIFY_SUMMARIZER_API_KEY  API key for endpoint auth
@@ -49,6 +50,9 @@ const SUMMARIZER_MODEL = (process.env.GOTIFY_NOTIFY_SUMMARIZER_MODEL || "").trim
 const SUMMARIZER_ENDPOINT = normalizeBase(process.env.GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT || "");
 const SUMMARIZER_API_KEY = (process.env.GOTIFY_NOTIFY_SUMMARIZER_API_KEY || "").trim();
 const SUMMARIZER_TIMEOUT = 120000; // 120 seconds
+// Whole seconds, 1..5, matching OMP_NOTIFY_GOTIFY_TIMEOUT_SEC in omp-gotify-notify.js.
+const GOTIFY_TIMEOUT_SEC_RAW = Number.parseInt(process.env.OPENCODE_NOTIFY_GOTIFY_TIMEOUT_SEC || "5", 10);
+const GOTIFY_TIMEOUT_MS = Math.min(Math.max(1, Number.isFinite(GOTIFY_TIMEOUT_SEC_RAW) ? GOTIFY_TIMEOUT_SEC_RAW : 5), 5) * 1000;
 const MAX_INPUT_LENGTH = 5000; // Truncate before sending to LLM
 
 function notifyUserAgent() {
@@ -554,11 +558,15 @@ async function summarizeWithLLM(text, reportDiagnostic = writeDiagnostic) {
   return summary;
 }
 
+// Returns whether Gotify accepted the message, so callers only mark it sent on success.
 async function gotifyPush(title, message, reportDiagnostic = writeDiagnostic) {
    const base = normalizeBase(process.env.GOTIFY_URL);
    const token = (process.env.GOTIFY_TOKEN_FOR_OPENCODE || "").trim();
-   if (!base || !token || !message) return;
+   if (!base || !token || !message) return false;
 
+   // Permission and question hooks await this; a stalled server must not stall them.
+   const controller = new AbortController();
+   const timeout = setTimeout(() => controller.abort(), GOTIFY_TIMEOUT_MS);
    try {
      const res = await fetch(`${base}/message`, {
        method: "POST",
@@ -568,14 +576,21 @@ async function gotifyPush(title, message, reportDiagnostic = writeDiagnostic) {
           "User-Agent": notifyUserAgent(),
         },
         body: JSON.stringify({ title, message: truncateText(message, MAX_CHARS), priority: 5 }),
+        signal: controller.signal,
       });
 
      if (!res.ok) {
        const text = await res.text().catch(() => "");
        await reportDiagnostic("delivery", `HTTP ${res.status} ${res.statusText}`, text);
+       return false;
      }
+     return true;
    } catch (error) {
-     await reportDiagnostic("delivery", error?.message || "request failed");
+     const message = controller.signal.aborted ? `timed out after ${GOTIFY_TIMEOUT_MS}ms` : error?.message;
+     await reportDiagnostic("delivery", message || "request failed");
+     return false;
+   } finally {
+     clearTimeout(timeout);
    }
 }
 
@@ -801,8 +816,10 @@ export const GotifyNotify = async ({ client, directory, worktree, project }) => 
       }
       
       if (!body) return;
-      await gotifyPush(await notifyTitleForSession(sessionID), "✅ " + escapeMarkdown(body), reportDiagnostic);
-      lastSent.set(sessionID, msgID);
+      // Mark sent only on success, so a message Gotify rejected is retried on the next idle.
+      if (await gotifyPush(await notifyTitleForSession(sessionID), "✅ " + escapeMarkdown(body), reportDiagnostic)) {
+        lastSent.set(sessionID, msgID);
+      }
     }
 
     return {
