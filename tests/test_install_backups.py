@@ -49,6 +49,22 @@ class BackupPolicyTests(unittest.TestCase):
         self.assertEqual([p.read_text(encoding="utf-8") for p in self.backups(self.dst)],
                          ["local edit\n"])
 
+    def test_pruning_keeps_the_backup_just_taken(self):
+        # Given an older backup, and a config restored from elsewhere with an even older
+        # mtime; copy2 gives its backup that old mtime too.
+        old_backup = self.dst.with_name(f"{self.dst.name}.bak-20261001-000000")
+        _ = old_backup.write_text("older backup\n", encoding="utf-8")
+        _ = self.src.write_text("new\n", encoding="utf-8")
+        _ = self.dst.write_text("restored config\n", encoding="utf-8")
+        os.utime(self.dst, ns=(1_000_000_000, 1_000_000_000))
+
+        with patch.object(pull, "MAX_BACKUPS", 1):
+            pull.backup_and_install(self.src, self.dst, STAMP)
+
+        # Then the kept backup is the config this run replaced, not the older one.
+        self.assertEqual([p.read_text(encoding="utf-8") for p in self.backups(self.dst)],
+                         ["restored config\n"])
+
     def test_managed_plugin_file_is_replaced_without_backup(self):
         _ = self.src.write_text("plugin v2\n", encoding="utf-8")
         _ = self.dst.write_text("plugin v1\n", encoding="utf-8")
