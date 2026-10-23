@@ -766,28 +766,32 @@ export const GotifyNotify = async ({ client, directory, worktree, project }) => 
       state.timer = setTimeout(async () => {
         if (state.cancelled) return;
 
+        let rescheduled = false;
         try {
           const hasRunningSubagent = await hasRunningSubagentForRoot(sessionID);
           if (state.cancelled) return;
 
           if (hasRunningSubagent) {
+            rescheduled = true;
             scheduleIdleCheck(sessionID, state, IDLE_CONFIRM_MS);
             return;
           }
 
-          pendingIdleTimers.delete(sessionID);
-
           const stillIdle = await shouldNotifyCompletion(client, sessionID, reportDiagnostic);
           if (!stillIdle || state.cancelled) return;
-          await sendLatestAssistant(sessionID);
+          await sendLatestAssistant(sessionID, state);
         } catch (err) {
-          pendingIdleTimers.delete(sessionID);
           await reportDiagnostic("idle.notify", "delayed notify failed", err?.message || err);
+        } finally {
+          // Stay registered until the send ends, so a turn that starts meanwhile can cancel it.
+          if (!rescheduled && pendingIdleTimers.get(sessionID) === state) {
+            pendingIdleTimers.delete(sessionID);
+          }
         }
       }, Math.max(0, delayMs));
     }
 
-     async function sendLatestAssistant(sessionID) {
+     async function sendLatestAssistant(sessionID, state) {
        const resp = await client.session.messages({ path: { id: sessionID } });
       const list = resp?.data || [];
       if (!Array.isArray(list) || list.length === 0) return;
@@ -816,6 +820,8 @@ export const GotifyNotify = async ({ client, directory, worktree, project }) => 
       }
       
       if (!body) return;
+      // The lookup and summary take time; skip if a new turn has started since.
+      if (state?.cancelled) return;
       // Mark sent only on success, so a message Gotify rejected is retried on the next idle.
       if (await gotifyPush(await notifyTitleForSession(sessionID), "✅ " + escapeMarkdown(body), reportDiagnostic)) {
         lastSent.set(sessionID, msgID);
