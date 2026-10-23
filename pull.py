@@ -815,7 +815,7 @@ def ensure_top_level_config_line(lines: list[str], desired_line: str, key: str) 
 
 
 TOML_STRING_ASSIGNMENT = re.compile(
-    r"""^\s*([A-Za-z0-9_-]+)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|'([^']*)')\s*(?:#.*)?$"""
+    rf"""^\s*({TOML_DOTTED_KEY})\s*=\s*(?:"((?:[^"\\]|\\.)*)"|'([^']*)')\s*(?:#.*)?$"""
 )
 
 
@@ -873,16 +873,16 @@ def toml_assignment_is_complete(key: str, value: str) -> bool:
     return toml_value_is_complete(value)
 
 
-def read_toml_string_assignment(line: str, key: str) -> str | None:
-    """Return the string value of a single-line `key = "..."` assignment."""
+def read_toml_string_assignment(text: str, key: str) -> str | None:
+    """Return the string value of a `key = "..."` assignment; the fallback reads one line."""
     if tomllib is not None:
         try:
-            value = tomllib.loads(line).get(key)
+            value = tomllib.loads(text).get(key)
         except tomllib.TOMLDecodeError:
             return None
         return value if isinstance(value, str) else None
-    match = TOML_STRING_ASSIGNMENT.match(line)
-    if match is None or match.group(1) != key:
+    match = TOML_STRING_ASSIGNMENT.match(text)
+    if match is None or toml_key_name(match.group(1)) != key:
         return None
     if match.group(3) is not None:
         return match.group(3)
@@ -937,13 +937,21 @@ def replace_toml_section(lines: list[str], section_name: str, section_lines: lis
 def ensure_codex_oauth_provider_config(lines: list[str]) -> list[str]:
     """Comment the managed top-level gateway selector; preserve other settings."""
     end = find_first_toml_section_idx(lines)
-    if end is None:
-        end = len(lines)
-    result = list(lines)
-    for idx in toml_statement_starts(lines[:end]):
-        if re.match(r"^\s*model_provider\s*=", lines[idx]):
-            if read_toml_string_assignment(lines[idx], "model_provider") == "codex_api":
-                result[idx] = "# " + lines[idx]
+    top_level = lines if end is None else lines[:end]
+    result: list[str] = []
+    idx = 0
+    for start, stop in find_toml_key_assignment_ranges(top_level, "model_provider"):
+        result.extend(lines[idx:start])
+        assignment = lines[start:stop]
+        if read_toml_string_assignment("\n".join(assignment), "model_provider") != "codex_api":
+            result.extend(assignment)
+        elif len(assignment) == 1:
+            result.append("# " + assignment[0])
+        else:
+            # Collapse a multiline value into one commented line that API mode can restore.
+            result.append('# model_provider = "codex_api"')
+        idx = stop
+    result.extend(lines[idx:])
     return result
 
 
@@ -958,8 +966,9 @@ def ensure_codex_api_provider_config(lines: list[str]) -> list[str]:
     end = len(lines) if first_section is None else first_section
     lines = list(lines)
     for idx in toml_statement_starts(lines[:end]):
-        match = re.match(r"^\s*#\s*(model_provider\s*=.*)$", lines[idx])
-        if match:
+        match = re.match(r"^\s*#\s*(.*)$", lines[idx])
+        assignment = TOML_ASSIGNMENT_START.match(match.group(1)) if match else None
+        if assignment and toml_key_name(assignment.group(1)) == "model_provider":
             if read_toml_string_assignment(match.group(1), "model_provider") == "codex_api":
                 lines[idx] = match.group(1)
     lines = ensure_top_level_config_line(

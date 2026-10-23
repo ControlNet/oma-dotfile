@@ -76,6 +76,11 @@ class TomlFallbackTests(unittest.TestCase):
         self.assertEqual(result[0], "# model_provider = 'codex_api' # managed")
         self.assertEqual(result[1:], lines[1:])
 
+    def test_oauth_comments_quoted_key_selector(self) -> None:
+        lines = ['"model_provider" = "codex_api"', "[tui]"]
+        result = pull.ensure_codex_oauth_provider_config(lines)
+        self.assertEqual(result, ['# "model_provider" = "codex_api"', "[tui]"])
+
     def test_oauth_keeps_other_or_invalid_selectors(self) -> None:
         # Given selectors that are not the managed gateway.
         lines = ['model_provider = "openai"', 'model_provider = "codex_api" "x"']
