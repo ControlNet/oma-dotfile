@@ -937,10 +937,16 @@ def ensure_codex_api_provider_config(lines: list[str]) -> list[str]:
     )
 
 
+def toml_basic_string(value: str) -> str:
+    """Quote a TOML basic string; JSON escapes are valid TOML, unlike raw Windows backslashes."""
+    # ensure_ascii=False: TOML rejects the surrogate pairs JSON uses for non-BMP characters.
+    return json.dumps(value, ensure_ascii=False)
+
+
 def ensure_codex_notify_config_lines(lines: list[str], codex_dir: Path) -> list[str]:
     python_bin = sys.executable or "python3"
     script_path = codex_dir / "codex-gotify-notify.py"
-    desired_line = f'notify = ["{python_bin}", "{script_path}"]'
+    desired_line = f"notify = [{toml_basic_string(python_bin)}, {toml_basic_string(str(script_path))}]"
     first_section_idx = find_first_toml_section_idx(lines)
     notify_ranges = find_toml_key_assignment_ranges(lines, "notify")
 

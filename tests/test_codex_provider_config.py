@@ -2,7 +2,7 @@
 
 import importlib.util
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import tempfile
 import tomllib
 import unittest
@@ -67,6 +67,24 @@ class CodexProviderConfigTests(unittest.TestCase):
             result = pull.ensure_codex_api_provider_config(lines)
         # Then configuration is unchanged.
         self.assertEqual(result, lines)
+
+
+class CodexNotifyPathTests(unittest.TestCase):
+    def render_notify(self, python_bin: str, codex_dir: str) -> list:
+        with patch.object(pull.sys, "executable", python_bin):
+            lines = pull.ensure_codex_notify_config_lines([], PureWindowsPath(codex_dir)
+                                                     if "\\" in codex_dir else Path(codex_dir))
+        return tomllib.loads("\n".join(lines))["notify"]
+
+    def test_windows_paths_round_trip(self) -> None:
+        # Given the paths a PowerShell install produces; "\P" is not a valid TOML escape.
+        notify = self.render_notify(r"C:\Python312\python.exe", r"C:\Users\me\.codex")
+        # Then the written array parses back to the same paths.
+        self.assertEqual(notify, [r"C:\Python312\python.exe", r"C:\Users\me\.codex\codex-gotify-notify.py"])
+
+    def test_quotes_in_paths_round_trip(self) -> None:
+        notify = self.render_notify('/opt/py "3"/bin/python', "/home/me/.codex")
+        self.assertEqual(notify, ['/opt/py "3"/bin/python', "/home/me/.codex/codex-gotify-notify.py"])
 
 
 if __name__ == "__main__":
