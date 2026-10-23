@@ -229,8 +229,17 @@ def extra_bin_search_path() -> str:
     """Build a PATH of per-user bin directories a non-interactive shell may omit."""
     home = Path.home()
     directories = [home / relative for relative in EXTRA_BIN_DIRS]
-    directories.extend(sorted((home / ".nvm" / "versions" / "node").glob("*/bin")))
+    # Newest node first, as a fresh nvm shell would use: an old version can still hold a
+    # stale CLI (an old codex has no `plugin` command), and string order puts v9 after v10.
+    directories.extend(sorted((home / ".nvm" / "versions" / "node").glob("*/bin"),
+                              key=lambda path: nvm_version_key(path.parent.name), reverse=True))
     return os.pathsep.join(str(directory) for directory in directories)
+
+
+def nvm_version_key(name: str) -> tuple[int, ...]:
+    """Sort key for nvm dirs like `v24.11.1`; unparsable names sort last."""
+    match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", name)
+    return tuple(int(part) for part in match.groups()) if match else (-1,)
 
 
 def find_agent_executable(name: str) -> Path | None:
@@ -1136,6 +1145,12 @@ def run_plugin_process(
 ) -> subprocess.CompletedProcess[str] | None:
     """Run an agent CLI command with its config directory pinned to the installer's."""
     env = {**os.environ, env_var: str(config_dir)}
+    executable = find_agent_executable(command[0])
+    if executable is not None:
+        # Detection also searches per-user bin dirs a piped install's PATH may lack; call
+        # the CLI by path, with its dir on PATH for the `env node` shebang of npm/bun CLIs.
+        command = [str(executable), *command[1:]]
+        env["PATH"] = os.pathsep.join(filter(None, [str(executable.parent), env.get("PATH")]))
     try:
         result = subprocess.run(
             command,
@@ -1225,8 +1240,8 @@ def ensure_codex_wakatime_marketplace(codex_dir: Path) -> bool:
 
 def ensure_codex_wakatime_plugin(codex_dir: Path) -> bool:
     """Install the WakaTime plugin; Codex owns the marketplace and plugin state."""
-    if shutil.which("codex") is None:
-        warn("codex not found on PATH; skip Codex WakaTime plugin")
+    if find_agent_executable("codex") is None:
+        warn("codex not found; skip Codex WakaTime plugin")
         return False
 
     if is_codex_wakatime_plugin_installed(codex_dir):
@@ -1290,8 +1305,8 @@ def ensure_claude_wakatime_marketplace(claude_config_dir: Path) -> bool:
 
 def ensure_claude_wakatime_plugin(claude_config_dir: Path) -> bool:
     """Install the WakaTime plugin; Claude Code owns the marketplace and plugin state."""
-    if shutil.which("claude") is None:
-        warn("claude not found on PATH; skip Claude Code WakaTime plugin")
+    if find_agent_executable("claude") is None:
+        warn("claude not found; skip Claude Code WakaTime plugin")
         return False
 
     if is_claude_wakatime_plugin_installed(claude_config_dir):

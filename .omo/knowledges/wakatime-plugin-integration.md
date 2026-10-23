@@ -143,8 +143,12 @@ install.
 - Writing `api_key` into an existing cfg first chmods it to 0600 (Codex review #5,
   2026-10-23). A write of only `api_url` keeps the user's mode.
   No backup is made (decided by the user): only env-sourced values change, and a
-  backup would keep the old key on disk. A new cfg is created with mode 0600; an
-  existing file keeps its mode.
+  backup would keep the old key on disk. A new cfg is created with mode 0600.
+- Plugin CLIs are resolved with `find_agent_executable` (PATH plus per-user bin dirs,
+  newest nvm node first), called by absolute path, and get their own dir prepended to
+  PATH for the `env node` shebang (Codex review #7, 2026-10-23). With a bare PATH the
+  oldest nvm dir used to win, and an older node can still hold an old codex (0.63.0)
+  that has no `plugin` command.
 - Values with line breaks are rejected, since they could inject INI lines.
 - Step 9 now runs for opencode/omp/codex/claude (all use the cfg); plugins are
   still installed only for codex/claude. The missing-cfg warning moved here and
