@@ -93,7 +93,11 @@ function resolveCli() {
 	if (explicit) return explicit;
 	return cliCandidates().find((file) => {
 		try {
-			return fs.statSync(file).isFile();
+			if (!fs.statSync(file).isFile()) return false;
+			// A plain file left where the cli was would fail with EACCES and hide a working
+			// one later in the search. Windows has no execute bit; X_OK only checks existence.
+			fs.accessSync(file, fs.constants.X_OK);
+			return true;
 		} catch {
 			return false;
 		}
