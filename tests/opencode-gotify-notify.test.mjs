@@ -32,6 +32,13 @@ function fakeClient() {
 	};
 }
 
+function okFetch(sent) {
+	return async (_url, options) => {
+		sent.push(JSON.parse(options.body).message);
+		return { ok: true, status: 200, statusText: "", text: async () => "" };
+	};
+}
+
 async function waitFor(condition, timeoutMs = 2000) {
 	const deadline = Date.now() + timeoutMs;
 	while (!condition()) {
@@ -82,4 +89,30 @@ test("a failed completion push is retried on the next idle event", async () => {
 
 	// Then the failed push is retried once, and the delivered one is not repeated.
 	assert.deepEqual(sent, ["✅ All done", "✅ All done"]);
+});
+
+test("a turn that starts while a completion is being prepared cancels it", async () => {
+	// Given a completion whose message lookup is still in flight.
+	const sent = [];
+	global.fetch = okFetch(sent);
+	let releaseMessages;
+	let lookups = 0;
+	const client = fakeClient();
+	const messages = client.session.messages;
+	client.session.messages = async (...args) => {
+		lookups += 1;
+		await new Promise((resolve) => { releaseMessages = resolve; });
+		return messages(...args);
+	};
+	const hooks = await GotifyNotify({ client, directory: home });
+	await hooks.event({ event: { type: "session.idle", properties: { sessionID: "ses-1" } } });
+	await waitFor(() => lookups === 1);
+
+	// When the next turn starts before the lookup returns.
+	await hooks.event({ event: { type: "session.status", properties: { sessionID: "ses-1", status: { type: "busy" } } } });
+	releaseMessages();
+	await new Promise((resolve) => setTimeout(resolve, 50));
+
+	// Then the previous turn's completion is not pushed.
+	assert.deepEqual(sent, []);
 });
