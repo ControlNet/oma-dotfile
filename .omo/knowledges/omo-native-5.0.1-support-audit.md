@@ -108,3 +108,35 @@ was deliberately not used as the reference.
 - No upstream issue asked for the `~/.omo/agent` default as of 2026-09-29. The related omo issue is
   #6717, about `~/.senpi` vs branded dirs.
 - Reported upstream as junhoyeo/tokscale#1375 (2026-09-29).
+
+## 5.1.35 delta (checked 2026-10-18, engine senpi 2026.10.16)
+
+The installer output still works unchanged on 5.1.35; no repo change was needed.
+
+- Schema diff of `assets/omo.schema.json`, `v5.1.10` -> `v5.1.35`: no key removed.
+  Added: `side_panel.*` (TUI side panel), `computer.showCursor`, `memory.facts.model`,
+  `memory.projection.{max_bytes,max_entries_per_directory}` (also per agent).
+- Repo `omo.jsonc` and its default and `--oauth` renders have no unknown
+  keys or bad enum values against the 5.1.35 schema. The schema-walk checker caught a
+  control file with a bogus top-level key and a bogus nested key.
+- Real omo in an isolated HOME (`env -i`, `--omo-senpi-onboarding-disabled`, tmux pane
+  capture): the control config prints `configuration diagnostics: Ignored unknown keys`.
+  The default-mode and `--oauth` renders print none.
+- `models.json` gateway provider: the senpi schema (`core/model-config-schema.js`,
+  `model-config-thinking-schema.js`) still accepts `thinkingLevelMap`, `cost`,
+  `contextWindow` and `maxTokens`. `omo --offline --list-models` with a fake
+  `CODEX_API_TOKEN` lists all 4 `codex/` models (gpt-5.4, gpt-6-astra, gpt-6-luna,
+  gpt-6.1-sol).
+- `settings.json`: `disabledBuiltinExtensions` is still honored
+  (`core/resource-loader.js`), and the builtin id is still `rules`. Its user sources are
+  unchanged (`~/.config/opencode/AGENTS.md` or `~/.claude/CLAUDE.md`, plus
+  `~/.{pi,omo,opencode,claude}/rules`). The new `rule-activation` builtin is only a renderer.
+- Agent dir env order is unchanged: `OMO_CODING_AGENT_DIR`, `SENPI_CODING_AGENT_DIR`,
+  `PI_CODING_AGENT_DIR` (`bin/lib/agent-dir.js`).
+- Native agents are the same 7 and categories the same 10. `omo doctor` reports
+  "task categories: all 10 usable", with only the expected INFO about `[opencode]` agents.
+- Release notes 5.1.11-5.1.35 contain no breaking change for this config. Relevant notes:
+  - 5.1.3x: a `categories` entry named after an agent now warns. None of ours collide.
+  - Custom category models keep their own reasoning on background start/resume.
+  - 5.1.35 fixes the memory reflection bwrap missing-dir bug (#7012): the sandbox now creates
+    bind dirs. See [[omo-memory-reflection-bwrap-missing-dir]].
