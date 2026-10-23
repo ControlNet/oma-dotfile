@@ -66,6 +66,24 @@ class OAuthTests(unittest.TestCase):
                 self.assertEqual(lines.count('model_provider = "codex_api"'), 1)
                 self.assertEqual(lines.count('# model_provider = "codex_api"'), 1)
 
+    def test_codex_oauth_disables_quoted_and_multiline_selectors(self):
+        for selector in (['"model_provider" = "codex_api"'],
+                         ['model_provider = """', 'codex_api"""']):
+            with self.subTest(selector=selector):
+                lines = [*selector, '[profiles.work]', 'model = "gpt"']
+                result = pull.ensure_codex_oauth_provider_config(lines)
+                # The gateway is no longer selected and later tables survive.
+                parsed = tomllib.loads('\n'.join(result))
+                self.assertNotIn('model_provider', parsed)
+                self.assertEqual(parsed['profiles'], {'work': {'model': 'gpt'}})
+                self.assertEqual(pull.ensure_codex_oauth_provider_config(result), result)
+                # Switching back restores one selector instead of adding a second.
+                with patch.dict(os.environ, {'CODEX_BASE_URL': 'https://example.invalid/v1'}):
+                    restored = pull.ensure_codex_api_provider_config(result)
+                self.assertEqual(tomllib.loads('\n'.join(restored))['model_provider'], 'codex_api')
+                self.assertFalse(any(line.lstrip('# ').startswith(('model_provider', '"model_provider"'))
+                                     for line in restored[1:]), restored)
+
     def test_opencode_preserves_existing_provider_with_jsonc(self):
         dst = self.tmp / 'opencode.jsonc'
         dst.write_text('''{
