@@ -11,6 +11,7 @@ Usage:
 Exit codes: 0 = clean, 1 = findings, 2 = usage error
 """
 
+import io
 import os
 import re
 import subprocess
@@ -197,9 +198,10 @@ def git(*args: str) -> tuple[int, str]:
 
 def get_files(mode: str, target: str) -> list[str]:
     if mode == "staged":
-        rc, out = git("diff", "--cached", "--name-only", "--diff-filter=ACMR")
+        # -z: names come unquoted, so non-ASCII and unusual names stay readable.
+        rc, out = git("diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR")
     elif mode == "tracked":
-        rc, out = git("ls-files")
+        rc, out = git("ls-files", "-z")
     elif mode == "path":
         if not target:
             print(
@@ -223,18 +225,23 @@ def get_files(mode: str, target: str) -> list[str]:
     if rc != 0:
         print(f"{RED}Error: git command failed (exit {rc}){RESET}", file=sys.stderr)
         sys.exit(2)
-    if not out:
-        return []
-    return out.splitlines()
+    return [name for name in out.split("\0") if name]
 
 
-def is_binary(path: str) -> bool:
+def read_file(filepath: str, staged: bool) -> bytes | None:
+    if staged:
+        # Scan what will be committed: the index blob, not the working-tree copy, which
+        # may differ or be gone. ":<path>" is relative to the repo root, as diff prints it.
+        try:
+            r = subprocess.run(["git", "show", f":{filepath}"], capture_output=True, timeout=30)
+        except subprocess.TimeoutExpired:
+            return None
+        return r.stdout if r.returncode == 0 else None
     try:
-        with open(path, "rb") as f:
-            chunk = f.read(8192)
-        return b"\x00" in chunk
+        with open(filepath, "rb") as f:
+            return f.read()
     except OSError:
-        return True
+        return None
 
 
 def redact(s: str) -> str:
@@ -261,17 +268,16 @@ def scan_filenames(files: list[str]) -> int:
     return found
 
 
-def scan_content(files: list[str]) -> int:
+def scan_content(files: list[str], staged: bool = False) -> int:
     found = 0
     current_file = ""
     for filepath in files:
-        if not os.path.isfile(filepath) or is_binary(filepath):
+        if not staged and not os.path.isfile(filepath):
             continue
-        try:
-            with open(filepath, encoding="utf-8", errors="replace") as f:
-                lines = f.readlines()
-        except OSError:
+        data = read_file(filepath, staged)
+        if data is None or b"\x00" in data[:8192]:
             continue
+        lines = io.TextIOWrapper(io.BytesIO(data), encoding="utf-8", errors="replace").readlines()
 
         for label, pat in _COMPILED_CONTENT:
             hits = 0
@@ -342,7 +348,7 @@ def main() -> int:
     total = scan_filenames(files)
 
     print(f"\n{BOLD}▸ Scanning file content for secret patterns...{RESET}")
-    total += scan_content(files)
+    total += scan_content(files, staged=mode == "staged")
 
     print()
     if total == 0:
