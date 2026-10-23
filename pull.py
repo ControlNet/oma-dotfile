@@ -847,6 +847,13 @@ def toml_value_is_complete(value: str) -> bool:
                 end = value.find(quote, end + 1)
             if end == -1:
                 return False
+            if len(quote) == 3:
+                # Up to two content quotes may sit right before the closing delimiter, so
+                # `"""a""""` closes at its last three quotes.
+                extra = 0
+                while extra < 2 and value.startswith(char, end + 3 + extra):
+                    extra += 1
+                end += extra
             seen_value = True
             idx = end + len(quote)
             continue
