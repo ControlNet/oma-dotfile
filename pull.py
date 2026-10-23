@@ -290,7 +290,9 @@ LEGACY_OMO_CONFIG_NAMES = [
 
 def cleanup_old_backups(file_path: Path) -> None:
     pattern = f"{file_path.name}.bak-*"
-    backups = sorted(file_path.parent.glob(pattern), key=lambda p: p.stat().st_mtime)
+    # Order by the fixed-width stamp in the name: copy2 keeps the source's mtime, so a
+    # config restored with an old mtime would otherwise make the newest backup look oldest.
+    backups = sorted(file_path.parent.glob(pattern), key=lambda p: p.name)
     while len(backups) > MAX_BACKUPS:
         oldest = backups.pop(0)
         oldest.unlink()
