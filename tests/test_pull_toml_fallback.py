@@ -63,6 +63,18 @@ class TomlFallbackTests(unittest.TestCase):
         self.assertEqual(pull.replace_toml_section(lines, "real", ["[real]", "y = 2"]),
                          ['x = """', "[fake]", '"""', "[real]", "y = 2"])
 
+    def test_multiline_string_may_end_with_extra_quotes(self) -> None:
+        # Given multiline strings ending in four and five quotes (one and two in the content).
+        for ending in ('""""', '"""""', "''''", "'''''"):
+            quote = ending[0]
+            with self.subTest(ending=ending):
+                lines = [f"developer_instructions = {quote * 3}Say {quote}done{ending}",
+                         "[profiles.work]", 'model = "gpt"']
+                result = pull.ensure_codex_notify_config_lines(lines, Path("/codex"))
+                # Then notify is top-level and the later table is untouched.
+                self.assertTrue(result[1].startswith("notify = ["), result)
+                self.assertEqual(result[2:], lines[1:])
+
     def test_oauth_comments_only_codex_api_selector(self) -> None:
         # Given top-level selectors with both quote styles and a nested selector.
         lines = [
