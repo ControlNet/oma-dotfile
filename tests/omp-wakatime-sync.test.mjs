@@ -31,7 +31,8 @@ function setup(t) {
 	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "omp-wakatime-sync-"));
 	t.after(() => {
 		restoreEnv();
-		fs.rmSync(tmp, { recursive: true, force: true });
+		// Detached fake clis may still be writing into tmp; retry instead of failing on ENOTEMPTY.
+		fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
 	});
 	for (const name of MANAGED_ENV) delete process.env[name];
 	process.env.HOME = path.join(tmp, "home");
