@@ -140,6 +140,8 @@ install.
   Comments, other keys and other sections stay. Each variable is applied on its own;
   with neither set, nothing is written.
 - The env value wins over the cfg on every run (same contract as `CODEX_BASE_URL`).
+- Writing `api_key` into an existing cfg first chmods it to 0600 (Codex review #5,
+  2026-10-23). A write of only `api_url` keeps the user's mode.
   No backup is made (decided by the user): only env-sourced values change, and a
   backup would keep the old key on disk. A new cfg is created with mode 0600; an
   existing file keeps its mode.

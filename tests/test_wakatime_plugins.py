@@ -406,7 +406,7 @@ class WakatimeConfigTests(unittest.TestCase):
             ".* = https://other.example.invalid|other-key\n",
             encoding="utf-8",
         )
-        self.cfg.chmod(0o640)
+        self.cfg.chmod(0o644)
         self.ensure(WAKATIME_API_URL=FAKE_URL, WAKATIME_API_KEY=FAKE_KEY)
         # Then the two keys change in place and everything else survives.
         self.assertEqual(
@@ -421,8 +421,8 @@ class WakatimeConfigTests(unittest.TestCase):
             "[api_urls]\n"
             ".* = https://other.example.invalid|other-key\n",
         )
-        # And the file keeps its mode, with no backup holding the old key.
-        self.assertEqual(self.cfg.stat().st_mode & 0o777, 0o640)
+        # And a readable file becomes owner-only once it holds the key, with no backup.
+        self.assertEqual(self.cfg.stat().st_mode & 0o777, 0o600)
         self.assertEqual(list(self.tmp.glob(".wakatime.cfg.bak-*")), [])
 
     def test_key_only_leaves_api_url_alone(self) -> None:
@@ -432,6 +432,14 @@ class WakatimeConfigTests(unittest.TestCase):
         # Then only api_key is added, at the end of [settings].
         self.assertEqual(self.cfg.read_text(encoding="utf-8"),
                          f"[settings]\ndebug = false\napi_key = {FAKE_KEY}\n\n[internal]\nx = 1\n")
+
+    def test_url_only_keeps_file_mode(self) -> None:
+        # Given a shared-readable config and no key to write.
+        self.cfg.write_text("[settings]\ndebug = true\n", encoding="utf-8")
+        self.cfg.chmod(0o644)
+        self.ensure(WAKATIME_API_URL=FAKE_URL)
+        # Then its mode is left as the user set it.
+        self.assertEqual(self.cfg.stat().st_mode & 0o777, 0o644)
 
     def test_missing_settings_section_is_appended(self) -> None:
         self.cfg.write_text("[git]\nsubmodules_disabled = true\n", encoding="utf-8")
