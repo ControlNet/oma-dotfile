@@ -182,3 +182,22 @@ test("cli found under ~/.wakatime is used without any override", async (t) => {
 	await waitForFile(argsOut);
 	assert.equal(spawnCount(), 1);
 });
+
+test("a non-executable candidate does not shadow a working cli later in the search", async (t) => {
+	const tmp = setup(t);
+	const argsOut = path.join(tmp, "args.txt");
+	// Given a plain file where the WakaTime resources dir would hold the cli.
+	const stale = path.join(process.env.HOME, ".wakatime", "wakatime-cli");
+	fs.mkdirSync(path.dirname(stale), { recursive: true });
+	fs.writeFileSync(stale, "not a program\n", { mode: 0o644 });
+	// And a working cli on PATH.
+	const pathBin = path.join(tmp, "path-bin");
+	fakeCli(path.join(pathBin, "wakatime-cli"), argsOut);
+	process.env.PATH = pathBin;
+
+	await load().get("session_shutdown")({}, {});
+
+	// Then the working cli runs.
+	await waitForFile(argsOut);
+	assert.equal(fs.readFileSync(argsOut, "utf8").trim(), "--sync-ai-activity");
+});
