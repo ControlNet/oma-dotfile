@@ -648,11 +648,13 @@ def persist_design_system(
 
     master_file = design_system_dir / "MASTER.md"
 
-    # Generate and write MASTER.md
-    master_content = format_master_md(design_system)
-    with open(master_file, "w", encoding="utf-8") as f:
-        f.write(master_content)
-    created_files.append(str(master_file))
+    # Generate and write MASTER.md. A page run keeps an existing Master: it holds the
+    # project-wide rules (maybe hand-tuned), and the page file records only deviations.
+    if not page or not master_file.exists():
+        master_content = format_master_md(design_system)
+        with open(master_file, "w", encoding="utf-8") as f:
+            f.write(master_content)
+        created_files.append(str(master_file))
 
     # If page is specified, create page override file with intelligent content
     if page:

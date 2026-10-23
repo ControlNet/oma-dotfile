@@ -71,6 +71,8 @@ python3 "<skill-dir>/scripts/search.py" "<query>" --design-system --persist -p "
 This also creates:
 - `<output-dir>/design-system/<project-slug>/pages/dashboard.md` — Page-specific deviations from Master
 
+A `--page` run keeps an existing `MASTER.md` and creates it only when missing; rerun without `--page` to regenerate the Master.
+
 **How hierarchical retrieval works:**
 1. When building a specific page (e.g., "Checkout"), first check `<output-dir>/design-system/<project-slug>/pages/checkout.md`
 2. If the page file exists, its rules **override** the Master file
