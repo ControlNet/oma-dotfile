@@ -55,6 +55,14 @@ class TomlFallbackTests(unittest.TestCase):
         # Then only that line belongs to it.
         self.assertEqual(end, 1)
 
+    def test_structure_scan_skips_multiline_strings_and_reads_commented_headers(self) -> None:
+        # Given a multiline string holding a header-like line, then a commented header.
+        lines = ['x = """', "[fake]", '"""', "[real] # note", "y = 1"]
+        # Then only the real header counts, in both lookups.
+        self.assertEqual(pull.find_first_toml_section_idx(lines), 3)
+        self.assertEqual(pull.replace_toml_section(lines, "real", ["[real]", "y = 2"]),
+                         ['x = """', "[fake]", '"""', "[real]", "y = 2"])
+
     def test_oauth_comments_only_codex_api_selector(self) -> None:
         # Given top-level selectors with both quote styles and a nested selector.
         lines = [
