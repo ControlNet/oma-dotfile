@@ -37,9 +37,15 @@ name, an e-mail address and local machine state. They were removed from all hist
 - Pushed with `--force-with-lease=master:<old full sha>`. A `git bundle --all` of the
   old history was kept locally first.
 - filter-repo does not touch hashes inside file contents. Notes that cite commits were
-  updated from `.git/filter-repo/commit-map`; commits before the first rewritten one
-  keep their ids.
+  updated from `.git/filter-repo/commit-map`.
+- filter-repo drops commit signatures. Four commits made on the GitHub web UI (the
+  initial commit, the AGPL license, PR #2 and its merge) carried GitHub's signature, so
+  even the root commit got a new id and **every** commit changed, not only those after
+  the first leak. Old and new history share no ancestor; GitHub's "Verified" badges on
+  those four are gone, and the forks and merged PR refs now point at unrelated history.
+  To keep the untouched prefix, run filter-repo with `--refs <first-leaking>^..master`
+  instead of all of history.
 - The local repo then follows with `git fetch origin && git reset --mixed origin/master`,
   which keeps uncommitted files.
 - GitHub may still serve old commits by direct id until its own GC. Forks and PR refs
-  that predate the leaks need nothing.
+  that predate the leaks contain none of the leaked text.
