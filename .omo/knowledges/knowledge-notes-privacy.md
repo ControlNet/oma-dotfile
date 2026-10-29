@@ -38,14 +38,31 @@ name, an e-mail address and local machine state. They were removed from all hist
   old history was kept locally first.
 - filter-repo does not touch hashes inside file contents. Notes that cite commits were
   updated from `.git/filter-repo/commit-map`.
-- filter-repo drops commit signatures. Four commits made on the GitHub web UI (the
-  initial commit, the AGPL license, PR #2 and its merge) carried GitHub's signature, so
-  even the root commit got a new id and **every** commit changed, not only those after
-  the first leak. Old and new history share no ancestor; GitHub's "Verified" badges on
-  those four are gone, and the forks and merged PR refs now point at unrelated history.
-  To keep the untouched prefix, run filter-repo with `--refs <first-leaking>^..master`
-  instead of all of history.
+- filter-repo drops commit signatures of every commit it rewrites. The first run covered
+  all history, so four commits made on the GitHub web UI (the initial commit, the AGPL
+  license, PR #2 and its merge) lost GitHub's signature and every id changed.
 - The local repo then follows with `git fetch origin && git reset --mixed origin/master`,
   which keeps uncommitted files.
 - GitHub may still serve old commits by direct id until its own GC. Forks and PR refs
   that predate the leaks contain none of the leaked text.
+
+## Redo keeping the signed prefix (2026-10-29)
+
+The rewrite was redone from the bundle with `--refs <last-clean>..master`, so only the
+69 commits from the first leak on were rewritten; the first 128 commits, including the
+four signed ones, kept their original ids and "Verified" badges. Lessons:
+
+- Find the boundary by comparing per-commit trees of the old history with the already
+  sanitized one (`git rev-list --reverse --topo-order`, then `rev-parse <c>^{tree}`):
+  the first differing tree is the first leak. `git log -G` with only the literal rules
+  missed an earlier hit from a `regex:` rule.
+- With `--refs`, filter-repo only re-emits blobs changed inside the range, so the range
+  must start at the last commit whose tree is already clean.
+- Verify before pushing: kept prefix ids identical to the old history, every tree equal
+  to the published sanitized history (or differing only in the newly cleaned lines),
+  authors, dates and subjects identical, signed commits still carry `gpgsig`.
+- Commits made after the first rewrite are carried over with
+  `git rebase --onto <new tip> <old rewritten tip> <branch>`.
+- The redo also removed local usage counts and costs that the first pass had missed;
+  they count as local machine state.
+

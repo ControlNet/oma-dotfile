@@ -149,7 +149,7 @@ home directory as a test. No third-party Python dependencies are needed.
 
 ## Publication integration and subsequent correction
 
-Upstream 5fe6ae1 initially preserved an existing Codex selector. The user then
+Upstream c1cf1b3 initially preserved an existing Codex selector. The user then
 explicitly requested automatic return to API mode, superseding that behavior.
 Tests cover API selection for both new and existing provider definitions,
 missing gateway URLs, OAuth -> API round trips, repeated switching without

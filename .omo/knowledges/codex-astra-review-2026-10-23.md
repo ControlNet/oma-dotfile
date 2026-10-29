@@ -1,6 +1,6 @@
 # Codex gpt-6-astra review of the repo (2026-10-23)
 
-Commit ids below are the ones after the 2026-10-23 history rewrite (see [[knowledge-notes-privacy]]).
+Commit ids below are the ones after the 2026-10-29 history rewrite (see [[knowledge-notes-privacy]]).
 
 Ran `codex exec -m gpt-6-astra -c model_reasoning_effort=high -s read-only --ephemeral`
 (codex-cli 0.162.1). It made no file changes. It reported 9 findings,
@@ -13,7 +13,7 @@ all of which Claude checked against the code. Fix status is below.
 | 3 | high | `pull.py` `ensure_codex_notify_config_lines` | The Windows `notify = ["C:\...", ...]` is written unescaped, so the TOML fails to parse (`Unescaped '\'`). README documents a PowerShell install. | Reproduced |
 | 4 | medium | `codex-gotify-notify.py` `_post_json` http_error log; `plugins/gotify-notify.js` `logSummarizerError` -> `reportDiagnostic` (toast) | HTTP error bodies are logged (and toasted in OpenCode) without redaction. Only a problem if a server echoes secrets. | Confirmed by reading |
 | 5 | medium | `pull.py` `ensure_wakatime_config` | An existing 0644 cfg keeps 0644 when `api_key` is written. This was a deliberate choice; reconsider and tighten to 0600 when writing a key. | Confirmed (by design) |
-| 6 | medium | `codex-gotify-notify.py` `_sessions_root_path`, `_goals_db_path`, `_tui_log_path` | These hardcode `~/.codex` and ignore `CODEX_HOME`. | Confirmed by reading |
+| 6 | medium | `codex-gotify-notify.py` `_sessions_root_path`, `_goals_db_path`, `_tui_log_path` | These hardcode `~/.codex` and ignore `CODEX_HOME`. The dedup cache and the execution log do too. | Confirmed by reading |
 | 7 | medium | `pull.py` `ensure_codex_wakatime_plugin` / `ensure_claude_wakatime_plugin` | These use `shutil.which` on PATH only, while detection also searches `EXTRA_BIN_DIRS`, and they run bare `codex`/`claude`. A non-interactive shell missing `~/.bun/bin` etc. detects the agent but skips the plugin. | Confirmed by reading |
 | 8 | medium | `plugins/gotify-notify.js` `gotifyPush` | `fetch` has no timeout/AbortSignal, and permission/question hooks await it. | Confirmed by reading |
 | 9 | medium | `plugins/gotify-notify.js` `sendLatestAssistant` | `lastSent` is set even when the push failed, so the same message is never retried. | Confirmed by reading |
@@ -22,15 +22,16 @@ all of which Claude checked against the code. Fix status is below.
 
 | # | Commit | Notes |
 |---|---|---|
-| 3 | d683395 | `toml_basic_string` (JSON escaping, `ensure_ascii=False`); POSIX output unchanged |
-| 2 | 05fea9d | prune by the stamp in the backup name |
-| 1 | e5fa067 | statement scan (`toml_statement_starts`); headers may carry comments or quoted parts; when tomllib rejects a value, fall back to bracket/quote balance. A real-world `config.toml` renders unchanged in OAuth mode |
-| 5 | 45bc175 | chmod 0600 before writing `api_key` into an existing cfg |
-| 7 | 15f2706 | plugin CLIs via `find_agent_executable`, absolute path, dir prepended to PATH; nvm dirs now newest first (an older node can hold a codex without the `plugin` command) |
-| 8, 9 | 39c387f | `OPENCODE_NOTIFY_GOTIFY_TIMEOUT_SEC` (1..5, default 5); `gotifyPush` returns success and `lastSent` is set only on success; first tests: `tests/opencode-gotify-notify.test.mjs` |
-| 4, 6 | open | lower priority; not fixed |
+| 3 | 1b7fede | `toml_basic_string` (JSON escaping, `ensure_ascii=False`); POSIX output unchanged |
+| 2 | 9e45e5f | prune by the stamp in the backup name |
+| 1 | 5077b72 | statement scan (`toml_statement_starts`); headers may carry comments or quoted parts; when tomllib rejects a value, fall back to bracket/quote balance. A real-world `config.toml` renders unchanged in OAuth mode |
+| 5 | 4deb521 | chmod 0600 before writing `api_key` into an existing cfg |
+| 7 | 97c3373 | plugin CLIs via `find_agent_executable`, absolute path, dir prepended to PATH; nvm dirs now newest first (an older node can hold a codex without the `plugin` command) |
+| 8, 9 | 2d2b623 | `OPENCODE_NOTIFY_GOTIFY_TIMEOUT_SEC` (1..5, default 5); `gotifyPush` returns success and `lastSent` is set only on success; first tests: `tests/opencode-gotify-notify.test.mjs` |
+| 6 | 31447e7 (2026-10-29) | `_codex_home()`: non-empty `CODEX_HOME`, else `~/.codex` (same as Codex and `pull.py` `get_codex_dir`); sessions, goals DB, TUI log, dedup cache and execution log use it; explicit `CODEX_NOTIFY_*` paths still win |
+| 4 | open | lower priority; not fixed |
 
-## Round 2 (HEAD 39c387f)
+## Round 2 (HEAD 2d2b623)
 
 Same command (`codex exec -m gpt-6-astra -c model_reasoning_effort=high -s read-only --ephemeral`).
 All 8 findings verified locally; none of the round-1 fixes regressed.
@@ -50,15 +51,15 @@ All 8 findings verified locally; none of the round-1 fixes regressed.
 
 | # | Commit | Notes |
 |---|--------|-------|
-| R2-3 | 85f8974 | chmod moved before the `already matches` return |
-| R2-7 | 13c02fb | key still reserved before push (drops concurrent duplicates), released on failure |
-| R2-1 | 7b64136 | staged mode reads `git show :<path>`; names via `-z`; works from subdirs too |
-| R2-4 | 7bf5c12 | whole assignment by normalized key; multiline collapsed to `# model_provider = "codex_api"` so API mode can restore; fallback (no tomllib) reads single-line values only |
-| R2-6 | a63da2f | pending state kept until the send ends; `state.cancelled` rechecked before push |
-| R2-8 | e5f0d51 | auto candidates need `X_OK`; explicit `OMP_WAKATIME_CLI` unchanged; spawn-time EACCES fallthrough not added |
-| R2-2 | 6642228 | `toml_value_is_complete` consumes up to 2 extra quotes before a closing triple quote |
-| R2-5 | 7ecc8b8 | `--page` run writes MASTER.md only if missing; SKILL.md documents it |
-| flake | 6388c78 | `omp-wakatime-sync` test cleanup: `rmSync(..., {maxRetries: 10, retryDelay: 50})`; cause was detached fake clis still writing into tmp |
+| R2-3 | 86f1d55 | chmod moved before the `already matches` return |
+| R2-7 | 5a9f460 | key still reserved before push (drops concurrent duplicates), released on failure |
+| R2-1 | a7d0b41 | staged mode reads `git show :<path>`; names via `-z`; works from subdirs too |
+| R2-4 | 3a8484d | whole assignment by normalized key; multiline collapsed to `# model_provider = "codex_api"` so API mode can restore; fallback (no tomllib) reads single-line values only |
+| R2-6 | 8885efd | pending state kept until the send ends; `state.cancelled` rechecked before push |
+| R2-8 | 7ffcdf2 | auto candidates need `X_OK`; explicit `OMP_WAKATIME_CLI` unchanged; spawn-time EACCES fallthrough not added |
+| R2-2 | 14a874e | `toml_value_is_complete` consumes up to 2 extra quotes before a closing triple quote |
+| R2-5 | 1110846 | `--page` run writes MASTER.md only if missing; SKILL.md documents it |
+| flake | 3d6bb29 | `omp-wakatime-sync` test cleanup: `rmSync(..., {maxRetries: 10, retryDelay: 50})`; cause was detached fake clis still writing into tmp |
 
 Gotchas learned:
 - zsh: `echo ====` fails (`=cmd` expansion); quote it.
