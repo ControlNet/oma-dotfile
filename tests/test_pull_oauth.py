@@ -175,6 +175,8 @@ class OAuthTests(unittest.TestCase):
         # The Codex CLI is never invoked here; the fake clone below answers every
         # subprocess call and would misread the plugin command arguments.
         wakatime = self.enterContext(patch.object(pull, 'ensure_wakatime_plugins'))
+        # npm and the omo-herdr-dag installer would hit the fake clone below.
+        self.enterContext(patch.object(pull, 'ensure_omo_herdr_dag'))
         # Detection belongs to the gating tests; this one routes every target.
         self.enterContext(patch.object(pull, 'detect_targets',
                                        return_value={name: True for name in pull.TARGET_LABELS}))

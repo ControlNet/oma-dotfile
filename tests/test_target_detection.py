@@ -158,6 +158,8 @@ class InstallGatingTests(unittest.TestCase):
             self.enterContext(patch.object(pull, name, return_value=self.tmp / name))
         self.enterContext(patch.object(Path, "home", return_value=self.tmp))
         self.wakatime = self.enterContext(patch.object(pull, "ensure_wakatime_plugins"))
+        # npm and the omo-herdr-dag installer would hit the fake clone below.
+        self.herdr_dag = self.enterContext(patch.object(pull, "ensure_omo_herdr_dag"))
         # Never reach the developer's real ~/.wakatime.cfg.
         self.wakatime_config = self.enterContext(patch.object(pull, "ensure_wakatime_config"))
         self.tokscale = self.enterContext(patch.object(pull, "install_tokscale_model_aliases"))
@@ -208,6 +210,7 @@ class InstallGatingTests(unittest.TestCase):
         agent_dir = self.target_dir("get_omo_agent_dir")
         for name in ("AGENTS.md", "models.json", "settings.json"):
             self.assertTrue((agent_dir / name).is_file(), name)
+        self.assertEqual(self.herdr_dag.call_args.args[0], agent_dir)
         # And OpenCode itself is left alone.
         self.assertFalse(self.target_dir("get_config_dir").exists())
 
@@ -216,6 +219,7 @@ class InstallGatingTests(unittest.TestCase):
             self.run_main(opencode=True)
         self.assertTrue((self.target_dir("get_omo_dir") / "omo.jsonc").is_file())
         self.assertFalse(self.target_dir("get_omo_agent_dir").exists())
+        self.herdr_dag.assert_not_called()
 
     def test_codex_only_machine_leaves_the_other_agents_alone(self) -> None:
         # Given a machine with Codex but nothing else.
