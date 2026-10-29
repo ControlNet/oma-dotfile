@@ -254,9 +254,46 @@ class GoalContinuationTests(unittest.TestCase):
         codex_home.mkdir()
         for name in ("goals_1.sqlite", "goals_2.sqlite", "goals_10.sqlite"):
             (codex_home / name).touch()
-        with patch.dict(os.environ, {"CODEX_NOTIFY_GOALS_DB": ""}), \
+        with patch.dict(os.environ, {"CODEX_NOTIFY_GOALS_DB": "", "CODEX_HOME": ""}), \
                 patch.object(notify.Path, "home", return_value=self.tmp):
             self.assertEqual(notify._goals_db_path(), codex_home / "goals_10.sqlite")
+
+
+class CodexHomeTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.home = self.tmp / "home"
+        self.codex_home = self.tmp / "custom-codex"
+        self.enterContext(patch.object(notify.Path, "home", return_value=self.home))
+        self.enterContext(patch.dict(os.environ, {
+            "CODEX_HOME": str(self.codex_home),
+            "CODEX_NOTIFY_SESSIONS_DIR": "",
+            "CODEX_NOTIFY_GOALS_DB": "",
+            "CODEX_NOTIFY_TUI_LOG_FILE": "",
+        }))
+
+    def test_default_paths_follow_codex_home(self):
+        self.codex_home.mkdir()
+        (self.codex_home / "goals_3.sqlite").touch()
+        self.assertEqual(notify._sessions_root_path(), self.codex_home / "sessions")
+        self.assertEqual(notify._goals_db_path(), self.codex_home / "goals_3.sqlite")
+        self.assertEqual(notify._tui_log_path(), self.codex_home / "log" / "codex-tui.log")
+        self.assertEqual(notify._dedup_cache_path(), self.codex_home / ".gotify-notify-cache.json")
+
+    def test_execution_log_is_written_under_codex_home(self):
+        notify._log_line("probe")
+        log = self.codex_home / "log" / "gotify-notify.log"
+        self.assertIn("probe", log.read_text(encoding="utf-8"))
+        self.assertFalse((self.home / ".codex").exists())
+
+    def test_blank_codex_home_falls_back_to_home_dot_codex(self):
+        with patch.dict(os.environ, {"CODEX_HOME": "  "}):
+            self.assertEqual(notify._sessions_root_path(), self.home / ".codex" / "sessions")
+
+    def test_explicit_path_env_still_wins(self):
+        custom = self.tmp / "elsewhere" / "tui.log"
+        with patch.dict(os.environ, {"CODEX_NOTIFY_TUI_LOG_FILE": str(custom)}):
+            self.assertEqual(notify._tui_log_path(), custom)
 
 
 if __name__ == "__main__":

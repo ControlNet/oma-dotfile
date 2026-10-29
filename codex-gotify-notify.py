@@ -2,10 +2,11 @@
 """
 Codex notify hook that forwards events to Gotify.
 
-Configure in ~/.codex/config.toml:
+Configure in $CODEX_HOME/config.toml (default ~/.codex):
   notify = ["python3", "/absolute/path/to/.codex/codex-gotify-notify.py"]
 
 Environment variables:
+  CODEX_HOME (optional; default: ~/.codex, as in Codex itself)
   GOTIFY_URL (required)
   GOTIFY_TOKEN_FOR_CODEX (required; falls back to GOTIFY_TOKEN_FOR_OPENCODE)
 
@@ -18,13 +19,13 @@ Optional:
   CODEX_NOTIFY_NONINTERACTIVE (default: false)
   CODEX_NOTIFY_SUBAGENT (default: false)
   CODEX_NOTIFY_GOAL_CONTINUATION (default: false; notify turns that an active /goal auto-continues)
-  CODEX_NOTIFY_GOALS_DB (optional; default: newest ~/.codex/goals_*.sqlite)
+  CODEX_NOTIFY_GOALS_DB (optional; default: newest $CODEX_HOME/goals_*.sqlite)
   CODEX_NOTIFY_PERMISSION (default: true)
   CODEX_NOTIFY_ERROR (default: true)
   CODEX_NOTIFY_QUESTION (default: true)
   CODEX_NOTIFY_INCLUDE_PROMPT (default: false)
   CODEX_NOTIFY_DEDUP_WINDOW_SEC (default: 15)
-  CODEX_NOTIFY_TUI_LOG_FILE (optional; default: ~/.codex/log/codex-tui.log)
+  CODEX_NOTIFY_TUI_LOG_FILE (optional; default: $CODEX_HOME/log/codex-tui.log)
   GOTIFY_NOTIFY_SUMMARIZER_MODEL (e.g. "gpt-5-nano")
   GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT (OpenAI-compatible, e.g. "https://api.openai.com/v1")
   GOTIFY_NOTIFY_SUMMARIZER_API_KEY
@@ -33,7 +34,7 @@ Optional:
   CODEX_NOTIFY_USER_AGENT (optional; default mimics browser UA)
 
 Execution log:
-  ~/.codex/log/gotify-notify.log
+  $CODEX_HOME/log/gotify-notify.log
 """
 
 from __future__ import annotations
@@ -63,15 +64,19 @@ DEFAULT_DEDUP_WINDOW_SEC = 15
 DEFAULT_TUI_LOG_SCAN_BYTES = 8 * 1024 * 1024
 DEFAULT_SESSION_SCAN_BYTES = 2 * 1024 * 1024
 DEFAULT_AUTO_APPROVAL_SCAN_DEPTH = 20
-NOTIFY_LOG_FILE = Path.home() / ".codex" / "log" / "gotify-notify.log"
+def _codex_home() -> Path:
+    """Mirror Codex: a non-empty CODEX_HOME wins, otherwise ~/.codex."""
+    custom = os.environ.get("CODEX_HOME", "").strip()
+    return Path(custom) if custom else Path.home() / ".codex"
 
 
 def _log_line(message: str) -> None:
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime())
     line = f"{timestamp} pid={os.getpid()} {message}\n"
+    log_file = _codex_home() / "log" / "gotify-notify.log"
     try:
-        NOTIFY_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with NOTIFY_LOG_FILE.open("a", encoding="utf-8") as fp:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        with log_file.open("a", encoding="utf-8") as fp:
             fp.write(line)
     except OSError:
         return
@@ -745,7 +750,7 @@ def _sessions_root_path() -> Path:
     custom = _env("CODEX_NOTIFY_SESSIONS_DIR")
     if custom:
         return Path(custom).expanduser()
-    return Path.home() / ".codex" / "sessions"
+    return _codex_home() / "sessions"
 
 
 def _goals_db_path() -> Path | None:
@@ -753,7 +758,7 @@ def _goals_db_path() -> Path | None:
     if custom:
         return Path(custom).expanduser()
     candidates: list[tuple[int, Path]] = []
-    for path in (Path.home() / ".codex").glob("goals_*.sqlite"):
+    for path in _codex_home().glob("goals_*.sqlite"):
         version = path.stem.removeprefix("goals_")
         if version.isdigit():
             candidates.append((int(version), path))
@@ -797,7 +802,7 @@ def _tui_log_path() -> Path:
     custom = _env("CODEX_NOTIFY_TUI_LOG_FILE")
     if custom:
         return Path(custom).expanduser()
-    return Path.home() / ".codex" / "log" / "codex-tui.log"
+    return _codex_home() / "log" / "codex-tui.log"
 
 
 def _read_recent_text(path: Path, max_bytes: int) -> str:
@@ -1269,7 +1274,7 @@ def _extract_message(payload: dict[str, object], include_prompt: bool) -> tuple[
 
 
 def _dedup_cache_path() -> Path:
-    return Path.home() / ".codex" / ".gotify-notify-cache.json"
+    return _codex_home() / ".gotify-notify-cache.json"
 
 
 def _should_send(payload: dict[str, object], message: str) -> bool:
