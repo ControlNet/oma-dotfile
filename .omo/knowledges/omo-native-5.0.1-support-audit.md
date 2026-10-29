@@ -109,6 +109,33 @@ was deliberately not used as the reference.
   #6717, about `~/.senpi` vs branded dirs.
 - Reported upstream as junhoyeo/tokscale#1375 (2026-09-29).
 
+## 5.1.10 delta (checked 2026-10-02, engine senpi 2026.10.1-3)
+
+- Schema diff of `assets/omo.schema.json` between tags `v5.1.0` and `v5.1.10`: no key removed.
+  Added (also under `[native]`/`[opencode]`/`[codex]`/profiles):
+  - `agents.<name>.permission` (`bash`, `edit`, `webfetch`, `task`, `external_directory`, `doom_loop`)
+    and `agents.<name>.prompt_append` (appended to the agent prompt in native too).
+  - `memory.recall.query_expansion` (default `false`; synonym/cross-language query widening).
+  - `task.host_shard_prewarm`: `off` | `first-turn` (default) | `session-start`.
+  - `gateway`: opaque, owned by a separately installed gateway package.
+- Behavior changes worth knowing:
+  - 5.1.3 breaking: an untrusted project's `.pi/` resources no longer load; shared engine host and
+    `experimental.sharedHost` are gone.
+  - 5.1.3: thread-tools mailbox moved out of `<project>/.omo/thread-tools` (existing folder still used).
+  - 5.1.5: one invalid value in omo.jsonc ignores only that key (previously the whole file);
+    `omo daemon` reads `~/.omo/omo.jsonc`, old `~/.omo/agent/omo.json` still applies with a warning.
+  - 5.1.5/5.1.8: memory recall matches CJK characters individually; no config needed.
+  - Builtin defaults moved (`deep-high` -> GPT-6 Astra high, `deep-low` -> GPT-6.1 Sol medium,
+    recommended OpenAI model GPT-6.1 Sol medium). This repo pins every category, so no effect.
+- `omo doctor` on 5.1.10 with this repo's config: no config warnings. It prints an INFO listing the
+  `[opencode]` agent models native ignores; that is expected while the OpenCode edition is kept.
+- Memory reflection bug #7012 (missing `runtime/reflection-sessions`) is still unfixed in 5.1.10:
+  issue and PR #7267 open, sandbox bind list unchanged. See [[omo-memory-reflection-bwrap-missing-dir]].
+- Status 2026-10-02: #1375 still open; third-party fix PR junhoyeo/tokscale#1380 (scan
+  `~/.omo/agent/sessions` by default, honor `OMO_CODING_AGENT_DIR`) open, not reviewed by the
+  maintainer. Latest release is still 4.17.0. Without `SENPI_CODING_AGENT_DIR`, autosubmit finds
+  no OMO Native sessions, so that usage is effectively not submitted.
+
 ## 5.1.35 delta (checked 2026-10-18, engine senpi 2026.10.16)
 
 The installer output still works unchanged on 5.1.35; no repo change was needed.
