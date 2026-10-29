@@ -47,3 +47,27 @@ for the viewer.
 - So every `install` run adds about 124K that stays until removed by hand. Deleting a
   non-current generation is safe for new sessions, but a session already running may
   still have that generation's modules loaded.
+
+## Implemented in pull.py (2026-10-29)
+
+Step 4 (OMO Native) calls `ensure_omo_herdr_dag` after the settings:
+
+- Skipped unless `herdr`, `node` and `npm` are found (`find_agent_executable`, so nvm and
+  per-user bin dirs count). The extension is inert outside a Herdr pane anyway.
+- `npm pack omo-herdr-dag@<OMO_HERDR_DAG_VERSION> --json` into the run's temp dir. The
+  tarball is extracted only if every member is a file or dir under `package/` without
+  `..`; `filter="data"` is used when the Python has it.
+- `herdr_dag_install_state` compares `dist/{extension.mjs,LICENSE,src/**}` byte for byte
+  with the generation named in `current.json`, and checks that the wrapper carries the
+  marker and imports that generation. `current` -> nothing runs, so no new generation;
+  `missing`/`stale` -> `node <pkg>/bin/omo-herdr-dag.mjs install --agent-dir <omo agent dir>`;
+  `unmanaged` (hand-written wrapper or integration dir without `.installed-by`) -> warn
+  and skip, as the installer itself would refuse.
+- `--agent-dir` is always passed because upstream ignores `PI_CODING_AGENT_DIR`, which
+  `get_omo_agent_dir` honors.
+- No `--lang`: a first install is English and later installs keep `locale.json`, so a
+  one-time manual `install --lang zh-cn` survives updates.
+- Not handled: pruning old generations (only grows on a version bump now) and the
+  viewer's Node >= 24 requirement, which the installer does not check either.
+- To upgrade, bump `OMO_HERDR_DAG_VERSION` after reading the release's install.mjs
+  for layout changes (generation dir, wrapper text, marker).
