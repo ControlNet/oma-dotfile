@@ -31,6 +31,7 @@ import re
 import shutil
 import sys
 import subprocess
+import tarfile
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -559,6 +560,118 @@ def ensure_omo_native_settings(agent_dir: Path, stamp: str) -> None:
     settings["disabledBuiltinExtensions"] = [*disabled, "rules"]
     print("         - settings.json (disable builtin rules extension)")
     install_rendered_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n", dst, stamp)
+
+
+# Live workflow DAGs in a Herdr side pane (github.com/jc01rho/omo-herdr-dag). Bump on release.
+OMO_HERDR_DAG_VERSION = "1.7.0"
+OMO_HERDR_DAG_MARKER = "// managed by omo-herdr-dag"
+OMO_HERDR_DAG_GENERATION = re.compile(r"generation-\d+")
+
+
+def herdr_dag_payload(root: Path) -> dict[str, bytes] | None:
+    """The files upstream's install.mjs copies from the package's dist/ into a generation."""
+    try:
+        files = {name: (root / name).read_bytes() for name in ("extension.mjs", "LICENSE")}
+        for path in (root / "src").rglob("*"):
+            if path.is_file():
+                files[path.relative_to(root).as_posix()] = path.read_bytes()
+    except OSError:
+        return None
+    return files
+
+
+def herdr_dag_install_state(package_dist: Path, agent_dir: Path) -> str:
+    """Classify the installed omo-herdr-dag as missing, current, stale, or unmanaged."""
+    container = agent_dir / "herdr-dag" / "integration"
+    wrapper = agent_dir / "extensions" / "omo-herdr-dag.js"
+    try:
+        wrapper_text = wrapper.read_text(encoding="utf-8") if wrapper.exists() else None
+        installed_by = (container / ".installed-by").read_text(encoding="utf-8") \
+            if (container / ".installed-by").exists() else None
+    except (OSError, UnicodeDecodeError):
+        return "unmanaged"
+    # The installer refuses to replace files it did not write; report them instead.
+    if wrapper_text is not None and not wrapper_text.startswith(OMO_HERDR_DAG_MARKER):
+        return "unmanaged"
+    if container.exists() and installed_by != OMO_HERDR_DAG_MARKER:
+        return "unmanaged"
+    if wrapper_text is None or not container.is_dir():
+        return "missing"
+    try:
+        generation = json.loads((container / "current.json").read_text(encoding="utf-8"))["generation"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return "stale"
+    if not isinstance(generation, str) or not OMO_HERDR_DAG_GENERATION.fullmatch(generation):
+        return "stale"
+    if f"/{generation}/extension.mjs" not in wrapper_text:
+        return "stale"
+    expected = herdr_dag_payload(package_dist)
+    if expected is not None and herdr_dag_payload(container / generation) == expected:
+        return "current"
+    return "stale"
+
+
+def extract_npm_package(tarball: Path, dest: Path) -> Path | None:
+    """Extract an npm tarball whose members all stay under `package/`."""
+    try:
+        with tarfile.open(tarball, "r:gz") as archive:
+            members = archive.getmembers()
+            for member in members:
+                parts = Path(member.name).parts
+                if (not (member.isfile() or member.isdir()) or not parts or parts[0] != "package"
+                        or ".." in parts or Path(member.name).is_absolute()):
+                    warn(f"Refusing {tarball.name}: unexpected member {member.name!r}")
+                    return None
+            if hasattr(tarfile, "data_filter"):
+                archive.extractall(dest, filter="data")
+            else:
+                archive.extractall(dest)
+    except (OSError, tarfile.TarError) as exc:
+        warn(f"Failed to extract {tarball.name} ({type(exc).__name__})")
+        return None
+    return dest / "package"
+
+
+def ensure_omo_herdr_dag(agent_dir: Path, work_dir: Path) -> None:
+    """Install the pinned omo-herdr-dag with its own installer, only when its files changed.
+
+    Each upstream install adds a generation and keeps the old ones, so an unchanged
+    package is not reinstalled. No --lang is passed: the first install is English and
+    later installs keep the language chosen by hand.
+    """
+    label = f"omo-herdr-dag {OMO_HERDR_DAG_VERSION}"
+    if find_agent_executable("herdr") is None:
+        warn(f"         {label} skipped: herdr not found")
+        return
+    if find_agent_executable("node") is None or find_agent_executable("npm") is None:
+        warn(f"         {label} skipped: node and npm are required")
+        return
+    work_dir.mkdir(parents=True, exist_ok=True)
+    packed = read_plugin_json(
+        ["npm", "pack", f"omo-herdr-dag@{OMO_HERDR_DAG_VERSION}", "--pack-destination", str(work_dir), "--json"],
+        "OMO_CODING_AGENT_DIR", agent_dir,
+    )
+    try:
+        tarball = work_dir / Path(packed[0]["filename"]).name
+    except (TypeError, KeyError, IndexError):
+        warn(f"npm pack did not report a tarball for {label}")
+        return
+    package = extract_npm_package(tarball, work_dir / "extract")
+    if package is None:
+        return
+    state = herdr_dag_install_state(package / "dist", agent_dir)
+    if state == "current":
+        print(f"         - {label} (already installed)")
+        return
+    if state == "unmanaged":
+        warn(f"{agent_dir / 'extensions' / 'omo-herdr-dag.js'} or herdr-dag/integration was not "
+             f"written by omo-herdr-dag; leaving {label} uninstalled")
+        return
+    print(f"         - {label} (Herdr DAG side pane; /reload running sessions)")
+    run_plugin_command(
+        ["node", str(package / "bin" / "omo-herdr-dag.mjs"), "install", "--agent-dir", str(agent_dir)],
+        "OMO_CODING_AGENT_DIR", agent_dir,
+    )
 
 
 def install_omp_config(src: Path, dst: Path, stamp: str, oauth: bool = False) -> None:
@@ -1451,6 +1564,7 @@ def main(argv: list[str] | None = None):
                 )
             install_omo_native_models(repo_path, omo_agent_dir, stamp, oauth=args.oauth)
             ensure_omo_native_settings(omo_agent_dir, stamp)
+            ensure_omo_herdr_dag(omo_agent_dir, tmp_path / "omo-herdr-dag")
 
         if begin_step("5/11", "Installing OpenCode plugins and skills...",
                       targets["opencode"], "opencode not found"):
