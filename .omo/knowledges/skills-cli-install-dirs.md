@@ -25,7 +25,16 @@ unmerged on 2026-11-05.
 - Codex 0.166 reads both `~/.codex/skills` ("codex-home-skills") and `~/.agents/skills`
   ("user-agent-skills").
 - OMP 18.14.1 and OMO Native read `~/.agents/skills` as well as their own agent dir.
-- A skill present in both places can therefore load twice.
+- OpenCode 1.19.4 scans `~/.agents` and `~/.claude` with the glob `skills/**/SKILL.md`, and walks up
+  from the project for `.agents/skills` and `.claude/skills`.
+  - `OPENCODE_DISABLE_EXTERNAL_SKILLS` turns both off.
+  - `OPENCODE_DISABLE_CLAUDE_CODE` (recommended in README) or `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS`
+    turns off only the `.claude` part, so `~/.agents/skills` is still read.
+  - Its own `~/.config/opencode/skills` is read as well.
+- Claude Code 2.1.318 does **not** load `~/.agents/skills`. That path appears only in its Cursor
+  import feature, which copies from there into `~/.claude/skills`. To reach Claude Code, the CLI's
+  `-a claude-code` puts a link (or with `--copy`, a copy) in `~/.claude/skills`.
+- A skill present both in `~/.agents/skills` and in an agent's own dir can therefore load twice.
 
 ## Install modes
 
