@@ -4,7 +4,7 @@ My agent configs for OpenCode/OMO, OMO Native, oh-my-pi (OMP), Codex and Claude 
 
 ## Install
 
-Requires Python 3.10+ and Git.
+Requires Python 3.10+ and Git; skills also need Node.js (`npx`).
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ControlNet/oma-dotfile/master/pull.py | python3
