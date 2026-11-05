@@ -160,6 +160,8 @@ class InstallGatingTests(unittest.TestCase):
         self.wakatime = self.enterContext(patch.object(pull, "ensure_wakatime_plugins"))
         # npm and the omo-herdr-dag installer would hit the fake clone below.
         self.herdr_dag = self.enterContext(patch.object(pull, "ensure_omo_herdr_dag"))
+        # npx and the skills CLI would hit the same fake clone.
+        self.agent_skills = self.enterContext(patch.object(pull, "ensure_agent_skills"))
         # Never reach the developer's real ~/.wakatime.cfg.
         self.wakatime_config = self.enterContext(patch.object(pull, "ensure_wakatime_config"))
         self.tokscale = self.enterContext(patch.object(pull, "install_tokscale_model_aliases"))
@@ -257,26 +259,35 @@ class InstallGatingTests(unittest.TestCase):
         self.assertEqual(len(backups), 1)
         self.assertEqual(backups[0].read_text(encoding="utf-8"), "local rules\n")
 
-    def test_omp_gets_repo_skills_and_keeps_user_skills(self) -> None:
-        # Given OMP skills: one of the user's own, a stale copy of a managed one,
-        # and autolearn output, which lives in a separate directory.
+    def test_repo_skills_are_not_copied_into_agent_dirs(self) -> None:
+        # Given OMP skills: one of the user's own and autolearn output.
         agent_dir = self.target_dir("get_omp_agent_dir")
         own = agent_dir / "skills" / "my-skill" / "SKILL.md"
-        stale = agent_dir / "skills" / "github-cli" / "removed.md"
         learned = agent_dir / "managed-skills" / "learned" / "SKILL.md"
-        for path in (own, stale, learned):
+        for path in (own, learned):
             path.parent.mkdir(parents=True, exist_ok=True)
             _ = path.write_text("kept\n", encoding="utf-8")
         with patch.dict(os.environ, {"CODEX_BASE_URL": "https://example.invalid/v1"}):
-            self.run_main(omp=True)
-        # Then every repo skill is installed in OMP's native user skills directory.
-        for skill in (ROOT / "skills").iterdir():
-            self.assertEqual((agent_dir / "skills" / skill.name / "SKILL.md").read_bytes(),
-                             (skill / "SKILL.md").read_bytes(), skill.name)
-        # And managed skills are replaced whole, while other skills are left alone.
-        self.assertFalse(stale.exists())
+            self.run_main(omp=True, opencode=True, codex=True)
+        # Then no agent gets its own copy of the repo skills; they go to ~/.agents/skills.
+        for name in ("get_config_dir", "get_codex_dir", "get_omp_agent_dir"):
+            for skill in (ROOT / "skills").iterdir():
+                self.assertFalse((self.target_dir(name) / "skills" / skill.name).exists(), skill.name)
+        # And the user's own skills are left alone.
         self.assertEqual(own.read_text(encoding="utf-8"), "kept\n")
         self.assertEqual(learned.read_text(encoding="utf-8"), "kept\n")
+
+    def test_shared_skills_clean_only_detected_agent_dirs(self) -> None:
+        with patch.dict(os.environ, {"CODEX_BASE_URL": "https://example.invalid/v1"}):
+            self.run_main(omp=True, codex=True)
+        legacy = self.agent_skills.call_args.args[1]
+        self.assertEqual(legacy, [self.target_dir("get_codex_dir") / "skills",
+                                  self.target_dir("get_omp_agent_dir") / "skills"])
+
+    def test_shared_skills_are_skipped_on_a_claude_only_machine(self) -> None:
+        with patch.dict(os.environ, {"CODEX_BASE_URL": "https://example.invalid/v1"}):
+            self.run_main(claude=True)
+        self.agent_skills.assert_not_called()
 
     def test_reinstall_backs_up_changed_config_but_not_plugin_code(self) -> None:
         # Given stale copies of shared config and of repo-managed plugin code.

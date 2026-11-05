@@ -674,6 +674,85 @@ def ensure_omo_herdr_dag(agent_dir: Path, work_dir: Path) -> None:
     )
 
 
+# Shared skills go to ~/.agents/skills, which OpenCode, OMO Native, OMP and Codex all read
+# (Claude Code does not). The skills CLI fetches the latest upstream on every run and records
+# each skill in ~/.agents/.skill-lock.json, so `npx skills update -g` refreshes them too.
+SKILLS_CLI_VERSION = "1.7.6"
+UPSTREAM_SKILLS = {
+    "vercel-labs/skills": ("find-skills",),
+    "vercel-labs/agent-skills": ("web-design-guidelines",),
+    "anthropics/skills": ("frontend-design", "skill-creator"),
+    "nextlevelbuilder/ui-ux-pro-max-skill": ("ui-ux-pro-max",),
+}
+# Old name -> the skill that replaced it; the old copy goes once the new one is installed.
+RETIRED_SKILLS = {"frontend-claude": "frontend-design"}
+SKILLS_CLI_ENV = {"DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1"}
+
+
+def agent_skill_sources(repo_path: Path) -> dict[str, tuple[str, ...]]:
+    """Map each skills CLI source to the skill names installed from it."""
+    sources = dict(UPSTREAM_SKILLS)
+    skills_dir = repo_path / "skills"
+    own = sorted(path.name for path in skills_dir.iterdir()
+                 if (path / "SKILL.md").is_file()) if skills_dir.is_dir() else []
+    if own:
+        sources[f"{REPO_OWNER}/{REPO_NAME}#{REPO_REV}"] = tuple(own)
+    return sources
+
+
+def skills_cli_add_command(source: str, names: tuple[str, ...]) -> list[str]:
+    """Install names from source globally into ~/.agents/skills, and nowhere else."""
+    return ["npx", "-y", f"skills@{SKILLS_CLI_VERSION}", "add", source,
+            "-g", "-a", "universal", "-s", *names, "-y", "--json"]
+
+
+def installed_skill_names(document: object) -> set[str]:
+    """Names the skills CLI reports as installed; skipped or malformed entries do not count."""
+    if not isinstance(document, list):
+        return set()
+    return {entry["name"] for entry in document
+            if isinstance(entry, dict) and entry.get("status") == "installed"
+            and isinstance(entry.get("name"), str)}
+
+
+def remove_legacy_skill_copies(skill_dirs: list[Path], installed: set[str]) -> None:
+    """Remove per-agent copies of skills that are now installed in ~/.agents/skills.
+
+    Agents read both places, so a leftover copy would load twice. Only names that were
+    just installed (or retired in favour of one) are touched.
+    """
+    names = installed | {old for old, new in RETIRED_SKILLS.items() if new in installed}
+    for skill_dir in skill_dirs:
+        for name in sorted(names):
+            path = skill_dir / name
+            if path.is_symlink() or path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                shutil.rmtree(path)
+            else:
+                continue
+            print(f"         - removed old copy {path}")
+
+
+def ensure_agent_skills(repo_path: Path, legacy_skill_dirs: list[Path]) -> None:
+    """Install the shared skills with the skills CLI, then drop the old per-agent copies."""
+    if find_agent_executable("npx") is None:
+        warn("         skills skipped: npx not found (install Node.js)")
+        return
+    installed: set[str] = set()
+    for source, names in agent_skill_sources(repo_path).items():
+        document = read_plugin_json(skills_cli_add_command(source, names), None, None,
+                                    extra_env=SKILLS_CLI_ENV)
+        done = installed_skill_names(document)
+        if done:
+            print(f"         - {', '.join(sorted(done))} ({source})")
+        missing = [name for name in names if name not in done]
+        if missing:
+            warn(f"Not installed from {source}: {', '.join(missing)}")
+        installed |= done
+    remove_legacy_skill_copies(legacy_skill_dirs, installed)
+
+
 def install_omp_config(src: Path, dst: Path, stamp: str, oauth: bool = False) -> None:
     if oauth:
         content = src.read_text(encoding="utf-8").replace("codex_api/", "openai-codex/")
@@ -699,20 +778,6 @@ def copy_directory(src_dir: Path, dst_dir: Path) -> None:
     if dst_dir.exists():
         shutil.rmtree(dst_dir)
     _ = shutil.copytree(src_dir, dst_dir)
-
-
-def copy_directory_merge(src_dir: Path, dst_dir: Path) -> None:
-    """Merge-copy directory contents while preserving unrelated existing files."""
-    if not src_dir.exists():
-        warn(f"Source directory not found: {src_dir}")
-        return
-    dst_dir.mkdir(parents=True, exist_ok=True)
-    for entry in src_dir.iterdir():
-        target = dst_dir / entry.name
-        if entry.is_dir():
-            _ = shutil.copytree(entry, target, dirs_exist_ok=True)
-        else:
-            _ = shutil.copy2(entry, target)
 
 
 def copy_directory_items_replace(src_dir: Path, dst_dir: Path) -> None:
@@ -1271,10 +1336,13 @@ def ensure_wakatime_config() -> None:
 
 
 def run_plugin_process(
-    command: list[str], env_var: str, config_dir: Path
+    command: list[str], env_var: str | None, config_dir: Path | None,
+    extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str] | None:
     """Run an agent CLI command with its config directory pinned to the installer's."""
-    env = {**os.environ, env_var: str(config_dir)}
+    env = {**os.environ, **(extra_env or {})}
+    if env_var is not None and config_dir is not None:
+        env[env_var] = str(config_dir)
     executable = find_agent_executable(command[0])
     if executable is not None:
         # Detection also searches per-user bin dirs a piped install's PATH may lack; call
@@ -1305,9 +1373,12 @@ def run_plugin_command(command: list[str], env_var: str, config_dir: Path) -> bo
     return run_plugin_process(command, env_var, config_dir) is not None
 
 
-def read_plugin_json(command: list[str], env_var: str, config_dir: Path) -> object | None:
+def read_plugin_json(
+    command: list[str], env_var: str | None, config_dir: Path | None,
+    extra_env: dict[str, str] | None = None,
+) -> object | None:
     """Run a plugin command that prints JSON and return the parsed document."""
-    result = run_plugin_process(command, env_var, config_dir)
+    result = run_plugin_process(command, env_var, config_dir, extra_env)
     if result is None:
         return None
     try:
@@ -1513,7 +1584,7 @@ def main(argv: list[str] | None = None):
         tmp_path = Path(tmp_dir)
         repo_path = tmp_path / REPO_NAME
 
-        info(f"[1/11] Cloning repository (branch/tag: {REPO_REV})...")
+        info(f"[1/12] Cloning repository (branch/tag: {REPO_REV})...")
         result = subprocess.run(
             [
                 "git",
@@ -1538,20 +1609,20 @@ def main(argv: list[str] | None = None):
                 error(f"Required repository file is missing: {required_name}")
                 sys.exit(1)
 
-        if begin_step("2/11", f"Installing OpenCode config files to: {config_dir}",
+        if begin_step("2/12", f"Installing OpenCode config files to: {config_dir}",
                       targets["opencode"], "opencode not found"):
             prepare_target_dir(config_dir)
             install_opencode_config_files(repo_path, config_dir, stamp, oauth=args.oauth)
             rename_path_if_exists(config_dir / "opencode.json", stamp)
             retire_legacy_openagent_files(config_dir, stamp)
 
-        if begin_step("3/11", f"Installing unified OMO config to: {omo_dir}",
+        if begin_step("3/12", f"Installing unified OMO config to: {omo_dir}",
                       targets["opencode"] or targets["omo"], "neither opencode nor omo found"):
             prepare_target_dir(omo_dir)
             install_omo_config(repo_path, omo_dir, stamp, oauth=args.oauth)
             retire_legacy_omo_files(omo_dir, stamp)
 
-        if begin_step("4/11", f"Installing OMO Native config to: {omo_agent_dir}",
+        if begin_step("4/12", f"Installing OMO Native config to: {omo_agent_dir}",
                       targets["omo"], "omo not found"):
             prepare_target_dir(omo_agent_dir)
             instructions_src = repo_path / "_AGENTS.md"
@@ -1566,17 +1637,15 @@ def main(argv: list[str] | None = None):
             ensure_omo_native_settings(omo_agent_dir, stamp)
             ensure_omo_herdr_dag(omo_agent_dir, tmp_path / "omo-herdr-dag")
 
-        if begin_step("5/11", "Installing OpenCode plugins and skills...",
+        if begin_step("5/12", "Installing OpenCode plugins...",
                       targets["opencode"], "opencode not found"):
             prepare_target_dir(config_dir)
-            for dir_name in ["plugins", "skills"]:
-                src_dir = repo_path / dir_name
-                dst_dir = config_dir / dir_name
-                if src_dir.exists():
-                    print(f"         - {dir_name}/ (replace managed items)")
-                    copy_directory_items_replace(src_dir, dst_dir)
+            plugins_src = repo_path / "plugins"
+            if plugins_src.exists():
+                print("         - plugins/ (replace managed items)")
+                copy_directory_items_replace(plugins_src, config_dir / "plugins")
 
-        if begin_step("6/11", f"Installing oh-my-pi config files to: {omp_agent_dir}",
+        if begin_step("6/12", f"Installing oh-my-pi config files to: {omp_agent_dir}",
                       targets["omp"], "omp not found"):
             prepare_target_dir(omp_agent_dir)
             omp_config_files = [
@@ -1600,12 +1669,6 @@ def main(argv: list[str] | None = None):
                     stamp,
                 )
 
-            # Same reason for skills/; autolearn's managed-skills/ is a separate directory.
-            omp_skills_src = repo_path / "skills"
-            if omp_skills_src.exists():
-                print("         - skills/ (replace managed items)")
-                copy_directory_items_replace(omp_skills_src, omp_agent_dir / "skills")
-
             omp_extension_files = [
                 ("omp-gotify-notify.js", "extensions/omp-gotify-notify.js"),
                 ("omp-wakatime-sync.js", "extensions/omp-wakatime-sync.js"),
@@ -1624,7 +1687,7 @@ def main(argv: list[str] | None = None):
                       else "         - omp_models.yaml (render CODEX_BASE_URL)")
                 backup_and_install_omp_models(omp_models_src, omp_models_dst, stamp, oauth=args.oauth)
 
-        if begin_step("7/11", f"Installing shared Codex assets to: {codex_dir}",
+        if begin_step("7/12", f"Installing shared Codex assets to: {codex_dir}",
                       targets["codex"], "codex not found"):
             prepare_target_dir(codex_dir)
             codex_agents_src = repo_path / "_AGENTS.md"
@@ -1637,18 +1700,13 @@ def main(argv: list[str] | None = None):
                 print("         - codex-gotify-notify.py")
                 install_managed_file(codex_notify_src, codex_dir / "codex-gotify-notify.py")
 
-            codex_skills_src = repo_path / "skills"
-            codex_skills_dst = codex_dir / "skills"
-            if codex_skills_src.exists():
-                print("         - skills/ (merge)")
-                copy_directory_merge(codex_skills_src, codex_skills_dst)
 
-        if begin_step("8/11", "Configuring Codex config",
+        if begin_step("8/12", "Configuring Codex config",
                       targets["codex"], "codex not found"):
             prepare_target_dir(codex_dir)
             ensure_codex_config(codex_dir, stamp, oauth=args.oauth)
 
-        if begin_step("9/11", "Configuring WakaTime config and plugins",
+        if begin_step("9/12", "Configuring WakaTime config and plugins",
                       targets["opencode"] or targets["omp"] or targets["codex"] or targets["claude"],
                       "no WakaTime-tracked agent found"):
             # OpenCode and OMP use the cfg too; only Codex and Claude Code need plugins.
@@ -1662,7 +1720,7 @@ def main(argv: list[str] | None = None):
                     prepare_target_dir(claude_config_dir)
                 ensure_wakatime_plugins(codex_dir, claude_config_dir)
 
-        if begin_step("10/11", f"Installing Claude Code assets to: {claude_config_dir}",
+        if begin_step("10/12", f"Installing Claude Code assets to: {claude_config_dir}",
                       targets["claude"], "claude not found"):
             prepare_target_dir(claude_config_dir)
             instructions_src = repo_path / "_AGENTS.md"
@@ -1675,9 +1733,17 @@ def main(argv: list[str] | None = None):
                 )
             install_claude_plugin(repo_path, claude_config_dir, stamp)
 
-        if begin_step("11/11", "Configuring Tokscale model aliases",
+        if begin_step("11/12", "Configuring Tokscale model aliases",
                       targets["tokscale"], "tokscale config directory not found"):
             install_tokscale_model_aliases(repo_path, get_tokscale_config_dir(), stamp)
+
+        skill_readers = (("opencode", config_dir), ("codex", codex_dir),
+                         ("omp", omp_agent_dir), ("omo", omo_agent_dir))
+        if begin_step("12/12", "Installing shared skills to ~/.agents/skills",
+                      any(targets[name] for name, _ in skill_readers),
+                      "no agent that reads ~/.agents/skills found"):
+            ensure_agent_skills(repo_path, [directory / "skills"
+                                            for name, directory in skill_readers if targets[name]])
 
     print()
     success("Installation complete!")

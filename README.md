@@ -54,12 +54,38 @@ Rerun without `--oauth` to switch back.
 
 | Agent | Directory | Contents |
 |---|---|---|
-| OpenCode/OMO | `~/.config/opencode`, `~/.omo/omo.jsonc` | Config, plugins, skills; OMO settings under `"[opencode]"` |
-| OMO Native | `~/.omo/agent` | `AGENTS.md`, `models.json`, `settings.json` (ignores `~/.claude` rules); routing under `"[native]"` in `omo.jsonc`. Run `omo setup` once to import skills. With `herdr`, `node` and `npm` found: [omo-herdr-dag](https://github.com/jc01rho/omo-herdr-dag) (pinned, upstream installer, reinstalled only when changed; English by default, `npx omo-herdr-dag@<version> install --lang zh-cn` once to switch) |
-| OMP | `~/.omp/agent` | `AGENTS.md`, config, models, skills, Gotify and WakaTime extensions |
-| Codex | `~/.codex` | `AGENTS.md`, skills, Gotify notifier, WakaTime plugin |
+| OpenCode/OMO | `~/.config/opencode`, `~/.omo/omo.jsonc` | Config, plugins; OMO settings under `"[opencode]"` |
+| OMO Native | `~/.omo/agent` | `AGENTS.md`, `models.json`, `settings.json` (ignores `~/.claude` rules); routing under `"[native]"` in `omo.jsonc`. With `herdr`, `node` and `npm` found: [omo-herdr-dag](https://github.com/jc01rho/omo-herdr-dag) (pinned, upstream installer, reinstalled only when changed; English by default, `npx omo-herdr-dag@<version> install --lang zh-cn` once to switch) |
+| OMP | `~/.omp/agent` | `AGENTS.md`, config, models, Gotify and WakaTime extensions |
+| Codex | `~/.codex` | `AGENTS.md`, Gotify notifier, WakaTime plugin |
 | Claude Code | `~/.claude` | Rule `rules/oma-dotfile.md`, Gotify plugin, WakaTime plugin |
 | Tokscale | Tokscale `settings.json` | Model aliases from `tokscale_model_alias.json` |
+| Skills | `~/.agents/skills` | See [Skills](#skills) |
+
+## Skills
+
+Installed with the [skills CLI](https://github.com/vercel-labs/skills) (`npx`, so Node.js is
+needed) into `~/.agents/skills`, which OpenCode, OMO Native, OMP and Codex all read. Claude Code
+does not read it and gets none of these skills yet.
+
+| Source | Skills |
+|---|---|
+| This repo's `skills/` | `frontend-codex`, `github-cli`, `notion-api`, `secret-guard` |
+| `vercel-labs/skills` | `find-skills` |
+| `vercel-labs/agent-skills` | `web-design-guidelines` |
+| `anthropics/skills` | `frontend-design`, `skill-creator` |
+| `nextlevelbuilder/ui-ux-pro-max-skill` | `ui-ux-pro-max` |
+
+- Every run installs the latest version. `npx skills update -g` also updates them, since they are
+  listed in `~/.agents/.skill-lock.json` with any other skills you added.
+- An existing skill with the same name in `~/.agents/skills` is replaced.
+- Copies with these names left by older versions of `pull.py` in `~/.config/opencode/skills`,
+  `~/.codex/skills`, `~/.omp/agent/skills` and `~/.omo/agent/skills` are deleted once the new copy
+  is installed, so no skill loads twice. The old `frontend-claude` goes too once `frontend-design`
+  is in. Other skills in those folders are left alone.
+- Skills are skipped with a warning when `npx` is missing or offline; old copies then stay.
+- To add a third-party skill, add its source to `UPSTREAM_SKILLS` in `pull.py`. To add your own,
+  put it in `skills/` and push.
 
 ## OMP Gotify notifications
 

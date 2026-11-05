@@ -177,6 +177,8 @@ class OAuthTests(unittest.TestCase):
         wakatime = self.enterContext(patch.object(pull, 'ensure_wakatime_plugins'))
         # npm and the omo-herdr-dag installer would hit the fake clone below.
         self.enterContext(patch.object(pull, 'ensure_omo_herdr_dag'))
+        # So would npx and the skills CLI.
+        self.enterContext(patch.object(pull, 'ensure_agent_skills'))
         # Detection belongs to the gating tests; this one routes every target.
         self.enterContext(patch.object(pull, 'detect_targets',
                                        return_value={name: True for name in pull.TARGET_LABELS}))

@@ -91,3 +91,23 @@ example `hermes-agent`, not `hermes`).
     `force` guard against overwriting MASTER.md.
   - `frontend-claude`: renamed copy of `anthropics/skills` `frontend-design`.
   - `frontend-codex`: no upstream found.
+
+## What `pull.py` does (since 2026-11-05)
+
+- Step 12 runs when OpenCode, OMO Native, OMP or Codex is detected. For each source it runs
+  `npx -y skills@1.7.6 add <source> -g -a universal -s <names...> -y --json` with
+  `DISABLE_TELEMETRY=1 DO_NOT_TRACK=1`.
+  - The `universal` agent has no directory of its own, so the skill is written once to
+    `~/.agents/skills` and linked nowhere else.
+  - The exit code is 0 even when a requested name is `skipped`. Success is therefore read per skill
+    from the JSON (`status == "installed"`).
+- Sources: `UPSTREAM_SKILLS` in `pull.py`, plus `REPO_OWNER/REPO_NAME#REPO_REV` for every
+  `skills/<name>/SKILL.md` in the clone.
+- After installing, it removes old copies with those names, plus `RETIRED_SKILLS` keys whose
+  replacement installed, from the skills dirs of detected agents: `~/.config/opencode/skills`,
+  `~/.codex/skills`, `~/.omp/agent/skills` and `~/.omo/agent/skills`. Nothing is removed when the
+  install failed or `npx` is missing.
+- `omo setup` imports only from OpenCode's own skills dir (`<opencode config>/skills`), so once that
+  dir is cleaned it does not bring the duplicates back into `~/.omo/agent/skills`.
+- Tests: `tests/test_agent_skills.py`. The installer tests patch `ensure_agent_skills`, because their
+  fake `git clone` answers every `subprocess.run` call.
