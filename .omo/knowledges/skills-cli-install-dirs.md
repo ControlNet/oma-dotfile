@@ -79,11 +79,15 @@ example `hermes-agent`, not `hermes`).
 - Telemetry goes to `https://www.skills.sh/tele/t` for public sources unless `DISABLE_TELEMETRY`
   or `DO_NOT_TRACK` is set.
 - `npx skills add ControlNet/oma-dotfile -l` finds all 9 skills under `skills/`.
-- Upstream sources of the vendored skills, as of 2026-11-05. The repo copies are older snapshots,
-  and no local edits were seen:
-  - `find-skills`: `vercel-labs/skills`
-  - `web-design-guidelines`: `vercel-labs/agent-skills`
-  - `ui-ux-pro-max`: `nextlevelbuilder/ui-ux-pro-max-skill`
-  - `skill-creator`: closest to `openai/skills` `.system/skill-creator`
-  - `frontend-claude`: renamed copy of `anthropics/skills` `frontend-design`
-  - `frontend-codex`: no upstream found
+- Upstream sources of the vendored skills, as of 2026-11-05. Check `git log -- skills/<name>`
+  before replacing a copy with upstream; a plain diff against upstream cannot tell local edits from
+  upstream drift.
+  - `find-skills`: `vercel-labs/skills`. Unchanged since it was added.
+  - `web-design-guidelines`: `vercel-labs/agent-skills`. Unchanged since it was added.
+  - `skill-creator`: closest to `openai/skills` `.system/skill-creator`. Unchanged since it was added.
+  - `ui-ux-pro-max`: `nextlevelbuilder/ui-ux-pro-max-skill`. **Locally modified** in two commits:
+    project-scoped output and search changes, then keeping an existing Master on page runs.
+    `tests/test_ui_ux_design_system.py` covers the second change. Upstream later added its own
+    `force` guard against overwriting MASTER.md.
+  - `frontend-claude`: renamed copy of `anthropics/skills` `frontend-design`.
+  - `frontend-codex`: no upstream found.
