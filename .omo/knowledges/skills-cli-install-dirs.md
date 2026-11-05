@@ -34,7 +34,11 @@ unmerged on 2026-11-05.
 - `--copy`: each selected non-universal agent gets a real copy in its own dir, and **nothing is
   written to `~/.agents/skills`**.
 
-## Workaround that works today: an env-relocatable agent with `--copy`
+## Rejected workaround: borrowing another agent's home variable
+
+**Do not use this in `pull.py`.** The user rejected it. It impersonates an unrelated agent
+(Hermes), and on machines where that agent is really installed it could interfere with that
+agent's work. It is recorded here only to explain why the approach is off the table.
 
 The `hermes-agent` target uses `$HERMES_HOME/skills`. The following was tested in a sandbox
 (`HOME` pointed at a temp directory):
