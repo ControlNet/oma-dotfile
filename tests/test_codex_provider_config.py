@@ -1,6 +1,8 @@
 """Synthetic TOML and URLs in temporary directories; no user config is changed."""
 
+import contextlib
 import importlib.util
+import io
 import os
 from pathlib import Path, PureWindowsPath
 import tempfile
@@ -164,6 +166,58 @@ class CodexSharedSkillOverrideTests(unittest.TestCase):
             {"path": "/elsewhere/SKILL.md", "enabled": True},
             {"path": self.shared, "enabled": False},
         ])
+
+    def test_entry_with_both_selectors_is_not_reused(self) -> None:
+        # Codex ignores an entry naming both a path and a name, so a valid one is added.
+        original = f'[[skills.config]]\npath = "{self.shared}"\nname = "skill-creator"\nenabled = true\n'
+        self.assertEqual(self.entries(original), [
+            {"path": self.shared, "name": "skill-creator", "enabled": True},
+            {"path": self.shared, "enabled": False},
+        ])
+
+    def test_inline_skills_config_is_left_alone(self) -> None:
+        # An inline array cannot be extended with [[skills.config]]; appending would
+        # make the whole file invalid, so the file is kept and the user is told.
+        for original in (
+            '[skills]\nconfig = [{ path = "/x/SKILL.md", enabled = false }]\n',
+            'skills = { config = [] }\n',
+            'skills.config = []\n',
+            '[skills.config]\nx = 1\n',
+            '[skills.config.x]\ny = 1\n',
+        ):
+            for fallback in (False, True):
+                with self.subTest(original=original, fallback=fallback), \
+                        patch.object(pull, "tomllib", None if fallback else tomllib), \
+                        contextlib.redirect_stderr(io.StringIO()) as err:
+                    lines = pull.ensure_codex_shared_skills_disabled(original.splitlines(), self.skills_dir)
+                self.assertEqual(lines, original.splitlines())
+                self.assertIn("skill-creator", err.getvalue())
+
+    def test_sub_table_of_an_entry_is_not_mistaken_for_inline_config(self) -> None:
+        original = f'[[skills.config]]\npath = "{self.shared}"\n[skills.config.extra]\nx = 1\n'
+        for fallback in (False, True):
+            with self.subTest(fallback=fallback), \
+                    patch.object(pull, "tomllib", None if fallback else tomllib):
+                lines = pull.ensure_codex_shared_skills_disabled(original.splitlines(), self.skills_dir)
+            saved = tomllib.loads("\n".join(lines))
+            self.assertEqual(saved["skills"]["config"],
+                             [{"path": self.shared, "enabled": False, "extra": {"x": 1}}])
+
+    def test_an_edit_that_would_break_the_file_is_dropped(self) -> None:
+        # A table under skills.config that the static check does not catch.
+        original = '[skills.config.x]\ny = 1\n'
+        with patch.object(pull, "codex_skills_config_is_static", return_value=False), \
+                contextlib.redirect_stderr(io.StringIO()) as err:
+            lines = pull.ensure_codex_shared_skills_disabled(original.splitlines(), self.skills_dir)
+        self.assertEqual(lines, original.splitlines())
+        self.assertIn("skill-creator", err.getvalue())
+
+    def test_inline_entry_that_already_disables_it_is_accepted(self) -> None:
+        original = f'[skills]\nconfig = [{{ path = "{self.shared}", enabled = false }}]\n'
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            lines = pull.ensure_codex_shared_skills_disabled(original.splitlines(), self.skills_dir)
+        self.assertEqual(lines, original.splitlines())
+        self.assertEqual(err.getvalue(), "")
 
     def test_second_run_changes_nothing(self) -> None:
         once = pull.ensure_codex_shared_skills_disabled([], self.skills_dir)

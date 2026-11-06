@@ -1214,8 +1214,67 @@ def ensure_codex_notify_config_lines(lines: list[str], codex_dir: Path) -> list[
 CODEX_DISABLED_SHARED_SKILLS = ("skill-creator",)
 
 
+def codex_skills_config_is_static(lines: list[str]) -> bool:
+    """Whether skills.config is defined in a way `[[skills.config]]` cannot extend.
+
+    An inline array (`config = [...]` under `[skills]`, `skills.config = [...]`,
+    `skills = { config = ... }`) or a plain `[skills.config]` table makes an appended
+    array-of-tables entry invalid TOML.
+    """
+    table: str | None = ""
+    seen_entry = False
+    for idx in toml_statement_starts(lines):
+        line = lines[idx]
+        header = TOML_TABLE_HEADER.match(line)
+        if header:
+            name = toml_key_name(header.group(1))
+            if line.lstrip().startswith("[["):
+                table = None  # keys below belong to an array element
+                seen_entry = seen_entry or name == "skills.config"
+            elif name == "skills.config" or (name.startswith("skills.config.") and not seen_entry):
+                # [skills.config.x] before any entry makes skills.config a plain table.
+                return True
+            else:
+                table = name
+            continue
+        assignment = TOML_ASSIGNMENT_START.match(line)
+        if assignment and table is not None:
+            key = toml_key_name(assignment.group(1))
+            full = f"{table}.{key}" if table else key
+            # Under [skills.config.x] after [[skills.config]], keys belong to an element.
+            if full in ("skills", "skills.config") or (
+                    table in ("", "skills") and full.startswith("skills.config.")):
+                return True
+    return False
+
+
+def codex_skill_path_already_disabled(lines: list[str], skill_path: str) -> bool:
+    """Whether a path-only skills.config entry already disables skill_path (needs tomllib)."""
+    if tomllib is None:
+        return False
+    try:
+        skills = tomllib.loads("\n".join(lines)).get("skills")
+    except tomllib.TOMLDecodeError:
+        return False
+    entries = skills.get("config") if isinstance(skills, dict) else None
+    return isinstance(entries, list) and any(
+        isinstance(entry, dict) and entry.get("path") == skill_path
+        and "name" not in entry and entry.get("enabled") is False
+        for entry in entries)
+
+
 def ensure_codex_skill_path_disabled(lines: list[str], skill_path: str) -> list[str]:
-    """Make a `[[skills.config]]` entry for skill_path say `enabled = false`."""
+    """Make a `[[skills.config]]` entry for skill_path say `enabled = false`.
+
+    Codex ignores an entry that names both a path and a name, so such entries are not
+    reused. A skills.config written inline is left for the user to edit.
+    """
+    if codex_skill_path_already_disabled(lines, skill_path):
+        return lines
+    if codex_skills_config_is_static(lines):
+        warn(f"skills.config in Codex config.toml is not written as [[skills.config]] entries; "
+             f"add one with path = {toml_basic_string(skill_path)} and enabled = false by hand")
+        return lines
     headers = [idx for idx in toml_statement_starts(lines) if TOML_TABLE_HEADER.match(lines[idx])]
     for pos, start in enumerate(headers):
         header = TOML_TABLE_HEADER.match(lines[start])
@@ -1224,15 +1283,34 @@ def ensure_codex_skill_path_disabled(lines: list[str], skill_path: str) -> list[
         end = headers[pos + 1] if pos + 1 < len(headers) else len(lines)
         block = lines[start + 1:end]
         paths = find_toml_key_assignment_ranges(block, "path")
-        if not any(read_toml_string_assignment("\n".join(block[a:b]), "path") == skill_path
-                   for a, b in paths):
+        if find_toml_key_assignment_ranges(block, "name") or not any(
+                read_toml_string_assignment("\n".join(block[a:b]), "path") == skill_path
+                for a, b in paths):
             continue
         enabled = find_toml_key_assignment_ranges(block, "enabled")
         a, b = enabled[0] if enabled else (paths[0][1], paths[0][1])
         block = [*block[:a], "enabled = false", *block[b:]]
-        return [*lines[:start + 1], *block, *lines[end:]]
+        return keep_valid_codex_toml(lines, [*lines[:start + 1], *block, *lines[end:]], skill_path)
     entry = ["[[skills.config]]", f"path = {toml_basic_string(skill_path)}", "enabled = false"]
-    return [*lines, "", *entry] if lines and lines[-1].strip() else [*lines, *entry]
+    return keep_valid_codex_toml(
+        lines, [*lines, "", *entry] if lines and lines[-1].strip() else [*lines, *entry], skill_path)
+
+
+def keep_valid_codex_toml(lines: list[str], new_lines: list[str], skill_path: str) -> list[str]:
+    """Return new_lines unless they break a config.toml that parsed before."""
+    if tomllib is None:
+        return new_lines
+    try:
+        _ = tomllib.loads("\n".join(lines))
+    except tomllib.TOMLDecodeError:
+        return new_lines
+    try:
+        _ = tomllib.loads("\n".join(new_lines))
+    except tomllib.TOMLDecodeError:
+        warn(f"Could not add a skills.config entry for {skill_path} to Codex config.toml "
+             f"without breaking it; add one with enabled = false by hand")
+        return lines
+    return new_lines
 
 
 def ensure_codex_shared_skills_disabled(lines: list[str], skills_dir: Path) -> list[str]:
