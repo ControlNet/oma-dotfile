@@ -135,3 +135,14 @@ Result after the migration on 2026-11-06:
   - The path is used because a `name` selector would disable both copies. Codex also ignores an
     entry that has both `path` and `name`.
   - After the change, `skills/list` showed the shared copy disabled and the bundled one enabled.
+  - Edge cases tested in a sandbox Codex 0.166: an entry whose path does not exist is accepted
+    without errors, and an entry with both `path` and `name` is ignored (the skill stays enabled).
+  - `pull.py` therefore never reuses an entry that also has `name`.
+  - An inline or plain-table `skills.config` cannot be extended with `[[skills.config]]`, so the
+    file is left alone with a warning. This covers `[skills] config = [...]`,
+    `skills.config = ...`, `skills = { config = ... }`, `[skills.config]`, and
+    `[skills.config.x]` before any entry.
+  - When tomllib is present, an edit that would stop a previously valid file from parsing is
+    dropped.
+  - Paths are compared as plain strings. A different spelling of the same path only adds a
+    second, harmless entry. Windows path matching was not tested.
