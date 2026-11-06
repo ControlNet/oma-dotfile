@@ -72,6 +72,11 @@ class SourceTests(unittest.TestCase):
         command = pull.skills_cli_add_command("mikubaka88/CCFA-Skills", (pull.ALL_SKILLS,))
         self.assertEqual(command[command.index("-s") + 1:command.index("-s") + 3], ["*", "-y"])
 
+    def test_add_command_can_also_link_into_claude_code(self):
+        command = pull.skills_cli_add_command("o/r", ("a", "b"), ("universal", "claude-code"))
+        self.assertEqual(command[command.index("-a"):command.index("-s") + 3],
+                         ["-a", "universal", "claude-code", "-s", "a", "b"])
+
     def test_add_command_installs_globally_into_the_shared_dir_only(self):
         command = pull.skills_cli_add_command("vercel-labs/skills", ("find-skills",))
         self.assertEqual(command, [
@@ -195,6 +200,48 @@ class EnsureAgentSkillsTests(AgentSkillsHarness):
         self.cli.assert_not_called()
         self.assertTrue(old.is_file())
         self.assertIn("npx", output)
+
+
+class ClaudeCodeSkillTests(AgentSkillsHarness):
+    """Claude Code does not read ~/.agents/skills; the CLI links skills into its own dir."""
+
+    def run_with_claude(self) -> None:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            pull.ensure_agent_skills(self.repo, self.legacy, self.tmp / "claude")
+
+    def installs(self) -> list[tuple[str, tuple[str, ...], tuple[str, ...]]]:
+        result = []
+        for call in self.cli.call_args_list:
+            command = call.args[0]
+            agents = tuple(command[command.index("-a") + 1:command.index("-s")])
+            names = tuple(command[command.index("-s") + 1:command.index("-y", command.index("-s"))])
+            result.append((command[4], names, agents))
+        return result
+
+    def test_claude_code_gets_every_skill_but_skill_creator_and_find_skills(self):
+        self.run_with_claude()
+        both, shared = ("universal", "claude-code"), ("universal",)
+        self.assertEqual(self.installs(), [
+            ("vercel-labs/skills", ("find-skills",), shared),
+            ("vercel-labs/agent-skills", ("web-design-guidelines",), both),
+            ("anthropics/skills", ("frontend-design",), both),
+            ("anthropics/skills", ("skill-creator",), shared),
+            ("nextlevelbuilder/ui-ux-pro-max-skill", ("ui-ux-pro-max",), both),
+            ("mikubaka88/CCFA-Skills", (pull.ALL_SKILLS,), both),
+            (REPO_SOURCE, ("github-cli",), both),
+        ])
+
+    def test_claude_config_dir_is_passed_to_the_cli(self):
+        self.run_with_claude()
+        for call in self.cli.call_args_list:
+            self.assertEqual(call.kwargs["extra_env"]["CLAUDE_CONFIG_DIR"], str(self.tmp / "claude"))
+
+    def test_without_claude_code_nothing_links_into_it(self):
+        self.run_install()
+        for source, names, agents in self.installs():
+            self.assertEqual(agents, ("universal",), source)
+        for call in self.cli.call_args_list:
+            self.assertNotIn("CLAUDE_CONFIG_DIR", call.kwargs["extra_env"])
 
 
 class RemovedSkillTests(AgentSkillsHarness):

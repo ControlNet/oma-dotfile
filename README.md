@@ -58,7 +58,7 @@ Rerun without `--oauth` to switch back.
 | OMO Native | `~/.omo/agent` | `AGENTS.md`, `models.json`, `settings.json` (ignores `~/.claude` rules); routing under `"[native]"` in `omo.jsonc`. With `herdr`, `node` and `npm` found: [omo-herdr-dag](https://github.com/jc01rho/omo-herdr-dag) (pinned, upstream installer, reinstalled only when changed; English by default, `npx omo-herdr-dag@<version> install --lang zh-cn` once to switch) |
 | OMP | `~/.omp/agent` | `AGENTS.md`, config, models, Gotify and WakaTime extensions |
 | Codex | `~/.codex` | `AGENTS.md`, Gotify notifier, WakaTime plugin; `config.toml` turns off the shared `skill-creator` so Codex keeps its bundled one |
-| Claude Code | `~/.claude` | Rule `rules/oma-dotfile.md`, Gotify plugin, WakaTime plugin |
+| Claude Code | `~/.claude` | Rule `rules/oma-dotfile.md`, Gotify plugin, WakaTime plugin, links to shared skills |
 | Tokscale | Tokscale `settings.json` | Model aliases from `tokscale_model_alias.json` |
 | Skills | `~/.agents/skills` | See [Skills](#skills) |
 
@@ -66,7 +66,9 @@ Rerun without `--oauth` to switch back.
 
 Installed with the [skills CLI](https://github.com/vercel-labs/skills) (`npx`, so Node.js is
 needed) into `~/.agents/skills`, which OpenCode, OMO Native, OMP and Codex all read. Claude Code
-does not read it and gets none of these skills yet.
+does not read it, so when Claude Code is found each skill is also linked into `~/.claude/skills`
+(replacing a same-named entry there), except `skill-creator` and `find-skills`, which overlap what
+Claude Code already has.
 
 | Source | Skills |
 |---|---|

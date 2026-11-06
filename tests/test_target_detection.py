@@ -283,10 +283,18 @@ class InstallGatingTests(unittest.TestCase):
         legacy = self.agent_skills.call_args.args[1]
         self.assertEqual(legacy, [self.target_dir("get_codex_dir") / "skills",
                                   self.target_dir("get_omp_agent_dir") / "skills"])
+        # And Claude Code, not detected, gets no links.
+        self.assertIsNone(self.agent_skills.call_args.args[2])
 
-    def test_shared_skills_are_skipped_on_a_claude_only_machine(self) -> None:
+    def test_claude_only_machine_gets_skills_linked_into_claude_code(self) -> None:
         with patch.dict(os.environ, {"CODEX_BASE_URL": "https://example.invalid/v1"}):
             self.run_main(claude=True)
+        self.assertEqual(self.agent_skills.call_args.args[1:],
+                         ([], self.target_dir("get_claude_config_dir")))
+
+    def test_no_skill_reader_means_no_skills(self) -> None:
+        with patch.dict(os.environ, {"CODEX_BASE_URL": "https://example.invalid/v1"}):
+            self.run_main()
         self.agent_skills.assert_not_called()
 
     def test_reinstall_backs_up_changed_config_but_not_plugin_code(self) -> None:

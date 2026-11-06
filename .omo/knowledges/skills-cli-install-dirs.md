@@ -112,8 +112,16 @@ example `hermes-agent`, not `hermes`).
 - `mikubaka88/CCFA-Skills` is installed whole with `ALL_SKILLS` (`-s '*'`), which picks up skills
   added upstream later (18 on 2026-11-06, `ccf-research-engineer` new). With `--json` it reports each
   skill as `installed`. A skill removed upstream is not uninstalled automatically.
-  - Copies of `ccf-*` already in `~/.claude/skills` on this machine are real directories, not
-    links. `pull.py` does not manage them; Claude Code support is still undecided.
+- Claude Code (since 2026-11-06): when it is detected, every skill except
+  `CLAUDE_CODE_EXCLUDED_SKILLS` (`skill-creator`, `find-skills`) is installed with
+  `-a universal claude-code`, and `CLAUDE_CONFIG_DIR` is passed to the CLI.
+  - The CLI writes the shared copy and a relative symlink `~/.claude/skills/<name>` ->
+    `../../.agents/skills/<name>`. It replaces a same-named real directory there (the old hand-made
+    `ccf-*` copies) and leaves other entries alone (`gotify-notify`).
+  - Claude Code 2.1.318 loads symlinked skill dirs. This was checked from the `system/init` message
+    of `claude -p --output-format stream-json --verbose`, which lists `skills` before the first
+    model request; kill the process right after reading it.
+  - `skills remove -g` without `-a` also deletes the Claude Code link.
 - Skills dropped from this repo are listed in `REMOVED_SKILLS` (`frontend-codex` since
   2026-11-06). Before installing, `pull.py` reads the lock file (`$XDG_STATE_HOME/skills/.skill-lock.json`,
   or `~/.agents/.skill-lock.json`) and runs `npx -y skills@1.7.6 remove <names> -g -y` only for names

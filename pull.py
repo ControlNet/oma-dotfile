@@ -692,6 +692,9 @@ RETIRED_SKILLS = {"frontend-claude": "frontend-design"}
 # skills CLI lock still says they came from this repo; a same-named skill from elsewhere stays.
 REMOVED_SKILLS = ("frontend-codex",)
 SKILLS_CLI_ENV = {"DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1"}
+# Claude Code does not read ~/.agents/skills, so skills are linked into its own dir,
+# except these, which overlap what Claude Code already has.
+CLAUDE_CODE_EXCLUDED_SKILLS = ("skill-creator", "find-skills")
 
 
 def agent_skill_sources(repo_path: Path) -> dict[str, tuple[str, ...]]:
@@ -705,10 +708,28 @@ def agent_skill_sources(repo_path: Path) -> dict[str, tuple[str, ...]]:
     return sources
 
 
-def skills_cli_add_command(source: str, names: tuple[str, ...]) -> list[str]:
-    """Install names from source globally into ~/.agents/skills, and nowhere else."""
+def skills_cli_add_command(source: str, names: tuple[str, ...],
+                           agents: tuple[str, ...] = ("universal",)) -> list[str]:
+    """Install names from source globally into ~/.agents/skills.
+
+    `universal` writes only the shared copy; `claude-code` adds a link to it in Claude
+    Code's skills dir, replacing a same-named entry there.
+    """
     return ["npx", "-y", f"skills@{SKILLS_CLI_VERSION}", "add", source,
-            "-g", "-a", "universal", "-s", *names, "-y", "--json"]
+            "-g", "-a", *agents, "-s", *names, "-y", "--json"]
+
+
+def agent_skill_installs(repo_path: Path, claude: bool) -> list[tuple[str, tuple[str, ...], tuple[str, ...]]]:
+    """(source, names, agents) per skills CLI run; Claude Code skips CLAUDE_CODE_EXCLUDED_SKILLS."""
+    installs = []
+    for source, names in agent_skill_sources(repo_path).items():
+        linked = tuple(name for name in names if not claude or name not in CLAUDE_CODE_EXCLUDED_SKILLS)
+        shared = tuple(name for name in names if name not in linked)
+        if linked:
+            installs.append((source, linked, ("universal", "claude-code") if claude else ("universal",)))
+        if shared:
+            installs.append((source, shared, ("universal",)))
+    return installs
 
 
 def installed_skill_names(document: object) -> set[str]:
@@ -761,23 +782,32 @@ def remove_legacy_skill_copies(skill_dirs: list[Path], installed: set[str]) -> N
             print(f"         - removed old copy {path}")
 
 
-def ensure_agent_skills(repo_path: Path, legacy_skill_dirs: list[Path]) -> None:
-    """Install the shared skills with the skills CLI, then drop the old per-agent copies."""
+def ensure_agent_skills(repo_path: Path, legacy_skill_dirs: list[Path],
+                        claude_config_dir: Path | None = None) -> None:
+    """Install the shared skills with the skills CLI, then drop the old per-agent copies.
+
+    With claude_config_dir (Claude Code detected), skills are also linked into its
+    skills dir.
+    """
     if find_agent_executable("npx") is None:
         warn("         skills skipped: npx not found (install Node.js)")
         return
+    env = dict(SKILLS_CLI_ENV)
+    if claude_config_dir is not None:
+        env["CLAUDE_CONFIG_DIR"] = str(claude_config_dir)
     removable = removable_skills(REMOVED_SKILLS)
     if removable and run_plugin_command(
             ["npx", "-y", f"skills@{SKILLS_CLI_VERSION}", "remove", *removable, "-g", "-y"],
-            None, None, extra_env=SKILLS_CLI_ENV):
+            None, None, extra_env=env):
         print(f"         - uninstalled {', '.join(removable)} (no longer shipped by this repo)")
     installed: set[str] = set()
-    for source, names in agent_skill_sources(repo_path).items():
-        document = read_plugin_json(skills_cli_add_command(source, names), None, None,
-                                    extra_env=SKILLS_CLI_ENV)
+    for source, names, agents in agent_skill_installs(repo_path, claude_config_dir is not None):
+        document = read_plugin_json(skills_cli_add_command(source, names, agents), None, None,
+                                    extra_env=env)
         done = installed_skill_names(document)
         if done:
-            print(f"         - {', '.join(sorted(done))} ({source})")
+            also = ", also in Claude Code" if "claude-code" in agents else ""
+            print(f"         - {', '.join(sorted(done))} ({source}{also})")
         if names == (ALL_SKILLS,):
             if not done:
                 warn(f"Nothing installed from {source}")
@@ -1892,10 +1922,11 @@ def main(argv: list[str] | None = None):
         skill_readers = (("opencode", config_dir), ("codex", codex_dir),
                          ("omp", omp_agent_dir), ("omo", omo_agent_dir))
         if begin_step("12/12", "Installing shared skills to ~/.agents/skills",
-                      any(targets[name] for name, _ in skill_readers),
-                      "no agent that reads ~/.agents/skills found"):
+                      targets["claude"] or any(targets[name] for name, _ in skill_readers),
+                      "no agent that uses shared skills found"):
             ensure_agent_skills(repo_path, [directory / "skills"
-                                            for name, directory in skill_readers if targets[name]])
+                                            for name, directory in skill_readers if targets[name]],
+                                claude_config_dir if targets["claude"] else None)
 
     print()
     success("Installation complete!")
