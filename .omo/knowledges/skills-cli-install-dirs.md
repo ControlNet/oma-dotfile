@@ -159,6 +159,10 @@ example `hermes-agent`, not `hermes`).
     `~/.agents/skills/<name>/SKILL.md`, and also in `<claude config>/skills/` for Claude Code runs.
     For `ALL_SKILLS`, the names are taken from the lock entries with that `source`.
   - An unknown commit (offline) or an incomplete install means the run happens again next time.
+  - For `ALL_SKILLS`, a skill removed by hand (`npx skills remove <name> -g`) also loses its lock
+    entry, so the rest still look complete and it comes back only with the source's next commit.
+    Explicit names come back on the next run. Deleting the commits file forces a full reinstall.
+  - Offline, each `ls-remote` can wait up to its 30 s timeout (in parallel) before the adds fail.
   - Measured in a sandbox home:
     - first run 48 s, second run 0.8 s;
     - after deleting one skill dir and one Claude link, only those two sources reinstalled (6 s).
