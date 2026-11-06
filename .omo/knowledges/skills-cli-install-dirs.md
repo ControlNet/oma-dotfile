@@ -111,3 +111,19 @@ example `hermes-agent`, not `hermes`).
   dir is cleaned it does not bring the duplicates back into `~/.omo/agent/skills`.
 - Tests: `tests/test_agent_skills.py`. The installer tests patch `ensure_agent_skills`, because their
   fake `git clone` answers every `subprocess.run` call.
+
+## Checking which skills each agent discovers (no model calls)
+
+| Agent | Command | Shows paths |
+| --- | --- | --- |
+| OpenCode 1.19.4 | `opencode debug skill` (JSON) | yes (`location`) |
+| Codex 0.166 | `codex app-server` over stdio: send `initialize`, then the `initialized` notification, then `{"id":2,"method":"skills/list","params":{"cwds":["<dir>"],"forceReload":true}}` | yes (`path`, `scope`, `enabled`) |
+| OMP 18.14.1 | `omp --mode rpc --no-session`, send `{"id":"c1","type":"get_available_commands"}`; skills are the entries with `source: "skill"`, named `skill:<name>` | no |
+| OMO Native 5.1.27 | `omo --mode rpc --no-session`, send `{"id":"c1","type":"get_commands"}`; skills have `source: "skill"` and `sourceInfo.path` | yes |
+
+Result after the migration on 2026-11-06:
+- All four agents found the 9 shared skills from `~/.agents/skills`, and none of them found
+  `frontend-claude`.
+- Codex is the only agent that listed a duplicate: `skill-creator` comes both from
+  `~/.agents/skills` (user scope) and from its built-in `~/.codex/skills/.system/skill-creator`
+  (system scope), and both are enabled.
