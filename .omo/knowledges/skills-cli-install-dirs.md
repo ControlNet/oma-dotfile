@@ -127,3 +127,9 @@ Result after the migration on 2026-11-06:
 - Codex is the only agent that listed a duplicate: `skill-creator` comes both from
   `~/.agents/skills` (user scope) and from its built-in `~/.codex/skills/.system/skill-creator`
   (system scope), and both are enabled.
+- Fix (2026-11-06): the Codex config step adds a `[[skills.config]]` entry with
+  `path = "<codex home>/skills/.system/skill-creator/SKILL.md"` and `enabled = false`
+  (`CODEX_SHADOWED_SYSTEM_SKILLS` in `pull.py`). This is the format Codex's own app-server
+  `skills/config/write` writes. Codex ignores an entry that has both `path` and `name`, and a
+  `name` selector would also disable the shared copy, so the path is used. After the change,
+  `skills/list` showed the bundled copy as disabled and the `~/.agents/skills` copy as enabled.

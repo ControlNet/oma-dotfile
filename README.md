@@ -57,7 +57,7 @@ Rerun without `--oauth` to switch back.
 | OpenCode/OMO | `~/.config/opencode`, `~/.omo/omo.jsonc` | Config, plugins; OMO settings under `"[opencode]"` |
 | OMO Native | `~/.omo/agent` | `AGENTS.md`, `models.json`, `settings.json` (ignores `~/.claude` rules); routing under `"[native]"` in `omo.jsonc`. With `herdr`, `node` and `npm` found: [omo-herdr-dag](https://github.com/jc01rho/omo-herdr-dag) (pinned, upstream installer, reinstalled only when changed; English by default, `npx omo-herdr-dag@<version> install --lang zh-cn` once to switch) |
 | OMP | `~/.omp/agent` | `AGENTS.md`, config, models, Gotify and WakaTime extensions |
-| Codex | `~/.codex` | `AGENTS.md`, Gotify notifier, WakaTime plugin |
+| Codex | `~/.codex` | `AGENTS.md`, Gotify notifier, WakaTime plugin; `config.toml` disables the bundled `skill-creator` in favour of the shared one |
 | Claude Code | `~/.claude` | Rule `rules/oma-dotfile.md`, Gotify plugin, WakaTime plugin |
 | Tokscale | Tokscale `settings.json` | Model aliases from `tokscale_model_alias.json` |
 | Skills | `~/.agents/skills` | See [Skills](#skills) |
