@@ -1209,8 +1209,9 @@ def ensure_codex_notify_config_lines(lines: list[str], codex_dir: Path) -> list[
     return [*lines[:insert_idx], desired_line, *lines[insert_idx:]]
 
 
-# Codex bundles its own copy of these; the one in ~/.agents/skills replaces it.
-CODEX_SHADOWED_SYSTEM_SKILLS = ("skill-creator",)
+# Codex bundles its own copy of these, which Codex keeps using; the shared copies in
+# ~/.agents/skills are switched off in Codex only, so every other agent still gets them.
+CODEX_DISABLED_SHARED_SKILLS = ("skill-creator",)
 
 
 def ensure_codex_skill_path_disabled(lines: list[str], skill_path: str) -> list[str]:
@@ -1234,14 +1235,13 @@ def ensure_codex_skill_path_disabled(lines: list[str], skill_path: str) -> list[
     return [*lines, "", *entry] if lines and lines[-1].strip() else [*lines, *entry]
 
 
-def ensure_codex_shadowed_skills_disabled(lines: list[str], codex_dir: Path) -> list[str]:
-    """Disable Codex's bundled copies of skills that ~/.agents/skills also provides.
+def ensure_codex_shared_skills_disabled(lines: list[str], skills_dir: Path) -> list[str]:
+    """Disable, in Codex only, the shared copies of skills Codex already bundles.
 
-    The selector is the path: a name selector would hide the shared copy as well.
+    The selector is the path: a name selector would hide Codex's bundled copy as well.
     """
-    for name in CODEX_SHADOWED_SYSTEM_SKILLS:
-        skill_path = codex_dir / "skills" / ".system" / name / "SKILL.md"
-        lines = ensure_codex_skill_path_disabled(lines, str(skill_path))
+    for name in CODEX_DISABLED_SHARED_SKILLS:
+        lines = ensure_codex_skill_path_disabled(lines, str(skills_dir / name / "SKILL.md"))
     return lines
 
 
@@ -1258,7 +1258,7 @@ def ensure_codex_config(codex_dir: Path, stamp: str, oauth: bool = False) -> Non
         lines = []
 
     new_lines = ensure_codex_notify_config_lines(lines, codex_dir)
-    new_lines = ensure_codex_shadowed_skills_disabled(new_lines, codex_dir)
+    new_lines = ensure_codex_shared_skills_disabled(new_lines, Path.home() / ".agents" / "skills")
     new_lines = (ensure_codex_oauth_provider_config(new_lines) if oauth
                  else ensure_codex_api_provider_config(new_lines))
 
