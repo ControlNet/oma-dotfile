@@ -110,6 +110,12 @@ class AgentSkillsHarness(unittest.TestCase):
         self.lock = self.tmp / "state" / ".skill-lock.json"
         self.enterContext(patch.object(pull, "skills_lock_path", return_value=self.lock))
         self.remove = self.enterContext(patch.object(pull, "run_plugin_command", return_value=True))
+        # No source commit is known unless a test sets one, so every source installs.
+        self.commits: dict[str, str] = {}
+        self.enterContext(patch.object(pull, "remote_skill_commits", side_effect=lambda sources: {
+            source: commit for source, commit in self.commits.items() if source in sources}))
+        self.shared = self.tmp / "agents" / "skills"
+        self.enterContext(patch.object(pull, "shared_skills_dir", return_value=self.shared))
 
     def write_lock(self, sources: dict[str, str]) -> None:
         self.lock.parent.mkdir(parents=True, exist_ok=True)
@@ -291,6 +297,186 @@ class RemovedSkillTests(AgentSkillsHarness):
         self.run_install()
         self.remove.assert_not_called()
         self.assertTrue(old.is_file())
+
+
+class SkipUnchangedSourceTests(AgentSkillsHarness):
+    """A source whose commit has not moved since its last full install is not reinstalled."""
+
+    SOURCE = "vercel-labs/skills"
+    NAMES = ("find-skills",)
+    AGENTS = ("universal",)
+
+    def setUp(self):
+        super().setUp()
+        self.claude = self.tmp / "claude"
+
+    def record(self, source=SOURCE, names=NAMES, agents=AGENTS, commit="a" * 40) -> None:
+        path = pull.skill_commits_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        recorded = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+        recorded[pull.skill_install_key(source, names, agents)] = commit
+        _ = path.write_text(json.dumps(recorded), encoding="utf-8")
+
+    def installed_on_disk(self, *names: str) -> None:
+        for name in names:
+            write_skill(self.shared, name)
+
+    def ran(self) -> list[str]:
+        return [call.args[0][4] for call in self.cli.call_args_list]
+
+    def run_with_claude(self) -> str:
+        with contextlib.redirect_stdout(io.StringIO()) as out, \
+                contextlib.redirect_stderr(io.StringIO()) as err:
+            pull.ensure_agent_skills(self.repo, self.legacy, self.claude)
+        return out.getvalue() + err.getvalue()
+
+    def test_unchanged_source_with_its_skills_on_disk_is_skipped(self):
+        self.commits = {self.SOURCE: "a" * 40}
+        self.record()
+        self.installed_on_disk("find-skills")
+        old = write_skill(self.legacy[0], "find-skills")
+        output = self.run_install()
+        self.assertNotIn(self.SOURCE, self.ran())
+        self.assertIn("find-skills (vercel-labs/skills, unchanged)", output)
+        # The skipped skill still counts as installed, so a leftover per-agent copy goes.
+        self.assertFalse(old.exists())
+
+    def test_full_install_records_the_commit(self):
+        self.commits = {self.SOURCE: "b" * 40}
+        self.replies = {self.SOURCE: cli_reply(installed=self.NAMES)}
+        self.run_install()
+        recorded = json.loads(pull.skill_commits_path().read_text(encoding="utf-8"))
+        self.assertEqual(recorded[pull.skill_install_key(self.SOURCE, self.NAMES, self.AGENTS)], "b" * 40)
+
+    def test_new_commit_reinstalls(self):
+        self.commits = {self.SOURCE: "b" * 40}
+        self.record(commit="a" * 40)
+        self.installed_on_disk("find-skills")
+        self.run_install()
+        self.assertIn(self.SOURCE, self.ran())
+
+    def test_missing_skill_dir_reinstalls(self):
+        self.commits = {self.SOURCE: "a" * 40}
+        self.record()
+        self.run_install()
+        self.assertIn(self.SOURCE, self.ran())
+
+    def test_unknown_commit_reinstalls_and_records_nothing(self):
+        self.record()
+        self.installed_on_disk("find-skills")
+        self.replies = {self.SOURCE: cli_reply(installed=self.NAMES)}
+        self.run_install()
+        self.assertIn(self.SOURCE, self.ran())
+        recorded = json.loads(pull.skill_commits_path().read_text(encoding="utf-8"))
+        self.assertNotIn(pull.skill_install_key(self.SOURCE, self.NAMES, self.AGENTS), recorded)
+
+    def test_incomplete_install_forgets_the_commit(self):
+        self.commits = {"anthropics/skills": "c" * 40}
+        names = ("frontend-design", "skill-creator")
+        self.replies = {"anthropics/skills": cli_reply(installed=("skill-creator",), skipped=("frontend-design",))}
+        self.run_install()
+        recorded = json.loads(pull.skill_commits_path().read_text(encoding="utf-8"))
+        self.assertNotIn(pull.skill_install_key("anthropics/skills", names, self.AGENTS), recorded)
+
+    def test_unreadable_record_reinstalls(self):
+        self.commits = {self.SOURCE: "a" * 40}
+        self.installed_on_disk("find-skills")
+        pull.skill_commits_path().parent.mkdir(parents=True, exist_ok=True)
+        _ = pull.skill_commits_path().write_text("{not json", encoding="utf-8")
+        self.run_install()
+        self.assertIn(self.SOURCE, self.ran())
+
+    def test_whole_repo_source_is_skipped_by_its_lock_entries(self):
+        source = "mikubaka88/CCFA-Skills"
+        self.commits = {source: "d" * 40}
+        self.record(source, (pull.ALL_SKILLS,), commit="d" * 40)
+        self.write_lock({"ccf-common": "mikubaka88/ccfa-skills", "ccf-paper-writer": source, "other": "x/y"})
+        self.installed_on_disk("ccf-common", "ccf-paper-writer")
+        output = self.run_install()
+        self.assertNotIn(source, self.ran())
+        self.assertIn("ccf-common, ccf-paper-writer (mikubaka88/CCFA-Skills, unchanged)", output)
+
+    def test_whole_repo_source_without_lock_entries_reinstalls(self):
+        source = "mikubaka88/CCFA-Skills"
+        self.commits = {source: "d" * 40}
+        self.record(source, (pull.ALL_SKILLS,), commit="d" * 40)
+        self.run_install()
+        self.assertIn(source, self.ran())
+
+    def test_this_repo_is_matched_in_the_lock_without_its_ref(self):
+        self.commits = {REPO_SOURCE: "e" * 40}
+        self.record(REPO_SOURCE, ("github-cli",), commit="e" * 40)
+        self.installed_on_disk("github-cli")
+        self.run_install()
+        self.assertNotIn(REPO_SOURCE, self.ran())
+
+    def test_missing_claude_code_link_reinstalls(self):
+        both = ("universal", "claude-code")
+        self.commits = {"herdrdev/herdr": "f" * 40}
+        self.record("herdrdev/herdr", ("herdr",), both, commit="f" * 40)
+        self.installed_on_disk("herdr")
+        self.run_with_claude()
+        self.assertIn("herdrdev/herdr", self.ran())
+
+    def test_present_claude_code_link_is_skipped(self):
+        both = ("universal", "claude-code")
+        self.commits = {"herdrdev/herdr": "f" * 40}
+        self.record("herdrdev/herdr", ("herdr",), both, commit="f" * 40)
+        self.installed_on_disk("herdr")
+        (self.claude / "skills").mkdir(parents=True)
+        (self.claude / "skills" / "herdr").symlink_to(self.shared / "herdr", target_is_directory=True)
+        self.run_with_claude()
+        self.assertNotIn("herdrdev/herdr", self.ran())
+
+    def test_turning_on_claude_code_reinstalls(self):
+        # Recorded for the shared dir only; now Claude Code is found and needs the link.
+        self.commits = {"herdrdev/herdr": "f" * 40}
+        self.record("herdrdev/herdr", ("herdr",), self.AGENTS, commit="f" * 40)
+        self.installed_on_disk("herdr")
+        self.run_with_claude()
+        self.assertIn("herdrdev/herdr", self.ran())
+
+    def test_new_cli_version_reinstalls(self):
+        key = pull.skill_install_key(self.SOURCE, self.NAMES, self.AGENTS)
+        with patch.object(pull, "SKILLS_CLI_VERSION", "0.0.0-other"):
+            self.assertNotEqual(pull.skill_install_key(self.SOURCE, self.NAMES, self.AGENTS), key)
+
+    def test_record_sits_next_to_the_cli_lock(self):
+        self.assertEqual(pull.skill_commits_path().parent, self.lock.parent)
+
+
+class RemoteCommitTests(unittest.TestCase):
+    """`git ls-remote` replies here are synthetic; no network is used."""
+
+    def ls_remote(self, stdout: str = "", returncode: int = 0, error: Exception | None = None):
+        done = subprocess.CompletedProcess(["git"], returncode, stdout=stdout, stderr="")
+        return patch.object(pull.subprocess, "run", side_effect=error, return_value=done)
+
+    def test_default_branch_is_read_from_head(self):
+        with self.ls_remote(f"{'1' * 40}\tHEAD\n") as run:
+            self.assertEqual(pull.ls_remote_commit("o/r"), "1" * 40)
+        command = run.call_args.args[0]
+        self.assertEqual(command[-2:], ["https://github.com/o/r.git", "HEAD"])
+        self.assertEqual(run.call_args.kwargs["env"]["GIT_TERMINAL_PROMPT"], "0")
+
+    def test_ref_prefers_the_branch_then_the_peeled_tag(self):
+        reply = f"{'2' * 40}\trefs/tags/v1\n{'3' * 40}\trefs/tags/v1^{{}}\n{'4' * 40}\trefs/heads/v1\n"
+        with self.ls_remote(reply) as run:
+            self.assertEqual(pull.ls_remote_commit("o/r#v1"), "4" * 40)
+        self.assertEqual(run.call_args.args[0][-2:], ["https://github.com/o/r.git", "v1"])
+        with self.ls_remote(reply.rsplit("\n", 2)[0] + "\n"):
+            self.assertEqual(pull.ls_remote_commit("o/r#v1"), "3" * 40)
+
+    def test_failures_give_no_commit(self):
+        for context in (self.ls_remote(returncode=2), self.ls_remote("garbage\n"),
+                        self.ls_remote(error=OSError("no git")),
+                        self.ls_remote(error=subprocess.TimeoutExpired(["git"], 1))):
+            with context:
+                self.assertIsNone(pull.ls_remote_commit("o/r"))
+
+    def test_sources_are_looked_up_together(self):
+        with patch.object(pull, "ls_remote_commit", side_effect=lambda s: None if s == "x/y" else s[0] * 40):
+            self.assertEqual(pull.remote_skill_commits({"a/b", "x/y"}), {"a/b": "a" * 40})
 
 
 class LockPathTests(unittest.TestCase):

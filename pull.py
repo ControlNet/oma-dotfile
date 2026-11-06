@@ -24,6 +24,7 @@ Env:
 """
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import filecmp
 import json
 import os
@@ -750,17 +751,107 @@ def skills_lock_path() -> Path:
     return Path.home() / ".agents" / ".skill-lock.json"
 
 
-def removable_skills(names: tuple[str, ...]) -> list[str]:
-    """Names among `names` that the lock records as installed from this repo."""
+def locked_skills() -> dict[str, dict]:
+    """The skills CLI lock's entries by skill name; empty when there is no readable lock."""
     try:
         skills = json.loads(skills_lock_path().read_text(encoding="utf-8")).get("skills")
     except (OSError, ValueError, AttributeError):
-        return []
+        return {}
     if not isinstance(skills, dict):
-        return []
-    repo = f"{REPO_OWNER}/{REPO_NAME}".lower()
-    return [name for name in names if isinstance(skills.get(name), dict)
-            and str(skills[name].get("source", "")).lower() == repo]
+        return {}
+    return {name: entry for name, entry in skills.items() if isinstance(entry, dict)}
+
+
+def locked_skill_names(repo: str) -> set[str]:
+    """Skill names the lock records as installed from `repo` (owner/name, any case)."""
+    return {name for name, entry in locked_skills().items()
+            if str(entry.get("source", "")).lower() == repo.lower()}
+
+
+def removable_skills(names: tuple[str, ...]) -> list[str]:
+    """Names among `names` that the lock records as installed from this repo."""
+    ours = locked_skill_names(f"{REPO_OWNER}/{REPO_NAME}")
+    return [name for name in names if name in ours]
+
+
+SKILL_COMMITS_FILE = ".oma-dotfile-skill-commits.json"
+
+
+def shared_skills_dir() -> Path:
+    """Where the skills CLI's `universal` agent puts global skills."""
+    return Path.home() / ".agents" / "skills"
+
+
+def skill_commits_path() -> Path:
+    """Commits of the last full install per skills CLI run, kept next to the CLI's lock."""
+    return skills_lock_path().parent / SKILL_COMMITS_FILE
+
+
+def skill_install_key(source: str, names: tuple[str, ...], agents: tuple[str, ...]) -> str:
+    """Identify one skills CLI run; changing the CLI, names or agents makes it run again."""
+    return f"skills@{SKILLS_CLI_VERSION} {source} -a {' '.join(agents)} -s {' '.join(names)}"
+
+
+def ls_remote_commit(source: str) -> str | None:
+    """The commit the skills CLI would clone for `owner/repo[#ref]`, or None if unknown.
+
+    `git ls-remote` needs no GitHub API quota and downloads no files.
+    """
+    repo, _, ref = source.partition("#")
+    try:
+        result = subprocess.run(
+            ["git", "ls-remote", f"https://github.com/{repo}.git", ref or "HEAD"],
+            capture_output=True, text=True, timeout=30,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    commits = {}
+    for line in result.stdout.splitlines():
+        commit, _, name = line.partition("\t")
+        if re.fullmatch(r"[0-9a-f]{40}", commit):
+            commits[name] = commit
+    wanted = [f"refs/heads/{ref}", f"refs/tags/{ref}^{{}}", f"refs/tags/{ref}"] if ref else ["HEAD"]
+    return next((commits[name] for name in wanted if name in commits), None)
+
+
+def remote_skill_commits(sources: set[str]) -> dict[str, str]:
+    """Look up every source's current commit in parallel; unknown ones are left out."""
+    if not sources:
+        return {}
+    ordered = sorted(sources)
+    with ThreadPoolExecutor(max_workers=len(ordered)) as pool:
+        commits = list(pool.map(ls_remote_commit, ordered))
+    return {source: commit for source, commit in zip(ordered, commits) if commit}
+
+
+def read_skill_commits() -> dict[str, str]:
+    try:
+        recorded = json.loads(skill_commits_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(recorded, dict):
+        return {}
+    return {key: value for key, value in recorded.items() if isinstance(value, str)}
+
+
+def current_skill_names(source: str, names: tuple[str, ...], agents: tuple[str, ...],
+                        claude_skills_dir: Path | None) -> set[str]:
+    """The run's skills if all of them are still on disk, else an empty set.
+
+    For ALL_SKILLS the names come from the lock, since only a clone lists the source.
+    """
+    expected = (locked_skill_names(source.partition("#")[0]) if names == (ALL_SKILLS,)
+                else set(names))
+    dirs = [shared_skills_dir()]
+    if "claude-code" in agents and claude_skills_dir is not None:
+        dirs.append(claude_skills_dir)
+    if expected and all((directory / name / "SKILL.md").is_file()
+                        for directory in dirs for name in expected):
+        return expected
+    return set()
 
 
 def remove_legacy_skill_copies(skill_dirs: list[Path], installed: set[str]) -> None:
@@ -801,8 +892,22 @@ def ensure_agent_skills(repo_path: Path, legacy_skill_dirs: list[Path],
             ["npx", "-y", f"skills@{SKILLS_CLI_VERSION}", "remove", *removable, "-g", "-y"],
             None, None, extra_env=env):
         print(f"         - uninstalled {', '.join(removable)} (no longer shipped by this repo)")
+    installs = agent_skill_installs(repo_path, claude_config_dir is not None)
+    # Each run clones its whole source, so one whose commit has not moved since its last
+    # full install, and whose skills are all still in place, is skipped.
+    commits = remote_skill_commits({source for source, _, _ in installs})
+    recorded = read_skill_commits()
+    claude_skills_dir = claude_config_dir / "skills" if claude_config_dir is not None else None
     installed: set[str] = set()
-    for source, names, agents in agent_skill_installs(repo_path, claude_config_dir is not None):
+    for source, names, agents in installs:
+        key = skill_install_key(source, names, agents)
+        commit = commits.get(source)
+        if commit is not None and recorded.get(key) == commit:
+            current = current_skill_names(source, names, agents, claude_skills_dir)
+            if current:
+                print(f"         - {', '.join(sorted(current))} ({source}, unchanged)")
+                installed |= current
+                continue
         document = read_plugin_json(skills_cli_add_command(source, names, agents), None, None,
                                     extra_env=env)
         done = installed_skill_names(document)
@@ -810,12 +915,35 @@ def ensure_agent_skills(repo_path: Path, legacy_skill_dirs: list[Path],
             also = ", also in Claude Code" if "claude-code" in agents else ""
             print(f"         - {', '.join(sorted(done))} ({source}{also})")
         if names == (ALL_SKILLS,):
+            complete = bool(done)
             if not done:
                 warn(f"Nothing installed from {source}")
         elif missing := [name for name in names if name not in done]:
+            complete = False
             warn(f"Not installed from {source}: {', '.join(missing)}")
+        else:
+            complete = True
+        if complete and commit is not None:
+            recorded[key] = commit
+        else:
+            recorded.pop(key, None)
         installed |= done
+    # Runs no longer made (a source dropped, Claude Code gone) are forgotten.
+    active = {skill_install_key(*install) for install in installs}
+    write_skill_commits({key: value for key, value in recorded.items() if key in active})
     remove_legacy_skill_copies(legacy_skill_dirs, installed)
+
+
+def write_skill_commits(recorded: dict[str, str]) -> None:
+    path = skill_commits_path()
+    text = json.dumps(recorded, indent=2, sort_keys=True) + "\n"
+    try:
+        if path.is_file() and path.read_text(encoding="utf-8") == text:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _ = path.write_text(text, encoding="utf-8")
+    except OSError as error:
+        warn(f"Could not save skill commits to {path}: {error}")
 
 
 def install_omp_config(src: Path, dst: Path, stamp: str, oauth: bool = False) -> None:

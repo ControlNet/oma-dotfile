@@ -134,6 +134,35 @@ example `hermes-agent`, not `hermes`).
 - Tests: `tests/test_agent_skills.py`. The installer tests patch `ensure_agent_skills`, because their
   fake `git clone` answers every `subprocess.run` call.
 
+## Install speed (checked 2026-11-06)
+
+- With nothing cached, step 12 took about 50 s for 8 CLI runs. CCFA alone took about 19 s.
+- Why `add` is slow:
+  - Sources whose owner is not on `BLOB_ALLOWED_OWNERS` (`vercel`, `vercel-labs`, `heygen-com`,
+    `remotion-dev`) get a full `git clone --depth 1` into a temp dir on every run, changed or not.
+    There is no sparse or partial clone (upstream feature request vercel-labs/skills#595, open).
+  - `mikubaka88/CCFA-Skills` is 660 MB checked out (283 MB pack), almost all of it exemplar PDFs in
+    `ccf-paper-writer/references/exemplars/papers` (up to 45 MB each). The clone alone takes about
+    17 s, and the installed `ccf-paper-writer` is 282 MB.
+  - Each run starts `npx` (about 1.2 s). `add` takes only `args[0]`, so sources cannot be batched,
+    and parallel runs would race on the lock file (`addSkillToLock` reads and rewrites it).
+  - The CLI reads only `GITHUB_TOKEN` or `GH_TOKEN`, not `gh auth`. Without a token the GitHub API
+    allows 60 calls per hour, and each `add` makes a few. Once the quota is used up, vercel sources
+    fall back to cloning too.
+  - `skills update -g` does not help: without the API it clones every source to compare hashes.
+- Fix in `pull.py`: skip a run whose source has not moved.
+  - Before installing, `git ls-remote` fetches each source's commit (`HEAD`, or `refs/heads/<ref>`
+    for `#ref`). The 8 sources take about 0.6 s in parallel. It uses no API quota.
+  - After a complete install, the commit is saved next to the lock file in
+    `.oma-dotfile-skill-commits.json`. The key is CLI version, source, agents and names.
+  - A run is skipped when the commit matches and every skill is still present as
+    `~/.agents/skills/<name>/SKILL.md`, and also in `<claude config>/skills/` for Claude Code runs.
+    For `ALL_SKILLS`, the names are taken from the lock entries with that `source`.
+  - An unknown commit (offline) or an incomplete install means the run happens again next time.
+  - Measured in a sandbox home:
+    - first run 48 s, second run 0.8 s;
+    - after deleting one skill dir and one Claude link, only those two sources reinstalled (6 s).
+
 ## Checking which skills each agent discovers (no model calls)
 
 | Agent | Command | Shows paths |

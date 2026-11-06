@@ -80,9 +80,12 @@ Claude Code already has.
 | `mikubaka88/CCFA-Skills` | All of them (`ccf-*`), including ones added upstream later |
 | `herdrdev/herdr` | `herdr` |
 
-- Every run installs the latest version. `npx skills update -g` also updates them, since they are
-  listed in `~/.agents/.skill-lock.json` with any other skills you added. Skills removed upstream
-  stay installed until you run `npx skills remove <name> -g`.
+- Every run installs the latest version. A source whose latest commit (`git ls-remote`) is the one
+  last installed is skipped if its skills are all still in place, so unchanged runs take about a
+  second. The commits are kept in `~/.agents/.oma-dotfile-skill-commits.json`; delete it to force a
+  reinstall. `npx skills update -g` also updates them, since they are listed in
+  `~/.agents/.skill-lock.json` with any other skills you added. Skills removed upstream stay
+  installed until you run `npx skills remove <name> -g`.
 - An existing skill with the same name in `~/.agents/skills` is replaced.
 - Copies with these names left by older versions of `pull.py` in `~/.config/opencode/skills`,
   `~/.codex/skills`, `~/.omp/agent/skills` and `~/.omo/agent/skills` are deleted once the new copy
