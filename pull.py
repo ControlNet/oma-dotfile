@@ -678,11 +678,13 @@ def ensure_omo_herdr_dag(agent_dir: Path, work_dir: Path) -> None:
 # (Claude Code does not). The skills CLI fetches the latest upstream on every run and records
 # each skill in ~/.agents/.skill-lock.json, so `npx skills update -g` refreshes them too.
 SKILLS_CLI_VERSION = "1.7.6"
+ALL_SKILLS = "*"  # every skill the source has, including ones added upstream later
 UPSTREAM_SKILLS = {
     "vercel-labs/skills": ("find-skills",),
     "vercel-labs/agent-skills": ("web-design-guidelines",),
     "anthropics/skills": ("frontend-design", "skill-creator"),
     "nextlevelbuilder/ui-ux-pro-max-skill": ("ui-ux-pro-max",),
+    "mikubaka88/CCFA-Skills": (ALL_SKILLS,),
 }
 # Old name -> the skill that replaced it; the old copy goes once the new one is installed.
 RETIRED_SKILLS = {"frontend-claude": "frontend-design"}
@@ -776,8 +778,10 @@ def ensure_agent_skills(repo_path: Path, legacy_skill_dirs: list[Path]) -> None:
         done = installed_skill_names(document)
         if done:
             print(f"         - {', '.join(sorted(done))} ({source})")
-        missing = [name for name in names if name not in done]
-        if missing:
+        if names == (ALL_SKILLS,):
+            if not done:
+                warn(f"Nothing installed from {source}")
+        elif missing := [name for name in names if name not in done]:
             warn(f"Not installed from {source}: {', '.join(missing)}")
         installed |= done
     remove_legacy_skill_copies(legacy_skill_dirs, installed)

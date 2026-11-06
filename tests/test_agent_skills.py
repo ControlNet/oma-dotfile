@@ -60,12 +60,17 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(pull.agent_skill_sources(self.repo), pull.UPSTREAM_SKILLS)
 
     def test_upstream_replaces_the_retired_vendored_copies(self):
-        upstream = {name for names in pull.UPSTREAM_SKILLS.values() for name in names}
+        upstream = {name for names in pull.UPSTREAM_SKILLS.values() for name in names} - {pull.ALL_SKILLS}
         self.assertEqual(upstream, {"find-skills", "web-design-guidelines", "frontend-design",
                                     "skill-creator", "ui-ux-pro-max"})
         self.assertEqual(pull.RETIRED_SKILLS, {"frontend-claude": "frontend-design"})
         for name in (*upstream, "frontend-claude"):
             self.assertFalse((ROOT / "skills" / name).exists(), name)
+
+    def test_every_ccfa_skill_is_installed(self):
+        self.assertEqual(pull.UPSTREAM_SKILLS["mikubaka88/CCFA-Skills"], (pull.ALL_SKILLS,))
+        command = pull.skills_cli_add_command("mikubaka88/CCFA-Skills", (pull.ALL_SKILLS,))
+        self.assertEqual(command[command.index("-s") + 1:command.index("-s") + 3], ["*", "-y"])
 
     def test_add_command_installs_globally_into_the_shared_dir_only(self):
         command = pull.skills_cli_add_command("vercel-labs/skills", ("find-skills",))
@@ -145,6 +150,16 @@ class EnsureAgentSkillsTests(AgentSkillsHarness):
         self.assertEqual(own.read_text(encoding="utf-8"), "kept\n")
         self.assertEqual(not_installed.read_text(encoding="utf-8"), "kept\n")
         self.assertIn("ui-ux-pro-max", output)
+
+    def test_whole_repo_source_reports_what_it_installed(self):
+        self.replies = {"mikubaka88/CCFA-Skills": cli_reply(installed=("ccf-common", "ccf-paper-writer"))}
+        output = self.run_install()
+        self.assertIn("ccf-common, ccf-paper-writer (mikubaka88/CCFA-Skills)", output)
+        self.assertNotIn("Not installed from mikubaka88/CCFA-Skills", output)
+
+    def test_whole_repo_source_that_installs_nothing_warns(self):
+        output = self.run_install()
+        self.assertIn("Nothing installed from mikubaka88/CCFA-Skills", output)
 
     def test_retired_name_stays_until_its_replacement_installs(self):
         old = write_skill(self.legacy[0], "frontend-claude")

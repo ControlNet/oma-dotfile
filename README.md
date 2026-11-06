@@ -75,16 +75,19 @@ does not read it and gets none of these skills yet.
 | `vercel-labs/agent-skills` | `web-design-guidelines` |
 | `anthropics/skills` | `frontend-design`, `skill-creator` |
 | `nextlevelbuilder/ui-ux-pro-max-skill` | `ui-ux-pro-max` |
+| `mikubaka88/CCFA-Skills` | All of them (`ccf-*`), including ones added upstream later |
 
 - Every run installs the latest version. `npx skills update -g` also updates them, since they are
-  listed in `~/.agents/.skill-lock.json` with any other skills you added.
+  listed in `~/.agents/.skill-lock.json` with any other skills you added. Skills removed upstream
+  stay installed until you run `npx skills remove <name> -g`.
 - An existing skill with the same name in `~/.agents/skills` is replaced.
 - Copies with these names left by older versions of `pull.py` in `~/.config/opencode/skills`,
   `~/.codex/skills`, `~/.omp/agent/skills` and `~/.omo/agent/skills` are deleted once the new copy
   is installed, so no skill loads twice. The old `frontend-claude` goes too once `frontend-design`
   is in. Other skills in those folders are left alone.
 - Skills are skipped with a warning when `npx` is missing or offline; old copies then stay.
-- To add a third-party skill, add its source to `UPSTREAM_SKILLS` in `pull.py`. To add your own,
+- To add a third-party skill, add its source to `UPSTREAM_SKILLS` in `pull.py` (`ALL_SKILLS` takes
+  every skill in that source). To add your own,
   put it in `skills/` and push.
 - To drop one of your own, delete it from `skills/` and add its name to `REMOVED_SKILLS`. The next
   run uninstalls it with `npx skills remove`, but only if `~/.agents/.skill-lock.json` says it came
