@@ -62,7 +62,7 @@ class SourceTests(unittest.TestCase):
     def test_upstream_replaces_the_retired_vendored_copies(self):
         upstream = {name for names in pull.UPSTREAM_SKILLS.values() for name in names} - {pull.ALL_SKILLS}
         self.assertEqual(upstream, {"find-skills", "web-design-guidelines", "frontend-design",
-                                    "skill-creator", "ui-ux-pro-max"})
+                                    "skill-creator", "ui-ux-pro-max", "herdr"})
         self.assertEqual(pull.RETIRED_SKILLS, {"frontend-claude": "frontend-design"})
         for name in (*upstream, "frontend-claude"):
             self.assertFalse((ROOT / "skills" / name).exists(), name)
@@ -228,6 +228,7 @@ class ClaudeCodeSkillTests(AgentSkillsHarness):
             ("anthropics/skills", ("skill-creator",), shared),
             ("nextlevelbuilder/ui-ux-pro-max-skill", ("ui-ux-pro-max",), both),
             ("mikubaka88/CCFA-Skills", (pull.ALL_SKILLS,), both),
+            ("herdrdev/herdr", ("herdr",), both),
             (REPO_SOURCE, ("github-cli",), both),
         ])
 

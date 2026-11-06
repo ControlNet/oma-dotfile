@@ -685,6 +685,7 @@ UPSTREAM_SKILLS = {
     "anthropics/skills": ("frontend-design", "skill-creator"),
     "nextlevelbuilder/ui-ux-pro-max-skill": ("ui-ux-pro-max",),
     "mikubaka88/CCFA-Skills": (ALL_SKILLS,),
+    "herdrdev/herdr": ("herdr",),
 }
 # Old name -> the skill that replaced it; the old copy goes once the new one is installed.
 RETIRED_SKILLS = {"frontend-claude": "frontend-design"}

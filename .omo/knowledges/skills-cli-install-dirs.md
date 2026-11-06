@@ -122,6 +122,9 @@ example `hermes-agent`, not `hermes`).
     of `claude -p --output-format stream-json --verbose`, which lists `skills` before the first
     model request; kill the process right after reading it.
   - `skills remove -g` without `-a` also deletes the Claude Code link.
+- `herdrdev/herdr` (2026-11-06) has 4 skills: `herdr`, `herdr-pre-release-audit`,
+  `herdr-throwaway-repro`, `triage`. Only `herdr` is installed. It is installed whether or not Herdr
+  itself is installed, and its description limits it to explicit Herdr requests.
 - Skills dropped from this repo are listed in `REMOVED_SKILLS` (`frontend-codex` since
   2026-11-06). Before installing, `pull.py` reads the lock file (`$XDG_STATE_HOME/skills/.skill-lock.json`,
   or `~/.agents/.skill-lock.json`) and runs `npx -y skills@1.7.6 remove <names> -g -y` only for names

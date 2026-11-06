@@ -78,6 +78,7 @@ Claude Code already has.
 | `anthropics/skills` | `frontend-design`, `skill-creator` |
 | `nextlevelbuilder/ui-ux-pro-max-skill` | `ui-ux-pro-max` |
 | `mikubaka88/CCFA-Skills` | All of them (`ccf-*`), including ones added upstream later |
+| `herdrdev/herdr` | `herdr` |
 
 - Every run installs the latest version. `npx skills update -g` also updates them, since they are
   listed in `~/.agents/.skill-lock.json` with any other skills you added. Skills removed upstream
