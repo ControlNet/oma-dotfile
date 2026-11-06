@@ -131,5 +131,52 @@ class CodexNotifyPathTests(unittest.TestCase):
         self.assertEqual(notify, ['/opt/py "3"/bin/python', "/home/me/.codex/codex-gotify-notify.py"])
 
 
+class CodexShadowedSkillTests(unittest.TestCase):
+    """The shared ~/.agents/skills/skill-creator replaces Codex's bundled copy."""
+
+    codex_dir = Path("/home/me/.codex")
+    bundled = str(codex_dir / "skills" / ".system" / "skill-creator" / "SKILL.md")
+
+    def entries(self, original: str) -> list[dict]:
+        lines = pull.ensure_codex_shadowed_skills_disabled(original.splitlines(), self.codex_dir)
+        return tomllib.loads("\n".join(lines)).get("skills", {}).get("config", [])
+
+    def test_bundled_copy_is_disabled_by_path(self) -> None:
+        # Disabling by name would also hide the shared copy, so only its path is used.
+        self.assertEqual(self.entries('model = "x"\n'), [{"path": self.bundled, "enabled": False}])
+
+    def test_existing_entry_is_reused_and_reenabling_is_undone(self) -> None:
+        original = f'[[skills.config]]\npath = "{self.bundled}"\nenabled = true # mine\n'
+        self.assertEqual(self.entries(original), [{"path": self.bundled, "enabled": False}])
+
+    def test_entry_without_enabled_gets_it(self) -> None:
+        original = f'[[skills.config]]\npath = "{self.bundled}"\n\n[profiles.work]\nmodel = "y"\n'
+        lines = pull.ensure_codex_shadowed_skills_disabled(original.splitlines(), self.codex_dir)
+        saved = tomllib.loads("\n".join(lines))
+        self.assertEqual(saved["skills"]["config"], [{"path": self.bundled, "enabled": False}])
+        self.assertEqual(saved["profiles"]["work"]["model"], "y")
+
+    def test_other_skill_entries_are_kept(self) -> None:
+        original = ('[[skills.config]]\nname = "imagegen"\nenabled = false\n\n'
+                    '[[skills.config]]\npath = "/elsewhere/SKILL.md"\nenabled = true\n')
+        self.assertEqual(self.entries(original), [
+            {"name": "imagegen", "enabled": False},
+            {"path": "/elsewhere/SKILL.md", "enabled": True},
+            {"path": self.bundled, "enabled": False},
+        ])
+
+    def test_second_run_changes_nothing(self) -> None:
+        once = pull.ensure_codex_shadowed_skills_disabled([], self.codex_dir)
+        self.assertEqual(pull.ensure_codex_shadowed_skills_disabled(once, self.codex_dir), once)
+
+    def test_full_config_install_disables_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.dict(os.environ, {"CODEX_BASE_URL": "https://example.test/v1"}):
+            pull.ensure_codex_config(Path(tmp), "skills-test")
+            saved = tomllib.loads((Path(tmp) / "config.toml").read_text(encoding="utf-8"))
+        bundled = str(Path(tmp) / "skills" / ".system" / "skill-creator" / "SKILL.md")
+        self.assertEqual(saved["skills"]["config"], [{"path": bundled, "enabled": False}])
+
+
 if __name__ == "__main__":
     unittest.main()

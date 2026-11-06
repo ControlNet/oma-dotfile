@@ -1209,6 +1209,42 @@ def ensure_codex_notify_config_lines(lines: list[str], codex_dir: Path) -> list[
     return [*lines[:insert_idx], desired_line, *lines[insert_idx:]]
 
 
+# Codex bundles its own copy of these; the one in ~/.agents/skills replaces it.
+CODEX_SHADOWED_SYSTEM_SKILLS = ("skill-creator",)
+
+
+def ensure_codex_skill_path_disabled(lines: list[str], skill_path: str) -> list[str]:
+    """Make a `[[skills.config]]` entry for skill_path say `enabled = false`."""
+    headers = [idx for idx in toml_statement_starts(lines) if TOML_TABLE_HEADER.match(lines[idx])]
+    for pos, start in enumerate(headers):
+        header = TOML_TABLE_HEADER.match(lines[start])
+        if not lines[start].lstrip().startswith("[[") or toml_key_name(header.group(1)) != "skills.config":
+            continue
+        end = headers[pos + 1] if pos + 1 < len(headers) else len(lines)
+        block = lines[start + 1:end]
+        paths = find_toml_key_assignment_ranges(block, "path")
+        if not any(read_toml_string_assignment("\n".join(block[a:b]), "path") == skill_path
+                   for a, b in paths):
+            continue
+        enabled = find_toml_key_assignment_ranges(block, "enabled")
+        a, b = enabled[0] if enabled else (paths[0][1], paths[0][1])
+        block = [*block[:a], "enabled = false", *block[b:]]
+        return [*lines[:start + 1], *block, *lines[end:]]
+    entry = ["[[skills.config]]", f"path = {toml_basic_string(skill_path)}", "enabled = false"]
+    return [*lines, "", *entry] if lines and lines[-1].strip() else [*lines, *entry]
+
+
+def ensure_codex_shadowed_skills_disabled(lines: list[str], codex_dir: Path) -> list[str]:
+    """Disable Codex's bundled copies of skills that ~/.agents/skills also provides.
+
+    The selector is the path: a name selector would hide the shared copy as well.
+    """
+    for name in CODEX_SHADOWED_SYSTEM_SKILLS:
+        skill_path = codex_dir / "skills" / ".system" / name / "SKILL.md"
+        lines = ensure_codex_skill_path_disabled(lines, str(skill_path))
+    return lines
+
+
 def ensure_codex_config(codex_dir: Path, stamp: str, oauth: bool = False) -> None:
     config_path = codex_dir / "config.toml"
     if config_path.exists():
@@ -1222,6 +1258,7 @@ def ensure_codex_config(codex_dir: Path, stamp: str, oauth: bool = False) -> Non
         lines = []
 
     new_lines = ensure_codex_notify_config_lines(lines, codex_dir)
+    new_lines = ensure_codex_shadowed_skills_disabled(new_lines, codex_dir)
     new_lines = (ensure_codex_oauth_provider_config(new_lines) if oauth
                  else ensure_codex_api_provider_config(new_lines))
 
