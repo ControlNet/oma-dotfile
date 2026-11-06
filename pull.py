@@ -686,6 +686,9 @@ UPSTREAM_SKILLS = {
 }
 # Old name -> the skill that replaced it; the old copy goes once the new one is installed.
 RETIRED_SKILLS = {"frontend-claude": "frontend-design"}
+# Skills this repo no longer ships. They are uninstalled from ~/.agents/skills while the
+# skills CLI lock still says they came from this repo; a same-named skill from elsewhere stays.
+REMOVED_SKILLS = ("frontend-codex",)
 SKILLS_CLI_ENV = {"DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1"}
 
 
@@ -715,13 +718,35 @@ def installed_skill_names(document: object) -> set[str]:
             and isinstance(entry.get("name"), str)}
 
 
+def skills_lock_path() -> Path:
+    """The skills CLI's global lock file, located the way the CLI locates it."""
+    state_home = os.environ.get("XDG_STATE_HOME")
+    if state_home:
+        return Path(state_home) / "skills" / ".skill-lock.json"
+    return Path.home() / ".agents" / ".skill-lock.json"
+
+
+def removable_skills(names: tuple[str, ...]) -> list[str]:
+    """Names among `names` that the lock records as installed from this repo."""
+    try:
+        skills = json.loads(skills_lock_path().read_text(encoding="utf-8")).get("skills")
+    except (OSError, ValueError, AttributeError):
+        return []
+    if not isinstance(skills, dict):
+        return []
+    repo = f"{REPO_OWNER}/{REPO_NAME}".lower()
+    return [name for name in names if isinstance(skills.get(name), dict)
+            and str(skills[name].get("source", "")).lower() == repo]
+
+
 def remove_legacy_skill_copies(skill_dirs: list[Path], installed: set[str]) -> None:
     """Remove per-agent copies of skills that are now installed in ~/.agents/skills.
 
     Agents read both places, so a leftover copy would load twice. Only names that were
-    just installed (or retired in favour of one) are touched.
+    just installed (or retired in favour of one) and skills this repo dropped are touched.
     """
-    names = installed | {old for old, new in RETIRED_SKILLS.items() if new in installed}
+    names = (installed | {old for old, new in RETIRED_SKILLS.items() if new in installed}
+             | set(REMOVED_SKILLS))
     for skill_dir in skill_dirs:
         for name in sorted(names):
             path = skill_dir / name
@@ -739,6 +764,11 @@ def ensure_agent_skills(repo_path: Path, legacy_skill_dirs: list[Path]) -> None:
     if find_agent_executable("npx") is None:
         warn("         skills skipped: npx not found (install Node.js)")
         return
+    removable = removable_skills(REMOVED_SKILLS)
+    if removable and run_plugin_command(
+            ["npx", "-y", f"skills@{SKILLS_CLI_VERSION}", "remove", *removable, "-g", "-y"],
+            None, None, extra_env=SKILLS_CLI_ENV):
+        print(f"         - uninstalled {', '.join(removable)} (no longer shipped by this repo)")
     installed: set[str] = set()
     for source, names in agent_skill_sources(repo_path).items():
         document = read_plugin_json(skills_cli_add_command(source, names), None, None,
@@ -1483,9 +1513,12 @@ def run_plugin_process(
     return result
 
 
-def run_plugin_command(command: list[str], env_var: str, config_dir: Path) -> bool:
+def run_plugin_command(
+    command: list[str], env_var: str | None, config_dir: Path | None,
+    extra_env: dict[str, str] | None = None,
+) -> bool:
     """Run a plugin command whose success is reported only by its exit code."""
-    return run_plugin_process(command, env_var, config_dir) is not None
+    return run_plugin_process(command, env_var, config_dir, extra_env) is not None
 
 
 def read_plugin_json(

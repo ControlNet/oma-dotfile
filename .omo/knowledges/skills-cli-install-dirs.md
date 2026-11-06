@@ -109,6 +109,12 @@ example `hermes-agent`, not `hermes`).
   install failed or `npx` is missing.
 - `omo setup` imports only from OpenCode's own skills dir (`<opencode config>/skills`), so once that
   dir is cleaned it does not bring the duplicates back into `~/.omo/agent/skills`.
+- Skills dropped from this repo are listed in `REMOVED_SKILLS` (`frontend-codex` since
+  2026-11-06). Before installing, `pull.py` reads the lock file (`$XDG_STATE_HOME/skills/.skill-lock.json`,
+  or `~/.agents/.skill-lock.json`) and runs `npx -y skills@1.7.6 remove <names> -g -y` only for names
+  whose `source` is this repo. `remove` deletes `~/.agents/skills/<name>` and its lock entry. Running
+  it again only prints "No matching skills found". Old per-agent copies with these names are deleted
+  even when nothing is installed.
 - Tests: `tests/test_agent_skills.py`. The installer tests patch `ensure_agent_skills`, because their
   fake `git clone` answers every `subprocess.run` call.
 

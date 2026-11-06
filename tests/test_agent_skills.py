@@ -85,7 +85,9 @@ class InstalledNamesTests(unittest.TestCase):
             self.assertEqual(pull.installed_skill_names(reply), set(), reply)
 
 
-class EnsureAgentSkillsTests(unittest.TestCase):
+class AgentSkillsHarness(unittest.TestCase):
+    """Fake npx, CLI replies and lock file; holds no tests itself."""
+
     def setUp(self):
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.repo = self.tmp / "repo"
@@ -95,6 +97,14 @@ class EnsureAgentSkillsTests(unittest.TestCase):
                                                   return_value=Path("/fake/bin/npx")))
         self.replies: dict[str, object] = {}
         self.cli = self.enterContext(patch.object(pull, "read_plugin_json", side_effect=self.reply))
+        self.lock = self.tmp / "state" / ".skill-lock.json"
+        self.enterContext(patch.object(pull, "skills_lock_path", return_value=self.lock))
+        self.remove = self.enterContext(patch.object(pull, "run_plugin_command", return_value=True))
+
+    def write_lock(self, sources: dict[str, str]) -> None:
+        self.lock.parent.mkdir(parents=True, exist_ok=True)
+        skills = {name: {"source": source, "sourceType": "github"} for name, source in sources.items()}
+        _ = self.lock.write_text(json.dumps({"version": 3, "skills": skills}), encoding="utf-8")
 
     def reply(self, command, *args, **kwargs):
         return self.replies.get(command[4])
@@ -105,6 +115,8 @@ class EnsureAgentSkillsTests(unittest.TestCase):
             pull.ensure_agent_skills(self.repo, self.legacy)
         return out.getvalue() + err.getvalue()
 
+
+class EnsureAgentSkillsTests(AgentSkillsHarness):
     def test_each_source_runs_with_telemetry_off(self):
         self.run_install()
         sources = [call.args[0][4] for call in self.cli.call_args_list]
@@ -168,6 +180,62 @@ class EnsureAgentSkillsTests(unittest.TestCase):
         self.cli.assert_not_called()
         self.assertTrue(old.is_file())
         self.assertIn("npx", output)
+
+
+class RemovedSkillTests(AgentSkillsHarness):
+    """Skills dropped from this repo are uninstalled from ~/.agents/skills."""
+
+    def test_frontend_codex_is_no_longer_shipped(self):
+        self.assertIn("frontend-codex", pull.REMOVED_SKILLS)
+        self.assertFalse((ROOT / "skills" / "frontend-codex").exists())
+        self.assertNotIn("frontend-codex", pull.agent_skill_sources(ROOT).get(REPO_SOURCE, ()))
+
+    def test_skill_installed_from_this_repo_is_removed_with_the_cli(self):
+        self.write_lock({"frontend-codex": f"{pull.REPO_OWNER}/{pull.REPO_NAME}", "ccf-common": "someone/else"})
+        output = self.run_install()
+        command = self.remove.call_args.args[0]
+        self.assertEqual(command, ["npx", "-y", f"skills@{pull.SKILLS_CLI_VERSION}", "remove",
+                                   "frontend-codex", "-g", "-y"])
+        self.assertEqual(self.remove.call_args.kwargs["extra_env"], pull.SKILLS_CLI_ENV)
+        self.assertIn("frontend-codex", output)
+
+    def test_same_name_from_another_source_is_kept(self):
+        self.write_lock({"frontend-codex": "someone/else"})
+        self.run_install()
+        self.remove.assert_not_called()
+
+    def test_nothing_to_remove_without_a_lock(self):
+        self.run_install()
+        self.remove.assert_not_called()
+
+    def test_unreadable_lock_removes_nothing(self):
+        self.lock.parent.mkdir(parents=True)
+        _ = self.lock.write_text("{not json", encoding="utf-8")
+        self.run_install()
+        self.remove.assert_not_called()
+
+    def test_old_per_agent_copies_go_even_when_nothing_installs(self):
+        old = write_skill(self.legacy[0], "frontend-codex")
+        own = write_skill(self.legacy[0], "my-skill")
+        self.run_install()
+        self.assertFalse(old.parent.exists())
+        self.assertTrue(own.is_file())
+
+    def test_without_npx_nothing_is_removed(self):
+        self.write_lock({"frontend-codex": f"{pull.REPO_OWNER}/{pull.REPO_NAME}"})
+        old = write_skill(self.legacy[0], "frontend-codex")
+        self.npx.return_value = None
+        self.run_install()
+        self.remove.assert_not_called()
+        self.assertTrue(old.is_file())
+
+
+class LockPathTests(unittest.TestCase):
+    def test_lock_follows_xdg_state_home_like_the_cli(self):
+        with patch.dict(pull.os.environ, {"XDG_STATE_HOME": "/state"}):
+            self.assertEqual(pull.skills_lock_path(), Path("/state/skills/.skill-lock.json"))
+        with patch.dict(pull.os.environ, {}, clear=True), patch.object(Path, "home", return_value=Path("/h")):
+            self.assertEqual(pull.skills_lock_path(), Path("/h/.agents/.skill-lock.json"))
 
 
 class ExtraEnvTests(unittest.TestCase):

@@ -70,7 +70,7 @@ does not read it and gets none of these skills yet.
 
 | Source | Skills |
 |---|---|
-| This repo's `skills/` | `frontend-codex`, `github-cli`, `notion-api`, `secret-guard` |
+| This repo's `skills/` | `github-cli`, `notion-api`, `secret-guard` |
 | `vercel-labs/skills` | `find-skills` |
 | `vercel-labs/agent-skills` | `web-design-guidelines` |
 | `anthropics/skills` | `frontend-design`, `skill-creator` |
@@ -86,6 +86,9 @@ does not read it and gets none of these skills yet.
 - Skills are skipped with a warning when `npx` is missing or offline; old copies then stay.
 - To add a third-party skill, add its source to `UPSTREAM_SKILLS` in `pull.py`. To add your own,
   put it in `skills/` and push.
+- To drop one of your own, delete it from `skills/` and add its name to `REMOVED_SKILLS`. The next
+  run uninstalls it with `npx skills remove`, but only if `~/.agents/.skill-lock.json` says it came
+  from this repo; a same-named skill from elsewhere is kept. Dropped so far: `frontend-codex`.
 
 ## OMP Gotify notifications
 
