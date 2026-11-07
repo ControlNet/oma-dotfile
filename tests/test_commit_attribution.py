@@ -17,6 +17,7 @@ import unittest
 from unittest.mock import patch
 
 from omadotfile.agents import claude
+from omadotfile.core import proc
 from omadotfile.core.proc import Runner
 from support import ROOT, TestCase, make_context
 
@@ -153,7 +154,7 @@ class GitHookTests(TestCase):
         self.assertIn("python3", output)
 
     def test_without_git_nothing_happens(self):
-        with patch.object(claude.subprocess, "run", side_effect=FileNotFoundError("git")):
+        with patch.object(proc.subprocess, "run", side_effect=FileNotFoundError("git")):
             output = self.install()
         self.assertFalse((self.home / ".config").exists())
         self.assertIn("git", output)

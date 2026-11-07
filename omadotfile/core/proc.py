@@ -77,8 +77,9 @@ class Runner:
         """Where `name` is on this run's PATH alone: what a hook or shebang will find."""
         return on_path(name, self.env)
 
-    def run(self, command: list[str]) -> subprocess.CompletedProcess[str]:
-        """Run command; CommandFailed if it cannot start or exits non-zero."""
+    def run(self, command: list[str], *, check: bool = True,
+            timeout: float = COMMAND_TIMEOUT) -> subprocess.CompletedProcess[str]:
+        """Run command; CommandFailed if it cannot start, times out, or (with check) exits non-zero."""
         env = {**self.env, **self.pin}
         executable = self.which(command[0])
         if executable is not None:
@@ -93,11 +94,11 @@ class Runner:
                 text=True,
                 env=env,
                 stdin=subprocess.DEVNULL,
-                timeout=COMMAND_TIMEOUT,
+                timeout=timeout,
             )
         except (OSError, subprocess.SubprocessError) as exc:
             raise CommandFailed(f"Failed to run {' '.join(command)}: {exc}") from exc
-        if result.returncode != 0:
+        if check and result.returncode != 0:
             # Command output may contain tokens or local paths, so it is not in the message.
             raise CommandFailed(f"{' '.join(command)} failed with exit code {result.returncode}")
         return result

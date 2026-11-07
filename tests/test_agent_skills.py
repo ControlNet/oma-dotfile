@@ -493,7 +493,7 @@ class RemoteCommitTests(TestCase):
 
     def ls_remote(self, stdout: str = "", returncode: int = 0, error: Exception | None = None):
         done = subprocess.CompletedProcess(["git"], returncode, stdout=stdout, stderr="")
-        return patch.object(skills.subprocess, "run", side_effect=error, return_value=done)
+        return patch.object(proc.subprocess, "run", side_effect=error, return_value=done)
 
     def setUp(self):
         self.ctx = make_context(Path("/h"))
@@ -504,6 +504,7 @@ class RemoteCommitTests(TestCase):
         command = run.call_args.args[0]
         self.assertEqual(command[-2:], ["https://github.com/o/r.git", "HEAD"])
         self.assertEqual(run.call_args.kwargs["env"]["GIT_TERMINAL_PROMPT"], "0")
+        self.assertEqual(run.call_args.kwargs["timeout"], 30)  # many run at once; none hangs long
 
     def test_ref_prefers_the_branch_then_the_peeled_tag(self):
         reply = f"{'2' * 40}\trefs/tags/v1\n{'3' * 40}\trefs/tags/v1^{{}}\n{'4' * 40}\trefs/heads/v1\n"

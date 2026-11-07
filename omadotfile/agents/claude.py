@@ -4,7 +4,6 @@ from collections.abc import Mapping
 from pathlib import Path
 import shutil
 import stat
-import subprocess
 import sys
 
 from omadotfile.agents.base import Agent
@@ -14,6 +13,7 @@ from omadotfile.context import Context
 from omadotfile.core.codec import JSON, JsonObject
 from omadotfile.core.errors import warns_on
 from omadotfile.core.files import IGNORED_NAMES, Files
+from omadotfile.core.proc import CommandFailed
 from omadotfile.inject import inject
 
 
@@ -81,11 +81,11 @@ def update_settings(files: Files, /, dst: Path) -> bool:
     return files.update(dst, JSON, without_attribution)
 
 
-@warns_on(OSError, subprocess.CalledProcessError, message="git config failed ({error}); commit-msg hook not installed")
+@warns_on(CommandFailed, message="{reason}; commit-msg hook not installed")
 def global_hooks_dir(ctx: Context) -> Path | None:
     """The global core.hooksPath, set to ~/.config/git/hooks when unset; None if unusable."""
-    result = subprocess.run(["git", "config", "--global", "--type=path", "--get", "core.hooksPath"],
-                            capture_output=True, text=True, env=dict(ctx.env))
+    # Unchecked: git exits 1 when the key is unset.
+    result = ctx.runner.run(["git", "config", "--global", "--type=path", "--get", "core.hooksPath"], check=False)
     if result.returncode == 0 and result.stdout.strip():
         hooks_dir = Path(result.stdout.strip())
         if not hooks_dir.is_absolute():
@@ -94,8 +94,7 @@ def global_hooks_dir(ctx: Context) -> Path | None:
             return None
         return hooks_dir
     hooks_dir = ctx.home / ".config" / "git" / "hooks"
-    _ = subprocess.run(["git", "config", "--global", "core.hooksPath", str(hooks_dir)],
-                       check=True, capture_output=True, text=True, env=dict(ctx.env))
+    _ = ctx.runner.run(["git", "config", "--global", "core.hooksPath", str(hooks_dir)])
     item(f"git core.hooksPath set to {hooks_dir}")
     warn("         Hooks in each repo's .git/hooks no longer run; with git-lfs, "
          "run `git lfs install` to put its hooks there too")

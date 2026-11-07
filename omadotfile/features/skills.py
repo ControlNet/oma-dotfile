@@ -11,7 +11,6 @@ import json
 from pathlib import Path
 import re
 import shutil
-import subprocess
 
 from omadotfile.console import item, warn
 from omadotfile.constants import (
@@ -26,7 +25,7 @@ from omadotfile.constants import (
 from omadotfile.context import Context, RepoRef
 from omadotfile.core.errors import skips, warns_on
 from omadotfile.core.files import Files
-from omadotfile.core.proc import Runner
+from omadotfile.core.proc import CommandFailed, Runner
 from omadotfile.inject import inject
 from omadotfile.migration import migration
 from omadotfile.step import found_any, requires, step
@@ -130,15 +129,10 @@ def ls_remote_commit(ctx: Context, source: str) -> str | None:
     `git ls-remote` needs no GitHub API quota and downloads no files.
     """
     repo, _, ref = source.partition("#")
+    git = ctx.runner.pinned({"GIT_TERMINAL_PROMPT": "0"})
     try:
-        result = subprocess.run(
-            ["git", "ls-remote", f"https://github.com/{repo}.git", ref or "HEAD"],
-            capture_output=True, text=True, timeout=30,
-            env={**ctx.env, "GIT_TERMINAL_PROMPT": "0"},
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    if result.returncode != 0:
+        result = git.run(["git", "ls-remote", f"https://github.com/{repo}.git", ref or "HEAD"], timeout=30)
+    except CommandFailed:
         return None
     commits = {}
     for line in result.stdout.splitlines():

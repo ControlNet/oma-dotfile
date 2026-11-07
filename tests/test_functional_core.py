@@ -157,6 +157,24 @@ class RunnerTests(TestCase):
                 self.assertRaisesRegex(CommandFailed, r"^Failed to run /fake/bin/tool x: no tool$"):
             self.runner.run(["tool", "x"])
 
+    def test_unchecked_run_returns_a_non_zero_exit_but_still_fails_to_start(self):
+        # `git config --get` exits 1 for an unset key: an answer, not a failure.
+        with self.run_with(returncode=1, stdout="", stderr=""):
+            self.assertEqual(self.runner.run(["tool", "x"], check=False).returncode, 1)
+        with patch.object(proc.subprocess, "run", side_effect=FileNotFoundError("no tool")), \
+                self.assertRaisesRegex(CommandFailed, r"^Failed to run /fake/bin/tool x: no tool$"):
+            self.runner.run(["tool", "x"], check=False)
+
+    def test_timeout_defaults_to_the_command_timeout_and_can_be_shorter(self):
+        with self.run_with(stdout="", stderr="") as run:
+            self.runner.run(["tool"])
+            self.assertEqual(run.call_args.kwargs["timeout"], proc.COMMAND_TIMEOUT)
+            self.runner.run(["tool"], timeout=30)
+            self.assertEqual(run.call_args.kwargs["timeout"], 30)
+        with patch.object(proc.subprocess, "run", side_effect=subprocess.TimeoutExpired(["tool"], 30)), \
+                self.assertRaises(CommandFailed):
+            self.runner.run(["tool"], timeout=30)
+
     def test_command_failed_is_a_skip(self):
         self.assertTrue(issubclass(CommandFailed, Skip))
         self.assertFalse(hasattr(Runner, "ok"))  # stale patches of Runner.ok must fail loudly
