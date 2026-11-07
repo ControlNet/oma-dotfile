@@ -13,7 +13,8 @@ from omadotfile.constants import CLAUDE_ATTRIBUTION, CLAUDE_FILES, CLAUDE_PLUGIN
 from omadotfile.context import Context
 from omadotfile.core.codec import JSON, JsonObject
 from omadotfile.core.errors import warns_on
-from omadotfile.core.files import IGNORED_NAMES
+from omadotfile.core.files import IGNORED_NAMES, Files
+from omadotfile.inject import inject
 
 
 def with_hook_command(document: JsonObject, command: str) -> JsonObject:
@@ -74,9 +75,10 @@ def ensure_attribution(ctx: Context, claude_dir: Path) -> None:
         item("settings.json (no commit or PR attribution)")
 
 
+@inject
 @warns_on(OSError, ValueError, message="Failed to read {dst} ({error}); leaving commit attribution unchanged")
-def update_settings(ctx: Context, dst: Path) -> bool:
-    return ctx.files.update(dst, JSON, without_attribution)
+def update_settings(files: Files, /, dst: Path) -> bool:
+    return files.update(dst, JSON, without_attribution)
 
 
 @warns_on(OSError, subprocess.CalledProcessError, message="git config failed ({error}); commit-msg hook not installed")

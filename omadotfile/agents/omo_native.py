@@ -15,7 +15,9 @@ from omadotfile.constants import OMO_HERDR_DAG_VERSION, OMO_NATIVE_FILES, OPENCO
 from omadotfile.context import Context
 from omadotfile.core.codec import JSONC, JsonObject
 from omadotfile.core.errors import Skip, skips, warns_on
+from omadotfile.core.files import Files
 from omadotfile.core.jsonc import read_jsonc_object
+from omadotfile.inject import inject
 from omadotfile.step import requires
 
 # omo-ai bin/lib/agent-dir.js AGENT_DIR_ENV_NAMES, most specific first.
@@ -108,9 +110,10 @@ def with_extension_disabled(name: str, settings: JsonObject) -> JsonObject:
     return {**settings, "disabledBuiltinExtensions": [*disabled, name]}
 
 
+@inject
 @warns_on(OSError, ValueError, message="Failed to read {dst} ({error}); leaving settings.json unchanged")
-def update_settings(ctx: Context, dst: Path) -> bool:
-    return ctx.files.update(dst, JSONC, partial(with_extension_disabled, "rules"))
+def update_settings(files: Files, /, dst: Path) -> bool:
+    return files.update(dst, JSONC, partial(with_extension_disabled, "rules"))
 
 
 def herdr_dag_payload(root: Path) -> dict[str, bytes] | None:

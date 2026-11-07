@@ -25,7 +25,9 @@ from omadotfile.constants import (
 )
 from omadotfile.context import Context, RepoRef
 from omadotfile.core.errors import skips, warns_on
+from omadotfile.core.files import Files
 from omadotfile.core.proc import Runner
+from omadotfile.inject import inject
 from omadotfile.migration import migration
 from omadotfile.step import found_any, requires, step
 
@@ -171,9 +173,10 @@ def write_commits(ctx: Context, recorded: dict[str, str]) -> None:
     _ = save_commits(ctx, commits_path(ctx), json.dumps(recorded, indent=2, sort_keys=True) + "\n")
 
 
+@inject
 @warns_on(OSError, message="Could not save skill commits to {path}: {reason}")
-def save_commits(ctx: Context, path: Path, text: str) -> bool:
-    return ctx.files.write_text(path, text, backup=False)
+def save_commits(files: Files, /, path: Path, text: str) -> bool:
+    return files.write_text(path, text, backup=False)
 
 
 def current_skill_names(ctx: Context, source: str, names: tuple[str, ...], agents: tuple[str, ...],

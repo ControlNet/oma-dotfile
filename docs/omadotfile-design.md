@@ -459,3 +459,26 @@ prefix (`omp_config.yml` -> `config/omp/config.yml`, `omp_models.yaml` -> `confi
 are in `constants.py`. A golden run against the previous commit installed the same files in all
 five sandboxes; the step output names the three renamed OMP files by their new names.
 `skills/` stays at the root, where the skills CLI looks for this repo's skills.
+
+### Dependency injection: `@inject` by type, `@uses` when ambiguous (2026-11-07)
+
+DI stays manual: `cli.main` builds the `Context` (the composition root) and passes it down.
+`omadotfile/inject.py` adds two small decorators so a function can name the services it uses
+instead of taking the whole Context, while callers keep passing `ctx`:
+
+- `@inject` (preferred) fills the leading positional-only parameters by type from a static
+  `PROVIDERS` table: `Files`, `Runner`, `Options`, `RepoRef`, each a single instance per run.
+  `def update_settings(files: Files, /, dst: Path)` becomes `update_settings(ctx, dst)`.
+- `@uses(home_of, repo_of)` (fallback) takes explicit providers for types that are ambiguous
+  in the Context (`repo`/`home`/`work` are all `Path`, `env` is a `Mapping`).
+
+Both are typed with overloads over `Concatenate`, at most `MAX_INJECTED = 3` parameters.
+Pyright infers the wired signature (`(Context, dst: Path) -> bool | None`) and reports a
+non-injectable type under `@inject` ("No overloads for inject") and providers in the wrong order
+under `@uses`. The runtime checks the same rules when decorating: injected parameters lead and
+are positional-only, and the wired function's `__signature__` starts with `ctx: Context`, so
+stacking a second decorator fails instead of misbinding. `@inject` goes above `@warns_on`, which
+then formats its message from the original parameters.
+
+Pilot: the four Files-only wrappers (`claude.update_settings`, `omo_native.update_settings`,
+`omp.write_models`, `skills.save_commits`). Golden runs: identical.

@@ -13,6 +13,8 @@ from omadotfile.context import Context
 from omadotfile.core import yaml_merge
 from omadotfile.core.codec import TEXT
 from omadotfile.core.errors import warns_on
+from omadotfile.core.files import Files
+from omadotfile.inject import inject
 
 BASE_URL_PLACEHOLDER = re.compile(r'^(\s*baseUrl:\s*)(["\']?)CODEX_BASE_URL\2(\s*(?:#.*)?)$', re.MULTILINE)
 
@@ -64,9 +66,10 @@ def gateway_models(ctx: Context, src: Path) -> str:
     return content
 
 
+@inject
 @warns_on(OSError, message="Failed to write {dst}: {reason}")
-def write_models(ctx: Context, dst: Path, content: str) -> bool:
-    return ctx.files.write_text(dst, content)
+def write_models(files: Files, /, dst: Path, content: str) -> bool:
+    return files.write_text(dst, content)
 
 
 class Omp(Agent, key="omp", label="oh-my-pi", executable="omp"):

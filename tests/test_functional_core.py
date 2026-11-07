@@ -1,6 +1,8 @@
-"""The higher-order building blocks: warns_on/Skip, Codec + Files.update, @step, found_any, requires."""
+"""The higher-order building blocks: warns_on/Skip, Codec + Files.update, @step, found_any, requires,
+and dependency injection (@inject by type, @uses with explicit providers)."""
 
 import contextlib
+import inspect
 import io
 from pathlib import Path
 import subprocess
@@ -14,6 +16,9 @@ from omadotfile.core.errors import Skip, skips, warns_on
 from omadotfile.core.files import Files
 from omadotfile.core import proc
 from omadotfile.core.proc import CommandFailed, Runner
+from omadotfile import inject as injection
+from omadotfile.context import Options
+from omadotfile.inject import MAX_INJECTED, home_of, inject, options_of, repo_of, runner_of, uses
 from omadotfile.step import FunctionStep, Step, found_any, requires, step
 from support import TestCase, make_context
 
@@ -155,6 +160,91 @@ class RunnerTests(TestCase):
     def test_command_failed_is_a_skip(self):
         self.assertTrue(issubclass(CommandFailed, Skip))
         self.assertFalse(hasattr(Runner, "ok"))  # stale patches of Runner.ok must fail loudly
+
+
+class InjectTests(TestCase):
+    def setUp(self):
+        self.ctx = make_context(Path(self.enterContext(tempfile.TemporaryDirectory())), oauth=True)
+
+    def test_dependencies_are_injected_by_type_and_the_rest_is_passed_through(self):
+        @inject
+        def one(files: Files, /, name: str, *, suffix: str = "") -> tuple[Files, str]:
+            return files, name + suffix
+
+        @inject
+        def two(runner: Runner, options: Options, /, name: str) -> tuple[Runner, bool, str]:
+            return runner, options.oauth, name
+
+        self.assertEqual(one(self.ctx, "a", suffix="b"), (self.ctx.files, "ab"))
+        runner, oauth, name = two(self.ctx, "x")
+        self.assertIsInstance(runner, Runner)
+        self.assertEqual((oauth, name), (True, "x"))
+        self.assertEqual(one.__name__, "one")
+
+    def test_the_wired_signature_takes_the_context_first(self):
+        @inject
+        def one(files: Files, /, name: str) -> str:
+            return name
+
+        self.assertEqual(list(inspect.signature(one).parameters), ["ctx", "name"])
+
+    def test_only_the_leading_injectable_prefix_is_injected_up_to_the_maximum(self):
+        @inject
+        def first_only(files: Files, /, name: str, runner: Runner) -> tuple[str, Runner]:
+            return name, runner
+
+        other = Runner({}, Path("/other"))
+        self.assertEqual(first_only(self.ctx, "n", other), ("n", other))
+        self.assertEqual(MAX_INJECTED, 3)
+
+    def test_misdeclared_functions_fail_when_decorated(self):
+        def unregistered(home: Path, /) -> None: ...  # ambiguous type: use @uses
+
+        def not_positional_only(files: Files, runner: Runner) -> None: ...
+
+        def too_many(files: Files, runner: Runner, options: Options, files2: Files, /) -> None: ...
+
+        for function, reason in ((unregistered, "@uses"), (not_positional_only, "positional-only")):
+            with self.subTest(function=function.__name__), self.assertRaisesRegex(TypeError, reason):
+                inject(function)
+        # A fourth leading dependency stays a parameter, as pyright sees it.
+        self.assertEqual(list(inspect.signature(inject(too_many)).parameters), ["ctx", "files2"])
+
+    def test_stacking_fails_instead_of_misbinding(self):
+        @inject
+        def one(files: Files, /) -> None: ...
+
+        with self.assertRaisesRegex(TypeError, "@uses"):
+            inject(one)
+
+    def test_table_and_type_constraints_name_the_same_types(self):
+        for dep in (injection.Dep1, injection.Dep2, injection.Dep3):
+            self.assertEqual(set(dep.__constraints__), set(injection.PROVIDERS))
+        self.assertNotIn(type(self.ctx), injection.PROVIDERS)
+
+    def test_explicit_providers_cover_ambiguous_types(self):
+        @uses(home_of, repo_of)
+        def paths(home: Path, repo: Path, /, name: str) -> tuple[Path, Path, str]:
+            return home, repo, name
+
+        self.assertEqual(paths(self.ctx, "n"), (self.ctx.home, self.ctx.repo, "n"))
+        self.assertEqual(list(inspect.signature(paths).parameters), ["ctx", "name"])
+
+    def test_uses_needs_positional_only_parameters_for_its_providers(self):
+        def loose(runner: Runner, options: Options) -> None: ...
+
+        with self.assertRaisesRegex(TypeError, "positional-only"):
+            uses(runner_of, options_of)(loose)
+
+    def test_inject_over_warns_on_keeps_the_message_fields(self):
+        @inject
+        @warns_on(OSError, message="Failed to write {dst}: {reason}")
+        def write(files: Files, /, dst: Path) -> bool:
+            raise OSError("disk full")
+
+        result, err = quietly(write, self.ctx, Path("x.json"))
+        self.assertIsNone(result)
+        self.assertIn("Failed to write x.json: disk full", err)
 
 
 class CodecTests(TestCase):

@@ -93,6 +93,13 @@ Things worth knowing when changing it:
 - Protocol vs ABC: a Protocol where implementations share no code (`Step`, `Codec`); an ABC
   where they share a template method (`Component`/`Agent`). Pyright does not see attributes a
   class decorator sets, so a decorator cannot make a class satisfy a Protocol.
+- A function that needs only some services takes them as leading positional-only parameters
+  under `@inject` (`def f(files: Files, runner: Runner, /, dst: Path)`; callers still pass `ctx`).
+  Only `Files`/`Runner`/`Options`/`RepoRef` inject by type; for `Path`/`Mapping` fields use
+  `@uses(home_of, repo_of)`. Put `@inject` above `@warns_on`. A new injectable type goes in both
+  `PROVIDERS` and the `Dep1..3` constraints (a test checks they match). A TypeVar constrained to
+  `Home = NewType("Home", Path)` accepts `Home` and rejects a plain `Path` in pyright, so a NewType
+  would make `home` injectable by type if ever needed.
 - One-off cleanups are `@migration(since=, reason=, remove_by=)`. They run on every install
   until deleted; `tests/test_migrations.py` fails from the `remove_by` month on.
 - PATH lookups (`shutil.which`) still read the process environment, not `ctx.env`; tests
