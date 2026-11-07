@@ -17,7 +17,7 @@ from omadotfile import constants
 from omadotfile.constants import REMOVED_SKILLS, RETIRED_SKILLS
 from omadotfile.context import RepoRef
 from omadotfile.core import proc
-from omadotfile.core.proc import Runner
+from omadotfile.core.proc import CommandFailed, Runner
 from omadotfile.features import skills
 from support import ROOT, TestCase, make_context
 
@@ -109,10 +109,13 @@ class AgentSkillsHarness(TestCase):
         # Runner methods are patched on the class: ctx.runner calls them without self.
         self.npx = self.enterContext(patch.object(Runner, "which", return_value=Path("/fake/bin/npx")))
         self.replies: dict[str, object] = {}
-        self.cli = self.enterContext(patch.object(Runner, "json", side_effect=self.reply))
+        # autospec: the mocks get the Runner too, so tests can read the env it pins.
+        self.cli = self.enterContext(patch.object(Runner, "json", autospec=True, side_effect=self.reply))
         self.lock = self.tmp / "state" / ".skill-lock.json"
         self.enterContext(patch.object(skills, "lock_path", return_value=self.lock))
-        self.remove = self.enterContext(patch.object(Runner, "ok", return_value=True))
+        self.remove = self.enterContext(patch.object(Runner, "run", autospec=True))
+        # Tripwire: every CLI call above is faked, so nothing may reach a real subprocess.
+        self.enterContext(patch.object(proc.subprocess, "run", side_effect=AssertionError("real subprocess")))
         # No source commit is known unless a test sets one, so every source installs.
         self.commits: dict[str, str] = {}
         self.enterContext(patch.object(skills, "remote_commits", side_effect=lambda ctx, sources: {
@@ -124,8 +127,11 @@ class AgentSkillsHarness(TestCase):
         skills = {name: {"source": source, "sourceType": "github"} for name, source in sources.items()}
         _ = self.lock.write_text(json.dumps({"version": 3, "skills": skills}), encoding="utf-8")
 
-    def reply(self, command, *args, **kwargs):
-        return self.replies.get(command[4])
+    def reply(self, runner, command):
+        reply = self.replies.get(command[4])
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
 
     def run_install(self) -> str:
         with contextlib.redirect_stdout(io.StringIO()) as out, \
@@ -137,10 +143,10 @@ class AgentSkillsHarness(TestCase):
 class EnsureAgentSkillsTests(AgentSkillsHarness):
     def test_each_source_runs_with_telemetry_off(self):
         self.run_install()
-        sources = [call.args[0][4] for call in self.cli.call_args_list]
+        sources = [call.args[1][4] for call in self.cli.call_args_list]
         self.assertEqual(sources, [*constants.UPSTREAM_SKILLS, REPO_SOURCE])
         for call in self.cli.call_args_list:
-            self.assertEqual(call.args[1], {"DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1"})
+            self.assertEqual(call.args[0].pin, {"DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1"})
 
     def test_installed_skills_leave_the_agent_dirs_and_others_stay(self):
         # Given old copies in two agent dirs, next to the user's own skill.
@@ -189,6 +195,25 @@ class EnsureAgentSkillsTests(AgentSkillsHarness):
         self.assertFalse((self.legacy[0] / "find-skills").is_symlink())
         self.assertTrue(target.is_file())
 
+    def test_a_failing_source_is_warned_about_and_the_next_one_still_installs(self):
+        failed = "BIN/npx ... failed with exit code 1"
+        self.replies = {"vercel-labs/skills": CommandFailed(failed),
+                        "vercel-labs/agent-skills": cli_reply(installed=("web-design-guidelines",))}
+        output = self.run_install()
+        self.assertIn(f"{failed}\n", output)
+        self.assertIn("Not installed from vercel-labs/skills: find-skills", output)
+        self.assertIn("web-design-guidelines (vercel-labs/agent-skills)", output)
+        self.assertEqual(len(self.cli.call_args_list), len(skills.skill_installs(
+            self.repo, self.ctx.source, claude=False)))
+
+    def test_failed_uninstall_is_warned_about_and_installs_go_on(self):
+        self.write_lock({"frontend-codex": THIS_REPO.slug})
+        self.remove.side_effect = CommandFailed("BIN/npx -y skills remove failed with exit code 1")
+        output = self.run_install()
+        self.assertIn("BIN/npx -y skills remove failed with exit code 1", output)
+        self.assertNotIn("uninstalled frontend-codex", output)
+        self.assertTrue(self.cli.call_args_list)
+
     def test_failed_cli_run_removes_nothing(self):
         old = write_skill(self.legacy[0], "find-skills")
         self.replies = {}
@@ -220,7 +245,7 @@ class ClaudeCodeSkillTests(AgentSkillsHarness):
     def installs(self) -> list[tuple[str, tuple[str, ...], tuple[str, ...]]]:
         result = []
         for call in self.cli.call_args_list:
-            command = call.args[0]
+            command = call.args[1]
             agents = tuple(command[command.index("-a") + 1:command.index("-s")])
             names = tuple(command[command.index("-s") + 1:command.index("-y", command.index("-s"))])
             result.append((command[4], names, agents))
@@ -243,14 +268,14 @@ class ClaudeCodeSkillTests(AgentSkillsHarness):
     def test_claude_config_dir_is_passed_to_the_cli(self):
         self.run_with_claude()
         for call in self.cli.call_args_list:
-            self.assertEqual(call.args[1]["CLAUDE_CONFIG_DIR"], str(self.tmp / "claude"))
+            self.assertEqual(call.args[0].pin["CLAUDE_CONFIG_DIR"], str(self.tmp / "claude"))
 
     def test_without_claude_code_nothing_links_into_it(self):
         self.run_install()
         for source, names, agents in self.installs():
             self.assertEqual(agents, ("universal",), source)
         for call in self.cli.call_args_list:
-            self.assertNotIn("CLAUDE_CONFIG_DIR", call.args[1])
+            self.assertNotIn("CLAUDE_CONFIG_DIR", call.args[0].pin)
 
 
 class RemovedSkillTests(AgentSkillsHarness):
@@ -264,10 +289,10 @@ class RemovedSkillTests(AgentSkillsHarness):
     def test_skill_installed_from_this_repo_is_removed_with_the_cli(self):
         self.write_lock({"frontend-codex": THIS_REPO.slug, "ccf-common": "someone/else"})
         output = self.run_install()
-        command = self.remove.call_args.args[0]
+        command = self.remove.call_args.args[1]
         self.assertEqual(command, ["npx", "-y", f"skills@{constants.SKILLS_CLI_VERSION}", "remove",
                                    "frontend-codex", "-g", "-y"])
-        self.assertEqual(self.remove.call_args.args[1], skills.SKILLS_CLI_ENV)
+        self.assertEqual(self.remove.call_args.args[0].pin, skills.SKILLS_CLI_ENV)
         self.assertIn("frontend-codex", output)
 
     def test_same_name_from_another_source_is_kept(self):
@@ -340,7 +365,7 @@ class SkipUnchangedSourceTests(AgentSkillsHarness):
             write_skill(self.shared, name)
 
     def ran(self) -> list[str]:
-        return [call.args[0][4] for call in self.cli.call_args_list]
+        return [call.args[1][4] for call in self.cli.call_args_list]
 
     def run_with_claude(self) -> str:
         with contextlib.redirect_stdout(io.StringIO()) as out, \
@@ -509,11 +534,11 @@ class LockPathTests(TestCase):
 
 
 class ExtraEnvTests(TestCase):
-    def test_extra_env_reaches_the_command(self):
+    def test_pinned_env_reaches_the_command(self):
         done = subprocess.CompletedProcess(["npx"], 0, stdout=json.dumps(cli_reply()), stderr="")
         with patch.object(proc, "find_executable", return_value=Path("/fake/bin/npx")), \
                 patch.object(proc.subprocess, "run", return_value=done) as run:
-            document = Runner({}, Path("/h")).json(["npx", "--version"], {"DISABLE_TELEMETRY": "1"})
+            document = Runner({}, Path("/h")).pinned({"DISABLE_TELEMETRY": "1"}).json(["npx", "--version"])
         self.assertEqual(document, [])
         env = run.call_args.kwargs["env"]
         self.assertEqual(env["DISABLE_TELEMETRY"], "1")

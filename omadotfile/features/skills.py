@@ -24,7 +24,8 @@ from omadotfile.constants import (
     UPSTREAM_SKILLS,
 )
 from omadotfile.context import Context, RepoRef
-from omadotfile.core.errors import warns_on
+from omadotfile.core.errors import skips, warns_on
+from omadotfile.core.proc import Runner
 from omadotfile.migration import migration
 from omadotfile.step import found_any, requires, step
 
@@ -243,19 +244,31 @@ def incomplete(source: str, names: tuple[str, ...], done: frozenset[str]) -> str
     return f"Not installed from {source}: {', '.join(missing)}" if missing else None
 
 
+@skips
+def uninstall(cli: Runner, names: list[str]) -> None:
+    """Uninstall skills from ~/.agents/skills; a failure is warned about and the install goes on."""
+    cli.run(["npx", "-y", f"skills@{SKILLS_CLI_VERSION}", "remove", *names, "-g", "-y"])
+    item(f"uninstalled {', '.join(names)} (no longer shipped by this repo)")
+
+
+@skips
+def add_skills(cli: Runner, source: str, names: tuple[str, ...], agents: tuple[str, ...]) -> frozenset[str]:
+    """Run the skills CLI once; the names it installed. A failed run is warned about (None)."""
+    return frozenset(installed_skill_names(cli.json(add_command(source, names, agents))))
+
+
 @requires("npx", skip="         skills skipped: npx not found (install Node.js)")
 def ensure_skills(ctx: Context, legacy_skill_dirs: list[Path], claude_dir: Path | None = None) -> None:
     """Install the shared skills with the skills CLI, then drop the old per-agent copies.
 
     With claude_dir (Claude Code installed for), skills are also linked into its skills dir.
     """
-    env = dict(SKILLS_CLI_ENV)
+    cli = ctx.runner.pinned(SKILLS_CLI_ENV)
     if claude_dir is not None:
-        env["CLAUDE_CONFIG_DIR"] = str(claude_dir)
+        cli = cli.pinned({"CLAUDE_CONFIG_DIR": str(claude_dir)})
     removable = removable_skills(ctx, REMOVED_SKILLS)
-    if removable and ctx.runner.ok(
-            ["npx", "-y", f"skills@{SKILLS_CLI_VERSION}", "remove", *removable, "-g", "-y"], env):
-        item(f"uninstalled {', '.join(removable)} (no longer shipped by this repo)")
+    if removable:
+        uninstall(cli, removable)
     installs = skill_installs(ctx.repo, ctx.source, claude_dir is not None)
     # Each run clones its whole source, so one whose commit has not moved since its last
     # full install, and whose skills are all still in place, is skipped.
@@ -272,7 +285,7 @@ def ensure_skills(ctx: Context, legacy_skill_dirs: list[Path], claude_dir: Path 
             if current:
                 item(f"{', '.join(sorted(current))} ({source}, unchanged)")
                 return InstallResult(key, frozenset(current), commit)
-        done = frozenset(installed_skill_names(ctx.runner.json(add_command(source, names, agents), env)))
+        done = add_skills(cli, source, names, agents) or frozenset()
         if done:
             also = ", also in Claude Code" if "claude-code" in agents else ""
             item(f"{', '.join(sorted(done))} ({source}{also})")

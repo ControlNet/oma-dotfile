@@ -35,7 +35,7 @@ omadotfile/
     jsonc.py               read_jsonc_object, top-level object spans, model prefix rewrite
     toml_edit.py           facade over the line-based TOML editing helpers
     ini.py                 set keys in an INI section (WakaTime cfg)
-    proc.py                find_executable, Runner (run a command, read its JSON)
+    proc.py                find_executable, Runner (run a command, read its JSON; CommandFailed)
   agents/
     base.py                Component, Agent (FileSpec is in constants.py)
     opencode.py            config files, oauth provider merge, plugins/, legacy renames
@@ -193,15 +193,17 @@ and config.toml). The order is otherwise unchanged.
 `features/wakatime.py` gets a small adapter per CLI:
 
 ```python
-class PluginCli:                     # CodexPlugins, ClaudePlugins
+class PluginCli(ABC):                # CodexPlugins, ClaudePlugins
     label: str                       # "Codex" / "Claude Code"
     executable: str
     dir_env: str                     # CODEX_HOME / CLAUDE_CONFIG_DIR, pinned to the installer's
     plugin_id: str
     after_install: str
+    cli: Runner                      # runner.pinned({dir_env: config_dir})
+    def listing(self, command) -> object | None   # @skips: a failed listing reads as empty
     def is_installed(self) -> bool   # warns when installed but disabled
-    def ensure_marketplace(self) -> bool
-    def install(self) -> bool
+    def ensure_marketplace(self) -> None          # raises Skip / CommandFailed
+    def install(self) -> None                     # raises Skip / CommandFailed
 ```
 
 and one `ensure_plugin(cli)` that holds the flow and the messages once.
@@ -384,10 +386,8 @@ sandboxes, then diff the trees. Backup files and other timestamps are ignored. E
 - Small pure extractions: `wakatime.settings_from_env`, `omp.oauth_models` /
   `gateway_models` / `write_models` (each with `@warns_on`; writing the OAuth catalog now warns
   on OSError instead of aborting), `cli.done_notes`.
-- Not done, on purpose: `Runner` raising `CommandFailed` instead of returning None, and a
-  `Runner.pinned(**env)` closure. Tests patch `Runner.json`/`Runner.ok` on the class and read
-  the `extra_env` they get, and the golden run only covers the success path, so that change
-  needs its own pass with failure-path tests first.
+- `Runner` raising `CommandFailed` and `Runner.pinned` were left for their own pass with
+  failure-path tests first (done below).
 - Typeclasses and monads were evaluated with pyright probes. A `Result`/`Either` type was
   rejected: on 3.10 there is no `typing.Never`, so `Err.map`/`Err.bind` need `NoReturn` or
   `Any` parameters, lambdas in `.map(...)` chains come out partially `Unknown` under strict
@@ -415,3 +415,16 @@ sandboxes, then diff the trees. Backup files and other timestamps are ignored. E
   pass `notes.append`. Whether to set the model provider is decided once, outside the
   transform, by `codex.provider_edit(ctx)`, so `ensure_api_provider` always has a URL. With
   CODEX_BASE_URL unset, its warning now prints before config.toml is read rather than after.
+- `Runner.run`/`json` raise `CommandFailed` (a `Skip`) with the exact text they used to warn,
+  instead of warning and returning None; `Runner.ok` is gone. `runner.pinned(mapping)` returns a
+  runner whose `pin` (an agent's config-dir env) goes over the run's env, replacing the
+  `extra_env` argument on every call. Where a failure is tolerated, a small `@skips` function
+  draws the boundary: `PluginCli.listing` (a failed listing reads as empty, so the marketplace
+  and plugin are still tried), `skills.add_skills` (one source failing does not stop the next)
+  and `skills.uninstall`. The WakaTime add/install steps and the herdr install now raise, and
+  `ensure_plugin`/`ensure_herdr_dag` are `@skips` boundaries. `test_install_run` and a golden
+  `failing` scenario (agent CLIs that exit 1) pinned the warning lines first; they are
+  unchanged. Two failures now print one line instead of two: a failed herdr `npm pack` (no
+  "did not report a tarball" after the runner's line) and a Claude `plugin install` whose CLI
+  fails (no "Failed to install" after it). A Codex `plugin add` that prints non-object JSON
+  now says "Failed to install" instead of stopping silently.

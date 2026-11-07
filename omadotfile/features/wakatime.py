@@ -22,9 +22,9 @@ from omadotfile.constants import (
 )
 from omadotfile.context import Context
 from omadotfile.core.codec import TEXT
-from omadotfile.core.errors import warns_on
+from omadotfile.core.errors import Skip, skips, warns_on
 from omadotfile.core.ini import set_section_keys
-from omadotfile.core.proc import Runner
+from omadotfile.core.proc import CommandFailed, Runner
 from omadotfile.step import found_any, step
 
 # Installer env var -> [settings] key. wakatime-cli itself reads WAKATIME_API_KEY but
@@ -93,7 +93,12 @@ def update_config(ctx: Context, path: Path, settings: dict[str, str]) -> bool:
 
 
 class PluginCli(ABC):
-    """One agent's plugin CLI, run with the agent's config dir pinned to the installer's."""
+    """One agent's plugin CLI, run with the agent's config dir pinned to the installer's.
+
+    A listing that fails is warned about and read as empty, so the install still tries to
+    add the marketplace and the plugin; a failed add or install raises (CommandFailed or Skip)
+    and ends ensure_plugin.
+    """
 
     label: str  # the agent's name in messages
     executable: str
@@ -102,27 +107,23 @@ class PluginCli(ABC):
     after_install: str  # what the user does next
 
     def __init__(self, runner: Runner, config_dir: Path):
-        self.runner = runner
-        self.pin = {self.dir_env: str(config_dir)}
+        self.cli = runner.pinned({self.dir_env: str(config_dir)})
 
-    def json(self, command: list[str]) -> object | None:
-        return self.runner.json(command, self.pin)
-
-    def ok(self, command: list[str]) -> bool:
-        return self.runner.ok(command, self.pin)
+    @skips
+    def listing(self, command: list[str]) -> object:
+        """A listing's JSON document; None (warned) when the CLI fails."""
+        return self.cli.json(command)
 
     @abstractmethod
-    def is_installed(self) -> bool:
+    def is_installed(self) -> bool: ...
+
+    @abstractmethod
+    def ensure_marketplace(self) -> None:
+        """Add the WakaTime marketplace, without replacing a differently sourced one (Skip then)."""
         ...
 
     @abstractmethod
-    def ensure_marketplace(self) -> bool:
-        """Add the WakaTime marketplace, without replacing a differently sourced one."""
-        ...
-
-    @abstractmethod
-    def install(self) -> bool:
-        ...
+    def install(self) -> None: ...
 
 
 class CodexPlugins(PluginCli):
@@ -132,13 +133,9 @@ class CodexPlugins(PluginCli):
     plugin_id = CODEX_WAKATIME_PLUGIN_ID
     after_install = "Approve the plugin hooks in the next Codex session to start tracking."
 
-    def command(self, args: list[str]) -> dict | None:
-        document = self.json(["codex", *args, "--json"])
-        return document if isinstance(document, dict) else None
-
     def is_installed(self) -> bool:
-        document = self.command(["plugin", "list", "--marketplace", WAKATIME_MARKETPLACE])
-        if document is None:
+        document = self.listing(["codex", "plugin", "list", "--marketplace", WAKATIME_MARKETPLACE, "--json"])
+        if not isinstance(document, dict):
             return False
         for entry in document.get("installed", []):
             if not isinstance(entry, dict) or entry.get("pluginId") != self.plugin_id:
@@ -151,28 +148,27 @@ class CodexPlugins(PluginCli):
             return True
         return False
 
-    def ensure_marketplace(self) -> bool:
-        document = self.command(["plugin", "marketplace", "list"])
-        if document is not None:
-            for entry in document.get("marketplaces", []):
-                if not isinstance(entry, dict) or entry.get("name") != WAKATIME_MARKETPLACE:
-                    continue
-                source = (entry.get("marketplaceSource") or {}).get("source", "")
-                if source == CODEX_WAKATIME_MARKETPLACE_GIT_URL:
-                    return True
-                warn(f"Codex marketplace '{WAKATIME_MARKETPLACE}' uses another source; "
-                     "skip WakaTime plugin")
-                return False
-        if not self.ok(["codex", "plugin", "marketplace", "add", CODEX_WAKATIME_MARKETPLACE_GIT_URL,
-                        "--json"]):
+    def ensure_marketplace(self) -> None:
+        document = self.listing(["codex", "plugin", "marketplace", "list", "--json"])
+        for entry in document.get("marketplaces", []) if isinstance(document, dict) else []:
+            if not isinstance(entry, dict) or entry.get("name") != WAKATIME_MARKETPLACE:
+                continue
+            source = (entry.get("marketplaceSource") or {}).get("source", "")
+            if source == CODEX_WAKATIME_MARKETPLACE_GIT_URL:
+                return
+            raise Skip(f"Codex marketplace '{WAKATIME_MARKETPLACE}' uses another source; skip WakaTime plugin")
+        try:
+            self.cli.run(["codex", "plugin", "marketplace", "add", CODEX_WAKATIME_MARKETPLACE_GIT_URL, "--json"])
+        except CommandFailed as exc:
             # Codex also keeps marketplace state under .tmp/marketplaces, so a stale
             # root fails the add without showing up in the marketplace listing.
-            warn(f"Stale marketplace state? Try: codex plugin marketplace remove {WAKATIME_MARKETPLACE}")
-            return False
-        return True
+            warn(str(exc))
+            raise Skip(f"Stale marketplace state? Try: codex plugin marketplace remove {WAKATIME_MARKETPLACE}") \
+                from exc
 
-    def install(self) -> bool:
-        return self.command(["plugin", "add", self.plugin_id]) is not None
+    def install(self) -> None:
+        if not isinstance(self.cli.json(["codex", "plugin", "add", self.plugin_id, "--json"]), dict):
+            raise Skip(f"Failed to install {self.plugin_id}")
 
 
 class ClaudePlugins(PluginCli):
@@ -183,7 +179,7 @@ class ClaudePlugins(PluginCli):
     after_install = "Restart Claude Code to load the plugin hooks."
 
     def is_installed(self) -> bool:
-        document = self.json(["claude", "plugin", "list", "--json"])
+        document = self.listing(["claude", "plugin", "list", "--json"])
         if not isinstance(document, list):
             return False
         for entry in document:
@@ -195,43 +191,42 @@ class ClaudePlugins(PluginCli):
             return True
         return False
 
-    def ensure_marketplace(self) -> bool:
-        document = self.json(["claude", "plugin", "marketplace", "list", "--json"])
-        if isinstance(document, list):
-            for entry in document:
-                if not isinstance(entry, dict) or entry.get("name") != WAKATIME_MARKETPLACE:
-                    continue
-                # Claude Code reports either the clone URL or the GitHub shorthand,
-                # depending on how the marketplace was originally added.
-                if entry.get("url") == CLAUDE_WAKATIME_MARKETPLACE_GIT_URL or \
-                        entry.get("repo") == CLAUDE_WAKATIME_MARKETPLACE_REPO:
-                    return True
-                warn(f"Claude Code marketplace '{WAKATIME_MARKETPLACE}' uses another source; "
-                     "skip WakaTime plugin")
-                return False
+    def ensure_marketplace(self) -> None:
+        document = self.listing(["claude", "plugin", "marketplace", "list", "--json"])
+        for entry in document if isinstance(document, list) else []:
+            if not isinstance(entry, dict) or entry.get("name") != WAKATIME_MARKETPLACE:
+                continue
+            # Claude Code reports either the clone URL or the GitHub shorthand,
+            # depending on how the marketplace was originally added.
+            if entry.get("url") == CLAUDE_WAKATIME_MARKETPLACE_GIT_URL or \
+                    entry.get("repo") == CLAUDE_WAKATIME_MARKETPLACE_REPO:
+                return
+            raise Skip(f"Claude Code marketplace '{WAKATIME_MARKETPLACE}' uses another source; "
+                       "skip WakaTime plugin")
         # This subcommand has no JSON output, so only its exit code is checked.
-        return self.ok(["claude", "plugin", "marketplace", "add", CLAUDE_WAKATIME_MARKETPLACE_GIT_URL])
+        self.cli.run(["claude", "plugin", "marketplace", "add", CLAUDE_WAKATIME_MARKETPLACE_GIT_URL])
 
-    def install(self) -> bool:
+    def install(self) -> None:
         # No -y: a marketplace that starts declaring an install command should stop
         # the installer instead of running that command unattended.
-        document = self.json(["claude", "plugin", "install", self.plugin_id, "--json"])
+        document = self.cli.json(["claude", "plugin", "install", self.plugin_id, "--json"])
         if not isinstance(document, dict) or document.get("outcome") != "ok":
-            warn(f"Failed to install {self.plugin_id}")
-            return False
-        return True
+            raise Skip(f"Failed to install {self.plugin_id}")
 
 
+@skips
 def ensure_plugin(plugins: PluginCli) -> bool:
-    """Install the WakaTime plugin; the agent CLI owns the marketplace and plugin state."""
-    if plugins.runner.which(plugins.executable) is None:
-        warn(f"{plugins.executable} not found; skip {plugins.label} WakaTime plugin")
-        return False
+    """Install the WakaTime plugin: True once it is installed, None (warned) when it is not.
+
+    The agent CLI owns the marketplace and plugin state.
+    """
+    if plugins.cli.which(plugins.executable) is None:
+        raise Skip(f"{plugins.executable} not found; skip {plugins.label} WakaTime plugin")
     if plugins.is_installed():
         info(f"{plugins.label} WakaTime plugin already installed; skip")
         return True
-    if not plugins.ensure_marketplace() or not plugins.install():
-        return False
+    plugins.ensure_marketplace()
+    plugins.install()
     success(f"Installed {plugins.label} plugin: {plugins.plugin_id}")
     info(plugins.after_install)
     return True

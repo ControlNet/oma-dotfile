@@ -204,11 +204,9 @@ def ensure_herdr_dag(ctx: Context, agent_dir: Path, work_dir: Path) -> None:
     later installs keep the language chosen by hand.
     """
     work_dir.mkdir(parents=True, exist_ok=True)
-    pin = {"OMO_CODING_AGENT_DIR": str(agent_dir)}
-    packed = ctx.runner.json(
-        ["npm", "pack", f"omo-herdr-dag@{OMO_HERDR_DAG_VERSION}", "--pack-destination", str(work_dir), "--json"],
-        pin,
-    )
+    cli = ctx.runner.pinned({"OMO_CODING_AGENT_DIR": str(agent_dir)})
+    packed = cli.json(
+        ["npm", "pack", f"omo-herdr-dag@{OMO_HERDR_DAG_VERSION}", "--pack-destination", str(work_dir), "--json"])
     package = extract_npm_package(tarball_from_pack(packed, work_dir), work_dir / "extract")
     match herdr_dag_install_state(package / "dist", agent_dir):
         case InstallState.CURRENT:
@@ -218,8 +216,7 @@ def ensure_herdr_dag(ctx: Context, agent_dir: Path, work_dir: Path) -> None:
                        f"written by omo-herdr-dag; leaving {HERDR_DAG_LABEL} uninstalled")
         case InstallState.MISSING | InstallState.STALE:
             item(f"{HERDR_DAG_LABEL} (Herdr DAG side pane; /reload running sessions)")
-            ctx.runner.ok(["node", str(package / "bin" / "omo-herdr-dag.mjs"), "install",
-                           "--agent-dir", str(agent_dir)], pin)
+            cli.run(["node", str(package / "bin" / "omo-herdr-dag.mjs"), "install", "--agent-dir", str(agent_dir)])
 
 
 @agent("omo", label="OMO Native", executable="omo")

@@ -1,7 +1,7 @@
 """Find agent CLIs and run them."""
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 import json
 import os
 from pathlib import Path
@@ -9,7 +9,7 @@ import re
 import shutil
 import subprocess
 
-from omadotfile.console import warn
+from omadotfile.core.errors import Skip
 
 # Interactive shells add these; `curl ... | python3 -` often does not.
 EXTRA_BIN_DIRS = (".opencode/bin", ".bun/bin", ".local/bin", ".npm-global/bin")
@@ -40,20 +40,32 @@ def find_executable(name: str | None, home: Path) -> Path | None:
     return Path(found) if found else None
 
 
+class CommandFailed(Skip):
+    """A CLI could not start, exited non-zero, or printed JSON that does not parse.
+
+    A Skip, so an action decorated with @skips prints the message and stops; a caller that
+    can go on without the result catches it (or calls through a @skips helper).
+    """
+
+
 @dataclass(frozen=True)
 class Runner:
-    """Runs CLIs with the run's environment; `extra_env` pins an agent's config dir."""
+    """Runs CLIs with the run's environment, plus `pin`: the env that points a CLI at an agent's dir."""
 
     env: Mapping[str, str]
     home: Path
+    pin: Mapping[str, str] = field(default_factory=dict[str, str])
+
+    def pinned(self, pin: Mapping[str, str]) -> "Runner":
+        """This runner with `pin` added to what it already pins."""
+        return replace(self, pin={**self.pin, **pin})
 
     def which(self, name: str | None) -> Path | None:
         return find_executable(name, self.home)
 
-    def run(self, command: list[str],
-            extra_env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess[str] | None:
-        """Run command; None (with a warning) if it cannot start or exits non-zero."""
-        env = {**self.env, **(extra_env or {})}
+    def run(self, command: list[str]) -> subprocess.CompletedProcess[str]:
+        """Run command; CommandFailed if it cannot start or exits non-zero."""
+        env = {**self.env, **self.pin}
         executable = self.which(command[0])
         if executable is not None:
             # Detection also searches per-user bin dirs a piped install's PATH may lack; call
@@ -70,25 +82,16 @@ class Runner:
                 timeout=COMMAND_TIMEOUT,
             )
         except (OSError, subprocess.SubprocessError) as exc:
-            warn(f"Failed to run {' '.join(command)}: {exc}")
-            return None
+            raise CommandFailed(f"Failed to run {' '.join(command)}: {exc}") from exc
         if result.returncode != 0:
-            # Command output may contain tokens or local paths, so it is not printed.
-            warn(f"{' '.join(command)} failed with exit code {result.returncode}")
-            return None
+            # Command output may contain tokens or local paths, so it is not in the message.
+            raise CommandFailed(f"{' '.join(command)} failed with exit code {result.returncode}")
         return result
 
-    def ok(self, command: list[str], extra_env: Mapping[str, str] | None = None) -> bool:
-        """Run a command whose success is reported only by its exit code."""
-        return self.run(command, extra_env) is not None
-
-    def json(self, command: list[str], extra_env: Mapping[str, str] | None = None) -> object | None:
+    def json(self, command: list[str]) -> object:
         """Run a command that prints JSON and return the parsed document."""
-        result = self.run(command, extra_env)
-        if result is None:
-            return None
+        result = self.run(command)
         try:
             return json.loads(result.stdout)
-        except json.JSONDecodeError:
-            warn(f"Failed to parse JSON output of {' '.join(command)}")
-            return None
+        except json.JSONDecodeError as exc:
+            raise CommandFailed(f"Failed to parse JSON output of {' '.join(command)}") from exc

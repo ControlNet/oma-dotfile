@@ -3,6 +3,7 @@
 import contextlib
 import io
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
@@ -11,7 +12,8 @@ from unittest.mock import patch
 
 from omadotfile.core.errors import Skip, skips, warns_on
 from omadotfile.core.files import Files
-from omadotfile.core.proc import Runner
+from omadotfile.core import proc
+from omadotfile.core.proc import CommandFailed, Runner
 from omadotfile.step import FunctionStep, Step, found_any, requires, step
 from support import TestCase, make_context
 
@@ -117,6 +119,42 @@ class RequiresTests(TestCase):
         self.assertEqual(calls, [])
         self.assertIn("dag skipped: node and npm are required", err)
         self.assertEqual(self.looked_up, ["node", "npm"])
+
+
+class RunnerTests(TestCase):
+    def setUp(self):
+        self.enterContext(patch.object(proc, "find_executable", return_value=Path("/fake/bin/tool")))
+        self.runner = Runner({"PATH": "/usr/bin", "A": "run"}, Path("/h"))
+
+    def run_with(self, **completed):
+        done = subprocess.CompletedProcess(["tool"], completed.pop("returncode", 0), **completed)
+        return patch.object(proc.subprocess, "run", return_value=done)
+
+    def test_pinned_runner_adds_its_env_over_the_runs(self):
+        pinned = self.runner.pinned({"A": "pinned", "B": "1"}).pinned({"C": "2"})
+        self.assertEqual(pinned.pin, {"A": "pinned", "B": "1", "C": "2"})
+        self.assertEqual(self.runner.pin, {})  # the original is unchanged
+        with self.run_with(stdout="[]", stderr="") as run:
+            self.assertEqual(pinned.json(["tool", "--json"]), [])
+        env = run.call_args.kwargs["env"]
+        self.assertEqual((env["A"], env["B"], env["C"]), ("pinned", "1", "2"))
+        self.assertEqual(env["PATH"], "/fake/bin:/usr/bin")
+        self.assertEqual(run.call_args.args[0], ["/fake/bin/tool", "--json"])
+
+    def test_each_failure_is_a_command_failed_with_the_old_warning_text(self):
+        with self.run_with(returncode=3, stdout="", stderr="secret"), \
+                self.assertRaisesRegex(CommandFailed, r"^/fake/bin/tool x failed with exit code 3$"):
+            self.runner.run(["tool", "x"])
+        with self.run_with(stdout="not json", stderr=""), \
+                self.assertRaisesRegex(CommandFailed, r"^Failed to parse JSON output of tool x$"):
+            self.runner.json(["tool", "x"])
+        with patch.object(proc.subprocess, "run", side_effect=FileNotFoundError("no tool")), \
+                self.assertRaisesRegex(CommandFailed, r"^Failed to run /fake/bin/tool x: no tool$"):
+            self.runner.run(["tool", "x"])
+
+    def test_command_failed_is_a_skip(self):
+        self.assertTrue(issubclass(CommandFailed, Skip))
+        self.assertFalse(hasattr(Runner, "ok"))  # stale patches of Runner.ok must fail loudly
 
 
 class CodecTests(TestCase):

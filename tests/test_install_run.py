@@ -10,6 +10,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import sys
 import tempfile
@@ -81,6 +82,9 @@ NPX_STUB = STUB_PRELUDE + textwrap.dedent("""
 """)
 
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
+
+# A broken CLI: logs its argv like the others, then fails.
+FAILING_STUB = STUB_PRELUDE + "sys.exit(1)\n"
 
 
 class InstallRunTests(TestCase):
@@ -168,6 +172,46 @@ class InstallRunTests(TestCase):
         self.assertEqual(ctx.files.changed, [agents_md])
         backups = list(agents_md.parent.glob("AGENTS.md.bak-*"))
         self.assertEqual([path.read_text() for path in backups], ["edited by hand\n"])
+
+    def test_failing_agent_clis_are_warned_about_and_the_install_goes_on(self):
+        for name in ("codex", "claude", "npx"):
+            (self.root / "bin" / name).write_text(FAILING_STUB)
+
+        _, out, err = self.install()
+
+        self.assertIn("[9/9]", out)
+        self.assertIn("Installation complete!", out)
+        self.assertNotIn("Traceback", err)
+        warnings = [re.sub(r"\x1b\[[0-9;]*m", "", line).removeprefix("[WARN]    ")
+                    .replace(str(self.root / "bin"), "BIN")
+                    for line in err.splitlines() if "[WARN]" in line]
+        wakatime = "https://github.com/wakatime"
+        skill_warnings = [line for line in warnings if "npx" in line or "installed from" in line]
+        self.assertEqual([line for line in warnings if line not in skill_warnings
+                          and ("codex" in line or "claude" in line or "marketplace" in line.lower())], [
+            "BIN/codex plugin list --marketplace wakatime --json failed with exit code 1",
+            "BIN/codex plugin marketplace list --json failed with exit code 1",
+            f"BIN/codex plugin marketplace add {wakatime}/codex-cli-wakatime.git --json failed with exit code 1",
+            "Stale marketplace state? Try: codex plugin marketplace remove wakatime",
+            "BIN/claude plugin list --json failed with exit code 1",
+            "BIN/claude plugin marketplace list --json failed with exit code 1",
+            f"BIN/claude plugin marketplace add {wakatime}/claude-code-wakatime.git failed with exit code 1",
+        ])
+        # Each skills CLI run fails on its own; the next source is still tried.
+        adds = [call for call in self.stub_calls() if call[0] == "npx"]
+        self.assertEqual(len(skill_warnings), 2 * len(adds))
+        for (failed, why), call in zip(zip(skill_warnings[::2], skill_warnings[1::2]), adds):
+            self.assertEqual(failed, f"BIN/npx {' '.join(call[1:])} failed with exit code 1")
+            self.assertRegex(why, rf"^(Not installed|Nothing installed) from {re.escape(call[4])}")
+        # The listings fail softly: every CLI still gets as far as adding its marketplace.
+        self.assertEqual([call[:4] for call in self.stub_calls() if call[0] != "npx"], [
+            ["codex", "plugin", "list", "--marketplace"],
+            ["codex", "plugin", "marketplace", "list"],
+            ["codex", "plugin", "marketplace", "add"],
+            ["claude", "plugin", "list", "--json"],
+            ["claude", "plugin", "marketplace", "list"],
+            ["claude", "plugin", "marketplace", "add"],
+        ])
 
     def test_missing_required_repo_file_exits(self):
         repo = self.root / "repo"

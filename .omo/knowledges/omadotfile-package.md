@@ -15,7 +15,7 @@ Older notes in this directory name `pull.py` functions. Where they live now:
 | `TARGET_LABELS`, `AGENT_EXECUTABLES` | `@agent(key, label=..., executable=...)` on each agent class (`agents/base.py`); order in `cli.AGENTS` |
 | file lists, `UPSTREAM_SKILLS`, pins, plugin ids | `constants.py` |
 | `backup_and_install`, `install_managed_file`, `install_rendered_text`, `rename_path_if_exists`, `copy_directory*`, `cleanup_old_backups` | `core/files.py`: `Files.copy`, `write_text`, `retire`, `replace_tree`, `copy_items`, `prune` |
-| `find_agent_executable`, `extra_bin_search_path`, `run_plugin_process`, `read_plugin_json` | `core/proc.py`: `find_executable`, `Runner.run`, `.ok`, `.json` |
+| `find_agent_executable`, `extra_bin_search_path`, `run_plugin_process`, `read_plugin_json` | `core/proc.py`: `find_executable`, `Runner.run`, `.json` (raise `CommandFailed`), `.pinned` |
 | TOML helpers (`toml_*`, `replace_toml_section`, tomllib fallback) | `core/toml_edit.py` (`parses`, `loads` wrap tomllib) |
 | JSONC helpers | `core/jsonc.py` |
 | `render_wakatime_config` | `core/ini.py` `set_section_keys` + `features/wakatime.py` `render_config` |
@@ -48,9 +48,14 @@ Things worth knowing when changing it:
 - An action that needs a CLI is decorated `@requires("npx", skip="...")` (`step.py`); its
   first parameter must be the Context. It uses `ctx.runner.which`, so tests that patch
   `Runner.which` on the class still control it.
-- Runner methods are patched on the class in the tests (`patch.object(Runner, "json", ...)`);
-  a refactor that calls a new Runner method must update those patches, or the tests run real
-  `npm`/`node`.
+- `Runner.run`/`.json` raise `CommandFailed` (a `Skip`) on failure; there is no None result.
+  An agent CLI gets `ctx.runner.pinned({"CODEX_HOME": ...})`. A caller that can go on without
+  the result calls through a small `@skips` function (`PluginCli.listing`, `skills.add_skills`).
+- Runner methods are patched on the class in the tests with `autospec=True`
+  (`patch.object(Runner, "json", autospec=True, side_effect=fake)`), so the fake gets
+  `(runner, command)` and can check `runner.pin`. A refactor that calls a new Runner method
+  must update those patches; the skills and herdr harnesses also patch `subprocess.run` to
+  raise, so a call that slips past the fakes fails instead of running real `npm`/`node`.
 - A step that installs no files is a function decorated with `@step(title, when=found_any(...),
   skip=...)` (`omadotfile/step.py`); `Step` is a Protocol that agent classes also satisfy.
 - Types: `pixi exec --spec pyright pyright` from the repo root (config in `pyrightconfig.json`)

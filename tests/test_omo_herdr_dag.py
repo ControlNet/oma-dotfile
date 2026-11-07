@@ -8,6 +8,7 @@ import contextlib
 import io
 import json
 from pathlib import Path
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -17,7 +18,8 @@ from omadotfile.agents import omo_native
 from omadotfile.agents.omo_native import InstallState
 from omadotfile.constants import OMO_HERDR_DAG_VERSION
 from omadotfile.core.errors import Skip
-from omadotfile.core.proc import Runner
+from omadotfile.core import proc
+from omadotfile.core.proc import CommandFailed, Runner
 from support import TestCase, make_context
 
 MARKER = "// managed by omo-herdr-dag"
@@ -156,24 +158,29 @@ class EnsureTests(TestCase):
         self.work = self.tmp / "work"
         self.work.mkdir()
         self.commands = []
+        self.pins = []
         self.found = {"herdr", "node", "npm"}
         self.enterContext(patch.object(
             Runner, "which",
             side_effect=lambda name: Path("/fake/bin") / name if name in self.found else None))
-        self.enterContext(patch.object(Runner, "json", side_effect=self.fake_npm_pack))
-        self.enterContext(patch.object(Runner, "ok", side_effect=self.fake_run))
+        self.npm = self.enterContext(patch.object(Runner, "json", autospec=True, side_effect=self.fake_npm_pack))
+        self.node = self.enterContext(patch.object(Runner, "run", autospec=True, side_effect=self.fake_run))
+        # Tripwire: npm and node are faked above, so nothing may reach a real subprocess.
+        self.enterContext(patch.object(proc.subprocess, "run", side_effect=AssertionError("real subprocess")))
 
-    def fake_npm_pack(self, command, extra_env=None):
+    def fake_npm_pack(self, runner, command):
         self.commands.append(command)
+        self.pins.append(runner.pin)
         destination = Path(command[command.index("--pack-destination") + 1])
         members = {f"package/dist/{name}": text for name, text in FAKE_DIST.items()}
         members["package/bin/omo-herdr-dag.mjs"] = "// fake\n"
         tgz = write_tgz(destination / "omo-herdr-dag-fake.tgz", members)
         return [{"filename": tgz.name}]
 
-    def fake_run(self, command, extra_env=None):
+    def fake_run(self, runner, command):
         self.commands.append(command)
-        return True
+        self.pins.append(runner.pin)
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
     def ensure(self) -> str:
         with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err:
@@ -192,6 +199,7 @@ class EnsureTests(TestCase):
         self.assertTrue(install[1].endswith("package/bin/omo-herdr-dag.mjs"))
         self.assertEqual(install[2:], ["install", "--agent-dir", str(self.agent)])
         self.assertNotIn("--lang", install)
+        self.assertEqual(self.pins, [{"OMO_CODING_AGENT_DIR": str(self.agent)}] * 2)
 
     def test_current_install_is_left_alone(self):
         dist = self.tmp / "dist"
@@ -220,8 +228,20 @@ class EnsureTests(TestCase):
         self.assertIn(f"         omo-herdr-dag {OMO_HERDR_DAG_VERSION} skipped: node and npm are required\n",
                       output)
 
+    def test_failed_npm_pack_is_one_warning_and_installs_nothing(self):
+        self.npm.side_effect = CommandFailed("/fake/bin/npm pack ... failed with exit code 1")
+        output = self.ensure()
+        self.assertEqual(self.installs(), [])
+        self.assertEqual(output.count("[WARN]"), 1)
+        self.assertIn("/fake/bin/npm pack ... failed with exit code 1\n", output)
+
+    def test_failed_installer_is_warned_about(self):
+        self.node.side_effect = CommandFailed("/fake/bin/node .../omo-herdr-dag.mjs install failed with exit code 1")
+        self.assertIn("omo-herdr-dag.mjs install failed with exit code 1\n", self.ensure())
+
     def test_unreported_tarball_warns_and_installs_nothing(self):
-        self.enterContext(patch.object(Runner, "json", return_value=None))
+        self.npm.side_effect = None
+        self.npm.return_value = None
         output = self.ensure()
         self.assertEqual(self.installs(), [])
         self.assertIn(f"npm pack did not report a tarball for omo-herdr-dag {OMO_HERDR_DAG_VERSION}\n", output)
