@@ -12,5 +12,6 @@
 - For Python work: if the Python project requires 3rd-party packages, and the virtual Python environment is not explicitly specified or is ambiguous, ask the user to confirm (pixi/conda + env name/path). Once confirmed, persist the environment choice in project-level AGENTS.md (as an "Environment" memory block) and create/update a repo-root LSP config (pyrightconfig.json) so imports/types resolve in that environment.
 - Test-driven development is preferred.
 - When you do anything valuable and get the useful knowledge, save the knowledge in `<GIT_REPO_ROOT>/.omo/knowledges/*.md`.
+- Knowledge notes may be public: no personal data (home paths, usernames, hostnames, emails); use `~`.
 - If you need to retrieve knowledge, find it in the `<GIT_REPO_ROOT>/.omo/knowledges/*.md` and other documentations.
 - Not allowed to use any dummy placeholders for source code, implementations, models, documentations, etc. If you want to use any dummy things for testing purpose, you must highlight it to user.
