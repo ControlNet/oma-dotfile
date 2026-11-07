@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 from omadotfile import cli
 from omadotfile.features import skills
-from support import ROOT
+from support import ROOT, TestCase
 
 # Each stand-in records its argv in $STUB_LOG and its state in marker files.
 STUB_PRELUDE = f"""#!{sys.executable}
@@ -83,7 +83,7 @@ NPX_STUB = STUB_PRELUDE + textwrap.dedent("""
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
 
 
-class InstallRunTests(unittest.TestCase):
+class InstallRunTests(TestCase):
     def setUp(self):
         self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.home = self.root / "home"

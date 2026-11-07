@@ -10,10 +10,10 @@ from unittest.mock import patch
 
 from omadotfile.agents import tokscale
 from omadotfile.agents.tokscale import Tokscale
-from support import ROOT, make_context
+from support import ROOT, TestCase, make_context
 
 
-class TokscaleAliasesTests(unittest.TestCase):
+class TokscaleAliasesTests(TestCase):
     def setUp(self):
         self.directory = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.config = self.directory / "tokscale"

@@ -9,13 +9,13 @@ import unittest
 
 from omadotfile.agents import omp
 from omadotfile.core.files import Files
-from support import ROOT, make_context
+from support import ROOT, TestCase, make_context
 
 # Later than the older backup a test plants, so pruning has a newest backup to keep.
 STAMP = "20261007-120000"
 
 
-class BackupPolicyTests(unittest.TestCase):
+class BackupPolicyTests(TestCase):
     def setUp(self):
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.files = Files(STAMP, backup=True, keep=1)

@@ -6,9 +6,10 @@ from unittest.mock import patch
 
 from omadotfile.agents import codex
 from omadotfile.core import toml_edit
+from support import TestCase
 
 
-class TomlFallbackTests(unittest.TestCase):
+class TomlFallbackTests(TestCase):
     def setUp(self) -> None:
         # Force the fallback even when the running Python ships tomllib.
         patcher = patch.object(toml_edit, "tomllib", None)

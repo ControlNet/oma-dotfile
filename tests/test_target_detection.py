@@ -15,7 +15,7 @@ from omadotfile.agents import claude, omo_native, tokscale
 from omadotfile.constants import AGENT_LABELS, LEGACY_OMO_CONFIG_NAMES, LEGACY_OPENAGENT_CONFIG_NAMES
 from omadotfile.core import proc
 from omadotfile.features import skills, wakatime
-from support import ROOT
+from support import ROOT, TestCase
 
 
 def make_executable(path: Path) -> None:
@@ -37,7 +37,7 @@ def which_only_via_extra_path(name: str, path: str | None = None):
     return REAL_WHICH(name, path=path)
 
 
-class AgentDetectionTests(unittest.TestCase):
+class AgentDetectionTests(TestCase):
     def test_path_executable_is_detected(self) -> None:
         # Given only codex on PATH.
         with tempfile.TemporaryDirectory() as tmp, \
@@ -150,7 +150,7 @@ DIR_ENV = {
 GATEWAY = {"CODEX_BASE_URL": "https://example.invalid/v1"}
 
 
-class InstallGatingTests(unittest.TestCase):
+class InstallGatingTests(TestCase):
     def setUp(self):
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.home = self.tmp / "home"

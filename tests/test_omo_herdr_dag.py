@@ -16,7 +16,7 @@ from unittest.mock import patch
 from omadotfile.agents import omo_native
 from omadotfile.constants import OMO_HERDR_DAG_VERSION
 from omadotfile.core.proc import Runner
-from support import make_context
+from support import TestCase, make_context
 
 MARKER = "// managed by omo-herdr-dag"
 FAKE_DIST = {
@@ -62,7 +62,7 @@ def install_generation(agent_dir: Path, dist: Path, generation: str = "generatio
     return target
 
 
-class InstallStateTests(unittest.TestCase):
+class InstallStateTests(TestCase):
     def setUp(self):
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.dist = self.tmp / "package" / "dist"
@@ -109,7 +109,7 @@ class InstallStateTests(unittest.TestCase):
         self.assertEqual(self.state(), "unmanaged")
 
 
-class ExtractTests(unittest.TestCase):
+class ExtractTests(TestCase):
     def setUp(self):
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
 
@@ -130,7 +130,7 @@ class ExtractTests(unittest.TestCase):
         self.assertFalse((self.tmp / "evil.txt").exists())
 
 
-class EnsureTests(unittest.TestCase):
+class EnsureTests(TestCase):
     def setUp(self):
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.agent = self.tmp / "agent"

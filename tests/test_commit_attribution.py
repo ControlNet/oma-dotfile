@@ -17,7 +17,7 @@ import unittest
 from unittest.mock import patch
 
 from omadotfile.agents import claude
-from support import ROOT, make_context
+from support import ROOT, TestCase, make_context
 
 HOOK = ROOT / "git-hooks" / "commit-msg"
 
@@ -29,7 +29,7 @@ def quiet(function, *args):
     return out.getvalue() + err.getvalue()
 
 
-class ClaudeAttributionTests(unittest.TestCase):
+class ClaudeAttributionTests(TestCase):
     def setUp(self):
         self.claude = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.settings = self.claude / "settings.json"
@@ -77,7 +77,7 @@ class ClaudeAttributionTests(unittest.TestCase):
             self.assertIn("settings.json", output)
 
 
-class GitHookTests(unittest.TestCase):
+class GitHookTests(TestCase):
     def setUp(self):
         self.home = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.gitconfig = self.home / ".gitconfig"
@@ -159,7 +159,7 @@ class GitHookTests(unittest.TestCase):
 
 
 @unittest.skipIf(sys.platform == "win32", "the hook runs through its python3 shebang")
-class HookBehaviourTests(unittest.TestCase):
+class HookBehaviourTests(TestCase):
     def test_claude_attribution_lines_are_dropped_and_the_rest_kept(self):
         message = Path(self.enterContext(tempfile.TemporaryDirectory())) / "COMMIT_EDITMSG"
         _ = message.write_text(

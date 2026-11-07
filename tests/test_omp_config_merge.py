@@ -9,7 +9,7 @@ import unittest
 
 from omadotfile.agents import omp
 from omadotfile.core import yaml_merge
-from support import ROOT, make_context
+from support import ROOT, TestCase, make_context
 
 REPO_CONFIG = (ROOT / "omp_config.yml").read_text(encoding="utf-8")
 
@@ -18,7 +18,7 @@ def yaml(text: str) -> str:
     return textwrap.dedent(text).lstrip("\n")
 
 
-class MergeTests(unittest.TestCase):
+class MergeTests(TestCase):
     def test_keys_only_in_the_existing_file_are_kept(self):
         existing = yaml("""
             theme:
@@ -102,11 +102,13 @@ class MergeTests(unittest.TestCase):
     def test_unsupported_shapes_are_not_merged(self):
         for text in ("{a: 1}\n", "- a\n", "a: |\n  text\n", "---\na: 1\n...\n", "a: 1\n\tb: 2\n"):
             with self.subTest(text=text):
-                self.assertIsNone(yaml_merge.blocks(text))
-                self.assertIsNone(yaml_merge.merge(text, "a: 2\n"))
+                with self.assertRaises(ValueError):
+                    yaml_merge.blocks(text)
+                with self.assertRaises(ValueError):
+                    yaml_merge.merge(text, "a: 2\n")
 
     def test_repo_config_is_in_the_supported_shape(self):
-        self.assertIsNotNone(yaml_merge.blocks(REPO_CONFIG))
+        self.assertTrue(yaml_merge.blocks(REPO_CONFIG))
 
     def test_repo_config_quotes_off(self):
         # OMP writes "off" quoted (YAML 1.1 reads bare off as false); bare off would
@@ -115,7 +117,7 @@ class MergeTests(unittest.TestCase):
         self.assertIn('notify: "off"', REPO_CONFIG)
 
 
-class OmpConfigInstallTests(unittest.TestCase):
+class OmpConfigInstallTests(TestCase):
     def setUp(self):
         self.home = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.agent_dir = self.home / ".omp" / "agent"

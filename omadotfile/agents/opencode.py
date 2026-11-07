@@ -57,8 +57,8 @@ class OpenCode(Agent):
     key = "opencode"
     files = OPENCODE_FILES
 
-    @classmethod
-    def config_dir(cls, env: Mapping[str, str], home: Path) -> Path:
+    @staticmethod
+    def config_dir(env: Mapping[str, str], home: Path) -> Path:
         if env.get("CONFIG_DIR", ""):
             return Path(env["CONFIG_DIR"])
         if sys.platform == "win32":
@@ -71,10 +71,12 @@ class OpenCode(Agent):
     def title(self, ctx: Context) -> str:
         return f"Installing OpenCode config files and plugins to: {self.target_dir(ctx)}"
 
-    def install_oauth_file(self, ctx: Context, src: Path, dst: Path) -> None:
+    @staticmethod
+    def install_oauth_file(ctx: Context, src: Path, dst: Path) -> None:
         ctx.files.write_text(dst, render_oauth_config(src, dst.parent, dst))
 
-    def configure(self, ctx: Context, target: Path) -> None:
+    @staticmethod
+    def configure(ctx: Context, target: Path) -> None:
         # After the files: render_oauth_config reads opencode.json before it is retired.
         retire_legacy_opencode_json(ctx, target)
         retire_legacy_openagent_files(ctx, target)

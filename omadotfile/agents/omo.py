@@ -7,6 +7,7 @@ from omadotfile.constants import LEGACY_OMO_CONFIG_NAMES, OMO_FILES
 from omadotfile.context import Context
 from omadotfile.core.jsonc import find_jsonc_top_level_object, rewrite_model_prefix
 from omadotfile.migration import migration
+from omadotfile.step import found_any
 
 
 def omo_dir(home: Path) -> Path:
@@ -38,7 +39,7 @@ class OmoConfig(Component):
         return f"Installing unified OMO config to: {self.target_dir(ctx)}"
 
     def enabled(self, ctx: Context) -> bool:
-        return bool({"opencode", "omo"} & ctx.found)
+        return found_any("opencode", "omo")(ctx)
 
     def skip_reason(self, ctx: Context) -> str:
         return "neither opencode nor omo found"
@@ -46,8 +47,10 @@ class OmoConfig(Component):
     def target_dir(self, ctx: Context) -> Path:
         return omo_dir(ctx.home)
 
-    def install_oauth_file(self, ctx: Context, src: Path, dst: Path) -> None:
+    @staticmethod
+    def install_oauth_file(ctx: Context, src: Path, dst: Path) -> None:
         ctx.files.write_text(dst, render_oauth_config(src.read_text(encoding="utf-8")))
 
-    def configure(self, ctx: Context, target: Path) -> None:
+    @staticmethod
+    def configure(ctx: Context, target: Path) -> None:
         retire_legacy_omo_files(ctx, target)

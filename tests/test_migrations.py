@@ -6,11 +6,12 @@ import unittest
 
 import omadotfile.cli  # noqa: F401  (imports every module, so every migration registers)
 from omadotfile.migration import MIGRATIONS, Migration, migration
+from support import TestCase
 
 MONTH = re.compile(r"\d{4}-(0[1-9]|1[0-2])")
 
 
-class MigrationTests(unittest.TestCase):
+class MigrationTests(TestCase):
     def test_no_migration_is_past_its_remove_by_month(self):
         this_month = date.today().strftime("%Y-%m")
         for entry in MIGRATIONS:

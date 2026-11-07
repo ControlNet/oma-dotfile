@@ -1,4 +1,4 @@
-"""Component: one numbered install step. Agent: a component for one detected agent.
+"""Component: an install step that installs files. Agent: a component for one detected agent.
 
 `run` is a template method: it creates the target dir, installs the component's `files`
 (see constants.FileSpec), then calls `configure` for whatever else the component does.
@@ -21,6 +21,8 @@ def file_label(spec: FileSpec) -> str:
 
 
 class Component:
+    """A step that installs `files` under target_dir, then runs `configure` (see omadotfile.step.Step)."""
+
     files: ClassVar[tuple[FileSpec, ...]] = ()
     creates_dir: ClassVar[bool] = True  # whether run() creates target_dir before anything else
 
@@ -33,16 +35,15 @@ class Component:
     def skip_reason(self, ctx: Context) -> str:
         raise NotImplementedError
 
-    def target_dir(self, ctx: Context) -> Path | None:
-        """The dir `files` are installed under; None for components without one."""
-        return None
+    def target_dir(self, ctx: Context) -> Path:
+        """The dir `files` are installed under."""
+        raise NotImplementedError
 
     def run(self, ctx: Context) -> None:
         target = self.target_dir(ctx)
-        if target is not None and self.creates_dir:
+        if self.creates_dir:
             target.mkdir(parents=True, exist_ok=True)
         for spec in self.files:
-            assert target is not None, "files need a target dir"
             self.install_file(ctx, spec, target)
         self.configure(ctx, target)
 
@@ -59,15 +60,18 @@ class Component:
         else:
             ctx.files.copy(src, dst, backup=not spec.managed)
 
-    def install_oauth_file(self, ctx: Context, src: Path, dst: Path) -> None:
+    @staticmethod
+    def install_oauth_file(ctx: Context, src: Path, dst: Path) -> None:
         """Write the --oauth variant of a file marked `oauth` in `files`."""
-        raise NotImplementedError(f"{type(self).__name__} has no OAuth variant of {src.name}")
+        raise NotImplementedError(f"no OAuth variant of {src.name}")
 
-    def install_merged_file(self, ctx: Context, spec: FileSpec, src: Path, dst: Path) -> None:
+    @staticmethod
+    def install_merged_file(ctx: Context, spec: FileSpec, src: Path, dst: Path) -> None:
         """Merge a file marked `merge` in `files` into the one on disk."""
-        raise NotImplementedError(f"{type(self).__name__} cannot merge {src.name}")
+        raise NotImplementedError(f"cannot merge {src.name}")
 
-    def configure(self, ctx: Context, target: Path | None) -> None:
+    @staticmethod
+    def configure(ctx: Context, target: Path) -> None:
         """Everything the component does besides installing `files`."""
 
 
@@ -82,8 +86,8 @@ class Agent(Component):
     def executable(self) -> str | None:
         return AGENT_EXECUTABLES[self.key]
 
-    @classmethod
-    def config_dir(cls, env: Mapping[str, str], home: Path) -> Path:
+    @staticmethod
+    def config_dir(env: Mapping[str, str], home: Path) -> Path:
         raise NotImplementedError
 
     def detect(self, env: Mapping[str, str], home: Path) -> bool:

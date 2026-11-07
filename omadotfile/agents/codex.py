@@ -1,6 +1,6 @@
 """Codex: AGENTS.md, the Gotify notifier, and config.toml (notify, provider, skills)."""
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 import json
 from pathlib import Path
 import re
@@ -10,6 +10,8 @@ from omadotfile.agents.base import Agent
 from omadotfile.console import info, success, warn
 from omadotfile.constants import CODEX_DISABLED_SHARED_SKILLS, CODEX_FILES
 from omadotfile.context import Context
+from omadotfile.core.codec import LINES
+from omadotfile.core.errors import warns_on
 from omadotfile.core import toml_edit
 from omadotfile.core.toml_edit import (TOML_ASSIGNMENT_START, TOML_TABLE_HEADER,
                                        ensure_top_level_config_line, find_first_toml_section_idx,
@@ -51,10 +53,13 @@ def ensure_api_provider(lines: list[str], codex_base_url: str) -> list[str]:
     lines = list(lines)
     for idx in toml_statement_starts(lines[:end]):
         match = re.match(r"^\s*#\s*(.*)$", lines[idx])
-        assignment = TOML_ASSIGNMENT_START.match(match.group(1)) if match else None
+        if match is None:
+            continue
+        uncommented = match.group(1)
+        assignment = TOML_ASSIGNMENT_START.match(uncommented)
         if assignment and toml_key_name(assignment.group(1)) == "model_provider":
-            if read_toml_string_assignment(match.group(1), "model_provider") == "codex_api":
-                lines[idx] = match.group(1)
+            if read_toml_string_assignment(uncommented, "model_provider") == "codex_api":
+                lines[idx] = uncommented
     lines = ensure_top_level_config_line(
         lines, 'model_provider = "codex_api"', "model_provider"
     )
@@ -162,12 +167,12 @@ def ensure_skill_path_disabled(lines: list[str], skill_path: str) -> list[str]:
         warn(f"skills.config in Codex config.toml is not written as [[skills.config]] entries; "
              f"add one with path = {toml_basic_string(skill_path)} and enabled = false by hand")
         return lines
-    headers = [idx for idx in toml_statement_starts(lines) if TOML_TABLE_HEADER.match(lines[idx])]
-    for pos, start in enumerate(headers):
-        header = TOML_TABLE_HEADER.match(lines[start])
+    headers = [(idx, header) for idx in toml_statement_starts(lines)
+               if (header := TOML_TABLE_HEADER.match(lines[idx])) is not None]
+    for pos, (start, header) in enumerate(headers):
         if not lines[start].lstrip().startswith("[[") or toml_key_name(header.group(1)) != "skills.config":
             continue
-        end = headers[pos + 1] if pos + 1 < len(headers) else len(lines)
+        end = headers[pos + 1][0] if pos + 1 < len(headers) else len(lines)
         block = lines[start + 1:end]
         paths = find_toml_key_assignment_ranges(block, "path")
         if find_toml_key_assignment_ranges(block, "name") or not any(
@@ -204,37 +209,40 @@ def ensure_shared_skills_disabled(lines: list[str], skills_dir: Path) -> list[st
     return lines
 
 
+def config_transform(ctx: Context, codex_dir: Path) -> Callable[[list[str]], list[str]]:
+    """The edit this run makes to config.toml's lines: notify, shared skills, then provider."""
+    codex_base_url = ctx.env.get("CODEX_BASE_URL", "").strip()
+
+    def configure(lines: list[str]) -> list[str]:
+        lines = ensure_notify(lines, codex_dir)
+        lines = ensure_shared_skills_disabled(lines, ctx.shared_skills_dir)
+        return ensure_oauth_provider(lines) if ctx.options.oauth else ensure_api_provider(lines, codex_base_url)
+
+    return configure
+
+
 def ensure_config(ctx: Context, codex_dir: Path) -> None:
     config_path = codex_dir / "config.toml"
-    if config_path.exists():
-        try:
-            content = config_path.read_text(encoding="utf-8")
-        except OSError as exc:
-            warn(f"Failed to read {config_path}: {exc}")
-            return
-        lines = content.splitlines()
-    else:
-        lines = []
-
-    new_lines = ensure_notify(lines, codex_dir)
-    new_lines = ensure_shared_skills_disabled(new_lines, ctx.shared_skills_dir)
-    new_lines = (ensure_oauth_provider(new_lines) if ctx.options.oauth
-                 else ensure_api_provider(new_lines, ctx.env.get("CODEX_BASE_URL", "").strip()))
-
-    if new_lines == lines:
+    changed = update_config(ctx, config_path, config_transform(ctx, codex_dir))
+    if changed is None:
+        return
+    if not changed:
         info("Codex config already configured; skip")
         return
-
-    ctx.files.write_text(config_path, "\n".join(new_lines) + "\n")
     success(f"Configured Codex config: {config_path}")
+
+
+@warns_on(OSError, message="Failed to read {dst}: {reason}")
+def update_config(ctx: Context, dst: Path, transform: Callable[[list[str]], list[str]]) -> bool:
+    return ctx.files.update(dst, LINES, transform, default=[])
 
 
 class Codex(Agent):
     key = "codex"
     files = CODEX_FILES
 
-    @classmethod
-    def config_dir(cls, env: Mapping[str, str], home: Path) -> Path:
+    @staticmethod
+    def config_dir(env: Mapping[str, str], home: Path) -> Path:
         if env.get("CODEX_DIR", ""):
             return Path(env["CODEX_DIR"])
         codex_home = env.get("CODEX_HOME", "").strip()
@@ -245,5 +253,6 @@ class Codex(Agent):
     def title(self, ctx: Context) -> str:
         return f"Installing Codex assets and config to: {self.target_dir(ctx)}"
 
-    def configure(self, ctx: Context, target: Path) -> None:
+    @staticmethod
+    def configure(ctx: Context, target: Path) -> None:
         ensure_config(ctx, target)

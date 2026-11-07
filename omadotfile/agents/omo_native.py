@@ -1,6 +1,7 @@
 """OMO Native: AGENTS.md, the gateway provider in models.json, settings.json, omo-herdr-dag."""
 
 from collections.abc import Mapping
+from functools import partial
 import json
 from pathlib import Path
 import re
@@ -11,6 +12,8 @@ from omadotfile.agents.omo import omo_dir
 from omadotfile.console import info, item, warn
 from omadotfile.constants import OMO_HERDR_DAG_VERSION, OMO_NATIVE_FILES
 from omadotfile.context import Context
+from omadotfile.core.codec import JSONC, JsonObject
+from omadotfile.core.errors import warns_on
 from omadotfile.core.jsonc import read_jsonc_object
 
 # omo-ai bin/lib/agent-dir.js AGENT_DIR_ENV_NAMES, most specific first.
@@ -65,18 +68,22 @@ def install_models(ctx: Context, agent_dir: Path) -> None:
     if not codex_base_url:
         warn("CODEX_BASE_URL is not set; skipping OMO Native models.json, so codex/ models stay unavailable")
         return
-    dst = agent_dir / "models.json"
-    try:
-        document = read_jsonc_object(dst) if dst.exists() else {}
-        providers = document.setdefault("providers", {})
-        if not isinstance(providers, dict):
-            raise ValueError("providers must be a JSON object")
-        providers["codex"] = build_gateway_provider(ctx.repo, codex_base_url)
-    except (OSError, ValueError, KeyError) as exc:
-        warn(f"Failed to update {dst} ({type(exc).__name__}); leaving models.json unchanged")
-        return
-    item("models.json (codex gateway provider, render CODEX_BASE_URL)")
-    ctx.files.write_text(dst, json.dumps(document, indent=2, ensure_ascii=False) + "\n")
+    if update_models(ctx, agent_dir / "models.json", codex_base_url) is not None:
+        item("models.json (codex gateway provider, render CODEX_BASE_URL)")
+
+
+def with_provider(name: str, provider: JsonObject, document: JsonObject) -> JsonObject:
+    """models.json with `name` set to provider; other providers are kept."""
+    providers = document.get("providers", {})
+    if not isinstance(providers, dict):
+        raise ValueError("providers must be a JSON object")
+    return {**document, "providers": {**providers, name: provider}}
+
+
+@warns_on(OSError, ValueError, KeyError, message="Failed to update {dst} ({error}); leaving models.json unchanged")
+def update_models(ctx: Context, dst: Path, codex_base_url: str) -> bool:
+    provider = build_gateway_provider(ctx.repo, codex_base_url)
+    return ctx.files.update(dst, JSONC, partial(with_provider, "codex", provider), default={})
 
 
 def ensure_settings(ctx: Context, agent_dir: Path) -> None:
@@ -85,20 +92,22 @@ def ensure_settings(ctx: Context, agent_dir: Path) -> None:
         warn(f"{agent_dir / 'settings.jsonc'} takes precedence over settings.json; "
              'add "rules" to its disabledBuiltinExtensions by hand')
         return
-    dst = agent_dir / "settings.json"
-    try:
-        settings = read_jsonc_object(dst) if dst.exists() else {}
-        disabled = settings.get("disabledBuiltinExtensions", [])
-        if not isinstance(disabled, list):
-            raise ValueError("disabledBuiltinExtensions must be a list")
-    except (OSError, ValueError) as exc:
-        warn(f"Failed to read {dst} ({type(exc).__name__}); leaving settings.json unchanged")
-        return
-    if "rules" in disabled:
-        return
-    settings["disabledBuiltinExtensions"] = [*disabled, "rules"]
-    item("settings.json (disable builtin rules extension)")
-    ctx.files.write_text(dst, json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
+    if update_settings(ctx, agent_dir / "settings.json"):
+        item("settings.json (disable builtin rules extension)")
+
+
+def with_extension_disabled(name: str, settings: JsonObject) -> JsonObject:
+    disabled = settings.get("disabledBuiltinExtensions", [])
+    if not isinstance(disabled, list):
+        raise ValueError("disabledBuiltinExtensions must be a list")
+    if name in disabled:
+        return settings
+    return {**settings, "disabledBuiltinExtensions": [*disabled, name]}
+
+
+@warns_on(OSError, ValueError, message="Failed to read {dst} ({error}); leaving settings.json unchanged")
+def update_settings(ctx: Context, dst: Path) -> bool:
+    return ctx.files.update(dst, JSONC, partial(with_extension_disabled, "rules"), default={})
 
 
 def herdr_dag_payload(root: Path) -> dict[str, bytes] | None:
@@ -185,11 +194,11 @@ def ensure_herdr_dag(ctx: Context, agent_dir: Path, work_dir: Path) -> None:
         ["npm", "pack", f"omo-herdr-dag@{OMO_HERDR_DAG_VERSION}", "--pack-destination", str(work_dir), "--json"],
         pin,
     )
-    try:
-        tarball = work_dir / Path(packed[0]["filename"]).name
-    except (TypeError, KeyError, IndexError):
+    filename = packed[0].get("filename") if isinstance(packed, list) and packed and isinstance(packed[0], dict) else None
+    if not isinstance(filename, str):
         warn(f"npm pack did not report a tarball for {label}")
         return
+    tarball = work_dir / Path(filename).name
     package = extract_npm_package(tarball, work_dir / "extract")
     if package is None:
         return
@@ -210,8 +219,8 @@ class OmoNative(Agent):
     key = "omo"
     files = OMO_NATIVE_FILES
 
-    @classmethod
-    def config_dir(cls, env: Mapping[str, str], home: Path) -> Path:
+    @staticmethod
+    def config_dir(env: Mapping[str, str], home: Path) -> Path:
         """The OMO Native engine state directory, found the way omo itself finds it."""
         for name in OMO_AGENT_DIR_ENV_NAMES:
             configured = env.get(name, "").strip()
@@ -222,7 +231,8 @@ class OmoNative(Agent):
     def title(self, ctx: Context) -> str:
         return f"Installing OMO Native config to: {self.target_dir(ctx)}"
 
-    def configure(self, ctx: Context, target: Path) -> None:
+    @staticmethod
+    def configure(ctx: Context, target: Path) -> None:
         install_models(ctx, target)
         ensure_settings(ctx, target)
         ensure_herdr_dag(ctx, target, ctx.work / "omo-herdr-dag")

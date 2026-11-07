@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from support import TestCase
 
 
 SCANNER = Path(__file__).resolve().parents[1] / "skills" / "secret-guard" / "scripts" / "scan_secrets.py"
@@ -11,7 +12,7 @@ SCANNER = Path(__file__).resolve().parents[1] / "skills" / "secret-guard" / "scr
 FAKE_SECRET_LINE = 'password = "test-only-fake-password"\n'
 
 
-class StagedScanTests(unittest.TestCase):
+class StagedScanTests(TestCase):
     def setUp(self) -> None:
         self.repo = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.git("init", "-q")

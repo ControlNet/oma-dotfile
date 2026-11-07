@@ -6,7 +6,6 @@ import json
 import shutil
 from pathlib import Path
 import tempfile
-import tomllib
 import unittest
 from unittest.mock import patch
 
@@ -16,7 +15,7 @@ from omadotfile.agents.base import Component
 from omadotfile.constants import AGENT_LABELS
 from omadotfile.core.jsonc import read_jsonc_object
 from omadotfile.features import skills, wakatime
-from support import ROOT, make_context
+from support import ROOT, TestCase, make_context, requires_tomllib, tomllib
 
 GATEWAY_URL = 'https://example.invalid/v1'
 
@@ -29,7 +28,7 @@ def install_files(component: Component, ctx, target: Path) -> None:
             component.install_file(ctx, spec, target)
 
 
-class OAuthTests(unittest.TestCase):
+class OAuthTests(TestCase):
     def setUp(self):
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
 
@@ -53,6 +52,7 @@ class OAuthTests(unittest.TestCase):
         self.assertEqual(codex.ensure_oauth_provider(
             ["  model_provider = 'codex_api'"]), ["#   model_provider = 'codex_api'"])
 
+    @requires_tomllib
     def test_codex_install_round_trip_preserves_provider_and_auth(self):
         config = self.tmp / 'config.toml'
         auth = self.tmp / 'auth.json'
@@ -71,6 +71,7 @@ class OAuthTests(unittest.TestCase):
         self.assertEqual(tomllib.loads(config.read_text())['model_provider'], 'codex_api')
         self.assertEqual(auth.read_text(), '{}')
 
+    @requires_tomllib
     def test_codex_repeated_switches_do_not_accumulate_comments(self):
         lines = ['model_provider = "codex_api" # gateway', '[profiles.work]',
                  '# model_provider = "codex_api"']
@@ -81,6 +82,7 @@ class OAuthTests(unittest.TestCase):
             self.assertEqual(lines.count('model_provider = "codex_api"'), 1)
             self.assertEqual(lines.count('# model_provider = "codex_api"'), 1)
 
+    @requires_tomllib
     def test_codex_oauth_disables_quoted_and_multiline_selectors(self):
         for selector in (['"model_provider" = "codex_api"'],
                          ['model_provider = """', 'codex_api"""']):
@@ -177,6 +179,7 @@ class OAuthTests(unittest.TestCase):
         self.assertNotIn('CODEX_API_TOKEN', output.getvalue())
         self.assertIn('GITHUB_PERSONAL_ACCESS_TOKEN', output.getvalue())
 
+    @requires_tomllib
     def test_main_routes_all_outputs_without_touching_auth(self):
         env = {
             'CODEX_BASE_URL': GATEWAY_URL,

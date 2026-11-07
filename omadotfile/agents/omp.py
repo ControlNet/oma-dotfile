@@ -1,6 +1,7 @@
 """oh-my-pi (OMP): config, AGENTS.md, Gotify and WakaTime extensions, models.yml."""
 
 from collections.abc import Mapping
+from functools import partial
 import json
 from pathlib import Path
 import re
@@ -10,6 +11,7 @@ from omadotfile.console import info, item, warn
 from omadotfile.constants import FileSpec, OMP_FILES, OMP_MODELS, OMP_MODELS_DST, OMP_MODELS_OAUTH
 from omadotfile.context import Context
 from omadotfile.core import yaml_merge
+from omadotfile.core.codec import TEXT
 
 BASE_URL_PLACEHOLDER = re.compile(r'^(\s*baseUrl:\s*)(["\']?)CODEX_BASE_URL\2(\s*(?:#.*)?)$', re.MULTILINE)
 
@@ -71,8 +73,8 @@ class Omp(Agent):
     key = "omp"
     files = OMP_FILES
 
-    @classmethod
-    def config_dir(cls, env: Mapping[str, str], home: Path) -> Path:
+    @staticmethod
+    def config_dir(env: Mapping[str, str], home: Path) -> Path:
         configured = env.get("OMP_AGENT_DIR", "").strip()
         if configured:
             return Path(configured)
@@ -84,17 +86,18 @@ class Omp(Agent):
     def title(self, ctx: Context) -> str:
         return f"Installing oh-my-pi config files to: {self.target_dir(ctx)}"
 
-    def install_merged_file(self, ctx: Context, spec: FileSpec, src: Path, dst: Path) -> None:
+    @staticmethod
+    def install_merged_file(ctx: Context, spec: FileSpec, src: Path, dst: Path) -> None:
         """Set this repo's keys in config.yml and keep the ones OMP or the user added."""
         managed = src.read_text(encoding="utf-8")
         if spec.oauth and ctx.options.oauth:
             managed = render_oauth_config(managed)
-        existing = dst.read_text(encoding="utf-8") if dst.exists() else ""
-        merged = yaml_merge.merge(existing, managed)
-        if merged is None:
-            warn(f"{dst} could not be merged (unsupported YAML); replacing it, backup kept")
-            merged = managed
-        ctx.files.write_text(dst, merged)
+        try:
+            ctx.files.update(dst, TEXT, partial(yaml_merge.merge, managed=managed), default="")
+        except ValueError as exc:
+            warn(f"{dst} could not be merged ({exc}); replacing it, backup kept")
+            ctx.files.write_text(dst, managed)
 
-    def configure(self, ctx: Context, target: Path) -> None:
+    @staticmethod
+    def configure(ctx: Context, target: Path) -> None:
         install_models(ctx, target)

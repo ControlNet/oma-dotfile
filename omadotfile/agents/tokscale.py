@@ -1,47 +1,53 @@
 """Tokscale: merge this repo's model aliases into its settings.json."""
 
 from collections.abc import Mapping
+from functools import partial
 import json
 from pathlib import Path
 import sys
 
 from omadotfile.agents.base import Agent
-from omadotfile.console import info, success, warn
+from omadotfile.console import info, success
 from omadotfile.constants import TOKSCALE_MODEL_ALIASES
 from omadotfile.context import Context
+from omadotfile.core.codec import JSON, JsonObject
+from omadotfile.core.errors import warns_on
 
 
+def parse_aliases(text: str) -> dict[str, str]:
+    """The repo's alias table; ValueError unless it maps non-empty strings to non-empty strings."""
+    aliases = json.loads(text)
+    if not isinstance(aliases, dict) or not all(
+        isinstance(key, str) and key.strip() and isinstance(value, str) and value.strip()
+        for key, value in aliases.items()
+    ):
+        raise ValueError("Model aliases must be a non-empty-string mapping")
+    return aliases
+
+
+def with_aliases(aliases: dict[str, str], settings: JsonObject) -> JsonObject:
+    """Settings with the managed aliases merged over the user's own."""
+    existing = settings.get("modelAliases", {})
+    if not isinstance(existing, dict):
+        raise ValueError("Existing modelAliases must be a JSON object")
+    merged = {**existing, **aliases}
+    if existing == merged and "modelAliases" in settings:
+        return settings
+    return {**settings, "modelAliases": merged}
+
+
+@warns_on(OSError, ValueError,
+          message="Failed to load Tokscale aliases/settings ({error}); leaving settings unchanged")
 def install_model_aliases(ctx: Context, config_dir: Path) -> None:
     """Merge managed aliases while preserving unrelated user settings."""
-    src = ctx.repo / TOKSCALE_MODEL_ALIASES
+    aliases = parse_aliases((ctx.repo / TOKSCALE_MODEL_ALIASES).read_text(encoding="utf-8"))
     dst = config_dir / "settings.json"
-    try:
-        aliases = json.loads(src.read_text(encoding="utf-8"))
-        if not isinstance(aliases, dict) or not all(
-            isinstance(key, str) and key.strip()
-            and isinstance(value, str) and value.strip()
-            for key, value in aliases.items()
-        ):
-            raise ValueError("Model aliases must be a non-empty-string mapping")
-        settings = json.loads(dst.read_text(encoding="utf-8")) if dst.exists() else {}
-        if not isinstance(settings, dict):
-            raise ValueError("Tokscale settings must be a JSON object")
-        existing = settings.get("modelAliases", {})
-        if not isinstance(existing, dict):
-            raise ValueError("Existing modelAliases must be a JSON object")
-        merged = {**existing, **aliases}
-        if existing == merged and "modelAliases" in settings:
-            info("Tokscale model aliases already configured; skip")
-            return
-        settings["modelAliases"] = merged
-        content = json.dumps(settings, indent=2, ensure_ascii=False) + "\n"
-    except (OSError, ValueError) as exc:
-        warn(f"Failed to load Tokscale aliases/settings ({type(exc).__name__}); leaving settings unchanged")
+    existed = dst.exists()
+    if not ctx.files.update(dst, JSON, partial(with_aliases, aliases), default={}):
+        info("Tokscale model aliases already configured; skip")
         return
-
-    if dst.exists():
-        info(f"Updating {dst}; preserving unrelated settings (backup enabled: {ctx.options.backup})")
-    ctx.files.write_text(dst, content)
+    if existed:
+        info(f"Updated {dst}; preserved unrelated settings (backup enabled: {ctx.options.backup})")
     success(f"Configured Tokscale model aliases: {dst}")
 
 
@@ -49,8 +55,8 @@ class Tokscale(Agent):
     key = "tokscale"
     creates_dir = False  # only once there are aliases to write
 
-    @classmethod
-    def config_dir(cls, env: Mapping[str, str], home: Path) -> Path:
+    @staticmethod
+    def config_dir(env: Mapping[str, str], home: Path) -> Path:
         """Follow Tokscale's platform defaults and native directory override."""
         override = env.get("TOKSCALE_CONFIG_DIR", "")
         if override:
@@ -70,5 +76,6 @@ class Tokscale(Agent):
     def skip_reason(self, ctx: Context) -> str:
         return "tokscale config directory not found"
 
-    def configure(self, ctx: Context, target: Path) -> None:
+    @staticmethod
+    def configure(ctx: Context, target: Path) -> None:
         install_model_aliases(ctx, target)

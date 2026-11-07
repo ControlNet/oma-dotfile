@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+from support import TestCase
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "claude-plugins" / "gotify-notify"
@@ -18,7 +19,7 @@ notify = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(notify)
 
 
-class NotificationTests(unittest.TestCase):
+class NotificationTests(TestCase):
     def setUp(self):
         self.tmp = self.enterContext(tempfile.TemporaryDirectory())
         self.enterContext(patch.dict(os.environ, {
@@ -178,7 +179,7 @@ class NotificationTests(unittest.TestCase):
 ORIGINAL_POST = notify.post_json
 
 
-class PluginInstallTests(unittest.TestCase):
+class PluginInstallTests(TestCase):
     def test_manifest_hooks_and_repeat_install_preserve_local_config(self):
         from omadotfile.agents import claude
         from support import make_context

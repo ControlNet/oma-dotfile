@@ -11,6 +11,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+from support import TestCase
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "codex-gotify-notify.py"
@@ -32,7 +33,7 @@ RECAP_PROMPT = (
 )
 
 
-class RecapNotificationTests(unittest.TestCase):
+class RecapNotificationTests(TestCase):
     def setUp(self):
         self.enterContext(patch.dict(os.environ, {
             "GOTIFY_URL": "https://gotify.invalid",
@@ -150,7 +151,7 @@ CREATE TABLE thread_goal_continuation_deferrals (
 GOAL_THREAD = "synthetic-goal-thread"
 
 
-class GoalContinuationTests(unittest.TestCase):
+class GoalContinuationTests(TestCase):
     def setUp(self):
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.goals_db = self.tmp / "goals_1.sqlite"
@@ -259,7 +260,7 @@ class GoalContinuationTests(unittest.TestCase):
             self.assertEqual(notify._goals_db_path(), codex_home / "goals_10.sqlite")
 
 
-class CodexHomeTests(unittest.TestCase):
+class CodexHomeTests(TestCase):
     def setUp(self):
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.home = self.tmp / "home"

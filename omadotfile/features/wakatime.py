@@ -6,10 +6,10 @@ CodexPlugins and ClaudePlugins adapt those two CLIs to the one flow in ensure_pl
 """
 
 from collections.abc import Mapping
+from functools import partial
 from pathlib import Path
 import shutil
 
-from omadotfile.agents.base import Component
 from omadotfile.console import info, success, warn
 from omadotfile.constants import (
     CLAUDE_WAKATIME_MARKETPLACE_GIT_URL,
@@ -20,8 +20,11 @@ from omadotfile.constants import (
     WAKATIME_MARKETPLACE,
 )
 from omadotfile.context import Context
+from omadotfile.core.codec import TEXT
+from omadotfile.core.errors import warns_on
 from omadotfile.core.ini import set_section_keys
 from omadotfile.core.proc import Runner
+from omadotfile.step import found_any, step
 
 # Installer env var -> [settings] key. wakatime-cli itself reads WAKATIME_API_KEY but
 # has no env var for api_url, so a self-hosted server needs it written to the cfg.
@@ -64,24 +67,26 @@ def ensure_config(ctx: Context) -> None:
                  "(and WAKATIME_API_URL for a self-hosted server) and rerun")
         return
 
-    try:
-        content = path.read_text(encoding="utf-8") if path.is_file() else ""
-        rendered = render_config(content, settings)
-        # A new file is owner-only. An existing one is made owner-only before the key is
-        # written into it, or when an older run already put it there; without a key to
-        # write, it keeps the mode the user chose.
-        if "api_key" in settings and path.exists():
-            path.chmod(0o600)
-        if rendered == content:
-            info(f"WakaTime config already matches the environment; skip: {path}")
-            return
-        # No backup: only env-sourced values change, and a backup would keep the old key.
-        ctx.files.write_text(path, rendered, backup=False, mode=0o600)
-    except (OSError, UnicodeDecodeError) as exc:
-        warn(f"Failed to update {path} ({type(exc).__name__}); leaving it unchanged")
+    changed = update_config(ctx, path, settings)
+    if changed is None:
+        return
+    if not changed:
+        info(f"WakaTime config already matches the environment; skip: {path}")
         return
     # Name the keys only; their values may be secrets.
     success(f"Configured WakaTime {', '.join(settings)}: {path}")
+
+
+@warns_on(OSError, ValueError, message="Failed to update {path} ({error}); leaving it unchanged")
+def update_config(ctx: Context, path: Path, settings: dict[str, str]) -> bool:
+    # A new file is owner-only. An existing one is made owner-only before the key is
+    # written into it, or when an older run already put it there; without a key to
+    # write, it keeps the mode the user chose.
+    if "api_key" in settings and path.exists():
+        path.chmod(0o600)
+    # No backup: only env-sourced values change, and a backup would keep the old key.
+    return ctx.files.update(path, TEXT, partial(render_config, settings=settings), default="",
+                            backup=False, mode=0o600)
 
 
 class PluginCli:
@@ -238,17 +243,9 @@ def ensure_plugins(ctx: Context) -> None:
         warn("node not found on PATH; the WakaTime plugin hooks require it")
 
 
-class WakaTime(Component):
-    def title(self, ctx: Context) -> str:
-        return "Configuring WakaTime config and plugins"
-
-    def enabled(self, ctx: Context) -> bool:
-        return any(key in ctx.found for key in TRACKED_AGENTS)
-
-    def skip_reason(self, ctx: Context) -> str:
-        return "no WakaTime-tracked agent found"
-
-    def configure(self, ctx: Context, target: Path | None) -> None:
-        ensure_config(ctx)
-        if "codex" in ctx.found or "claude" in ctx.found:
-            ensure_plugins(ctx)
+@step("Configuring WakaTime config and plugins", when=found_any(*TRACKED_AGENTS),
+      skip="no WakaTime-tracked agent found")
+def configure_wakatime(ctx: Context) -> None:
+    ensure_config(ctx)
+    if found_any("codex", "claude")(ctx):
+        ensure_plugins(ctx)

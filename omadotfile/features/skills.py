@@ -11,7 +11,6 @@ import re
 import shutil
 import subprocess
 
-from omadotfile.agents.base import Component
 from omadotfile.console import item, warn
 from omadotfile.constants import (
     ALL_SKILLS,
@@ -23,7 +22,9 @@ from omadotfile.constants import (
     UPSTREAM_SKILLS,
 )
 from omadotfile.context import Context, RepoRef
+from omadotfile.core.errors import warns_on
 from omadotfile.migration import migration
+from omadotfile.step import found_any, step
 
 SKILLS_CLI_ENV = {"DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1"}
 SKILL_COMMITS_FILE = ".oma-dotfile-skill-commits.json"
@@ -164,12 +165,12 @@ def read_commits(ctx: Context) -> dict[str, str]:
 
 
 def write_commits(ctx: Context, recorded: dict[str, str]) -> None:
-    path = commits_path(ctx)
-    text = json.dumps(recorded, indent=2, sort_keys=True) + "\n"
-    try:
-        _ = ctx.files.write_text(path, text, backup=False)
-    except OSError as error:
-        warn(f"Could not save skill commits to {path}: {error}")
+    _ = save_commits(ctx, commits_path(ctx), json.dumps(recorded, indent=2, sort_keys=True) + "\n")
+
+
+@warns_on(OSError, message="Could not save skill commits to {path}: {reason}")
+def save_commits(ctx: Context, path: Path, text: str) -> bool:
+    return ctx.files.write_text(path, text, backup=False)
 
 
 def current_skill_names(ctx: Context, source: str, names: tuple[str, ...], agents: tuple[str, ...],
@@ -266,16 +267,8 @@ def ensure_skills(ctx: Context, legacy_skill_dirs: list[Path], claude_dir: Path 
     remove_legacy_skill_copies(legacy_skill_dirs, installed)
 
 
-class Skills(Component):
-    def title(self, ctx: Context) -> str:
-        return "Installing shared skills to ~/.agents/skills"
-
-    def enabled(self, ctx: Context) -> bool:
-        return "claude" in ctx.found or any(key in ctx.found for key in SKILL_READERS)
-
-    def skip_reason(self, ctx: Context) -> str:
-        return "no agent that uses shared skills found"
-
-    def configure(self, ctx: Context, target: Path | None) -> None:
-        ensure_skills(ctx, [ctx.dirs[key] / "skills" for key in SKILL_READERS if key in ctx.found],
-                      ctx.dirs["claude"] if "claude" in ctx.found else None)
+@step("Installing shared skills to ~/.agents/skills", when=found_any("claude", *SKILL_READERS),
+      skip="no agent that uses shared skills found")
+def install_shared_skills(ctx: Context) -> None:
+    ensure_skills(ctx, [ctx.dirs[key] / "skills" for key in SKILL_READERS if key in ctx.found],
+                  ctx.dirs["claude"] if "claude" in ctx.found else None)

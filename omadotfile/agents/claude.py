@@ -1,7 +1,6 @@
 """Claude Code: the shared rules, plugins, no commit attribution, and the commit-msg hook."""
 
 from collections.abc import Mapping
-import json
 from pathlib import Path
 import shutil
 import stat
@@ -12,19 +11,19 @@ from omadotfile.agents.base import Agent
 from omadotfile.console import item, success, warn
 from omadotfile.constants import CLAUDE_ATTRIBUTION, CLAUDE_FILES, CLAUDE_PLUGINS_DIR, COMMIT_MSG_HOOK
 from omadotfile.context import Context
+from omadotfile.core.codec import JSON, JsonObject
+from omadotfile.core.errors import warns_on
 from omadotfile.core.files import IGNORED_NAMES
 
 
-def render_plugin_hooks(hooks_path: Path) -> None:
-    """Run every command hook of a plugin with this Python, which has the plugin's imports."""
-    hooks_document = json.loads(hooks_path.read_text(encoding="utf-8"))
-    for event_entries in hooks_document["hooks"].values():
-        for event_entry in event_entries:
-            for hook in event_entry["hooks"]:
-                if hook.get("type") == "command":
-                    hook["command"] = sys.executable or "python3"
-    _ = hooks_path.write_text(json.dumps(hooks_document, indent=2, ensure_ascii=False) + "\n",
-                              encoding="utf-8")
+def with_hook_command(document: JsonObject, command: str) -> JsonObject:
+    """hooks.json with every command hook run by `command`; KeyError/TypeError if malformed."""
+    return {**document, "hooks": {
+        event: [{**entry, "hooks": [{**hook, "command": command} if hook.get("type") == "command" else hook
+                                    for hook in entry["hooks"]]}
+                for entry in entries]
+        for event, entries in document["hooks"].items()
+    }}
 
 
 def install_plugins(ctx: Context, claude_dir: Path) -> None:
@@ -39,39 +38,48 @@ def install_plugins(ctx: Context, claude_dir: Path) -> None:
 
 
 def install_plugin(ctx: Context, src_dir: Path, dst_dir: Path) -> None:
-    # Rendered in a scratch copy first, so an unchanged plugin is left as it is.
-    staged = ctx.work / CLAUDE_PLUGINS_DIR / src_dir.name
-    if staged.exists():
-        shutil.rmtree(staged)
-    _ = shutil.copytree(src_dir, staged, ignore=shutil.ignore_patterns(*IGNORED_NAMES))
-    try:
-        render_plugin_hooks(staged / "hooks" / "hooks.json")
-    except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
-        warn(f"Failed to render Claude Code hooks: {exc}")
+    staged = stage_plugin(ctx, src_dir)
+    if staged is None:
         return
     ctx.files.replace_tree(staged, dst_dir)
     success(f"Installed Claude Code plugin: {dst_dir}")
 
 
-def ensure_attribution(ctx: Context, claude_dir: Path) -> None:
-    """Turn off the attribution Claude Code adds to commits and PRs; keep other settings."""
-    dst = claude_dir / "settings.json"
-    try:
-        settings = json.loads(dst.read_text(encoding="utf-8")) if dst.exists() else {}
-        if not isinstance(settings, dict):
-            raise ValueError("not a JSON object")
-    except (OSError, ValueError) as exc:
-        warn(f"Failed to read {dst} ({type(exc).__name__}); leaving commit attribution unchanged")
-        return
+@warns_on(OSError, ValueError, KeyError, TypeError, message="Failed to render Claude Code hooks: {reason}")
+def stage_plugin(ctx: Context, src_dir: Path) -> Path:
+    """A scratch copy of the plugin with its hooks rendered, so an unchanged one is left as it is."""
+    staged = ctx.work / CLAUDE_PLUGINS_DIR / src_dir.name
+    if staged.exists():
+        shutil.rmtree(staged)
+    _ = shutil.copytree(src_dir, staged, ignore=shutil.ignore_patterns(*IGNORED_NAMES))
+    hooks = staged / "hooks" / "hooks.json"
+    # The plugin's scripts import from this Python's standard library only; run them with it.
+    document = with_hook_command(JSON.load(hooks.read_text(encoding="utf-8")), sys.executable or "python3")
+    _ = hooks.write_text(JSON.dump(document), encoding="utf-8")
+    return staged
+
+
+def without_attribution(settings: JsonObject) -> JsonObject:
+    """Settings with the commit and PR attribution turned off; other keys are kept."""
     current = settings.get("attribution")
     current = current if isinstance(current, dict) else {}
     if all(current.get(key) == value for key, value in CLAUDE_ATTRIBUTION.items()):
-        return
-    settings["attribution"] = {**current, **CLAUDE_ATTRIBUTION}
-    ctx.files.write_text(dst, json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
-    item("settings.json (no commit or PR attribution)")
+        return settings
+    return {**settings, "attribution": {**current, **CLAUDE_ATTRIBUTION}}
 
 
+def ensure_attribution(ctx: Context, claude_dir: Path) -> None:
+    """Turn off the attribution Claude Code adds to commits and PRs; keep other settings."""
+    if update_settings(ctx, claude_dir / "settings.json"):
+        item("settings.json (no commit or PR attribution)")
+
+
+@warns_on(OSError, ValueError, message="Failed to read {dst} ({error}); leaving commit attribution unchanged")
+def update_settings(ctx: Context, dst: Path) -> bool:
+    return ctx.files.update(dst, JSON, without_attribution, default={})
+
+
+@warns_on(OSError, subprocess.CalledProcessError, message="git config failed ({error}); commit-msg hook not installed")
 def global_hooks_dir(ctx: Context) -> Path | None:
     """The global core.hooksPath, set to ~/.config/git/hooks when unset; None if unusable."""
     result = subprocess.run(["git", "config", "--global", "--type=path", "--get", "core.hooksPath"],
@@ -106,11 +114,7 @@ def ensure_commit_msg_hook(ctx: Context) -> None:
         # The hook runs through `#!/usr/bin/env python3`; without it every commit would fail.
         warn("python3 not found on PATH; commit-msg hook not installed")
         return
-    try:
-        hooks_dir = global_hooks_dir(ctx)
-    except (OSError, subprocess.CalledProcessError) as exc:
-        warn(f"git config failed ({type(exc).__name__}); commit-msg hook not installed")
-        return
+    hooks_dir = global_hooks_dir(ctx)
     if hooks_dir is None:
         return
     dst = hooks_dir / "commit-msg"
@@ -123,8 +127,8 @@ class Claude(Agent):
     key = "claude"
     files = CLAUDE_FILES
 
-    @classmethod
-    def config_dir(cls, env: Mapping[str, str], home: Path) -> Path:
+    @staticmethod
+    def config_dir(env: Mapping[str, str], home: Path) -> Path:
         configured = env.get("CLAUDE_CONFIG_DIR", "").strip()
         if configured:
             return Path(configured).expanduser()
@@ -133,7 +137,8 @@ class Claude(Agent):
     def title(self, ctx: Context) -> str:
         return f"Installing Claude Code assets to: {self.target_dir(ctx)}"
 
-    def configure(self, ctx: Context, target: Path) -> None:
+    @staticmethod
+    def configure(ctx: Context, target: Path) -> None:
         install_plugins(ctx, target)
         ensure_attribution(ctx, target)
         ensure_commit_msg_hook(ctx)

@@ -1,12 +1,36 @@
 """Shared test helpers: a Context over temporary directories, never the real home."""
 
 from collections.abc import Iterable, Mapping
+from contextlib import AbstractContextManager
 from pathlib import Path
+import sys
+from typing import TypeVar
+import unittest
 
 from omadotfile.context import Context, Options, RepoRef
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    tomllib = None
+
 ROOT = Path(__file__).resolve().parents[1]
 STAMP = "20260908-120000"
+T = TypeVar("T")
+
+# Tests that parse the TOML the installer wrote need a real parser; Python 3.10 has none.
+# The installer's own no-tomllib path is covered by test_pull_toml_fallback on every version.
+requires_tomllib = unittest.skipIf(tomllib is None, "needs tomllib (Python 3.11+) to check the TOML")
+
+
+class TestCase(unittest.TestCase):
+    """unittest.TestCase, with enterContext on Python 3.10 too."""
+
+    if sys.version_info < (3, 11):
+        def enterContext(self, cm: AbstractContextManager[T]) -> T:
+            result = cm.__enter__()
+            self.addCleanup(cm.__exit__, None, None, None)
+            return result
 
 
 def make_context(home: Path, *, repo: Path = ROOT, work: Path | None = None, oauth: bool = False,

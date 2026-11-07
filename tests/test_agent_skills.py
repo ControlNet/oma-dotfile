@@ -18,7 +18,7 @@ from omadotfile.context import RepoRef
 from omadotfile.core import proc
 from omadotfile.core.proc import Runner
 from omadotfile.features import skills
-from support import ROOT, make_context
+from support import ROOT, TestCase, make_context
 
 THIS_REPO = RepoRef()
 REPO_SOURCE = THIS_REPO.skills_source
@@ -40,7 +40,7 @@ def cli_reply(installed: tuple[str, ...] = (), skipped: tuple[str, ...] = ()) ->
     return reply
 
 
-class SourceTests(unittest.TestCase):
+class SourceTests(TestCase):
     def setUp(self):
         self.repo = Path(self.enterContext(tempfile.TemporaryDirectory()))
 
@@ -86,7 +86,7 @@ class SourceTests(unittest.TestCase):
         ])
 
 
-class InstalledNamesTests(unittest.TestCase):
+class InstalledNamesTests(TestCase):
     def test_only_installed_entries_count(self):
         reply = cli_reply(installed=("skill-creator",), skipped=("frontend-design",))
         self.assertEqual(skills.installed_skill_names(reply), {"skill-creator"})
@@ -96,7 +96,7 @@ class InstalledNamesTests(unittest.TestCase):
             self.assertEqual(skills.installed_skill_names(reply), set(), reply)
 
 
-class AgentSkillsHarness(unittest.TestCase):
+class AgentSkillsHarness(TestCase):
     """Fake npx, CLI replies and lock file; holds no tests itself."""
 
     def setUp(self):
@@ -446,7 +446,7 @@ class SkipUnchangedSourceTests(AgentSkillsHarness):
         self.assertEqual(skills.commits_path(self.ctx).parent, self.lock.parent)
 
 
-class RemoteCommitTests(unittest.TestCase):
+class RemoteCommitTests(TestCase):
     """`git ls-remote` replies here are synthetic; no network is used."""
 
     def ls_remote(self, stdout: str = "", returncode: int = 0, error: Exception | None = None):
@@ -484,14 +484,14 @@ class RemoteCommitTests(unittest.TestCase):
             self.assertEqual(skills.remote_commits(self.ctx, {"a/b", "x/y"}), {"a/b": "a" * 40})
 
 
-class LockPathTests(unittest.TestCase):
+class LockPathTests(TestCase):
     def test_lock_follows_xdg_state_home_like_the_cli(self):
         state = make_context(Path("/h"), env={"XDG_STATE_HOME": "/state"})
         self.assertEqual(skills.lock_path(state), Path("/state/skills/.skill-lock.json"))
         self.assertEqual(skills.lock_path(make_context(Path("/h"))), Path("/h/.agents/.skill-lock.json"))
 
 
-class ExtraEnvTests(unittest.TestCase):
+class ExtraEnvTests(TestCase):
     def test_extra_env_reaches_the_command(self):
         done = subprocess.CompletedProcess(["npx"], 0, stdout=json.dumps(cli_reply()), stderr="")
         with patch.object(proc, "find_executable", return_value=Path("/fake/bin/npx")), \

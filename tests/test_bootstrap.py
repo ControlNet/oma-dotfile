@@ -20,6 +20,7 @@ bootstrap = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(bootstrap)
 sys.path.insert(0, str(ROOT))
 import omadotfile.cli  # noqa: E402  (the module run() imports)
+from support import TestCase
 
 
 def errors_of(function, *args) -> str:
@@ -30,7 +31,7 @@ def errors_of(function, *args) -> str:
     return err.getvalue()
 
 
-class BootstrapTests(unittest.TestCase):
+class BootstrapTests(TestCase):
     def test_repo_argument_is_taken_out_and_the_rest_passed_on(self):
         self.assertEqual(bootstrap.split_repo_arg(["--oauth", "--repo", "/x", "--all"]),
                          ("/x", ["--oauth", "--all"]))

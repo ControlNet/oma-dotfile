@@ -7,10 +7,15 @@ is not, since git history keeps its old versions. `changed` lists what this run 
 
 import filecmp
 import os
+from collections.abc import Callable
 from pathlib import Path
 import shutil
+from typing import TypeVar
 
 from omadotfile.console import info, warn
+from omadotfile.core.codec import Codec
+
+T = TypeVar("T")
 
 # Build artefacts in a local checkout; never installed.
 IGNORED_NAMES = ("__pycache__",)
@@ -72,6 +77,19 @@ class Files:
                 _ = handle.write(content)
         self.changed.append(dst)
         return True
+
+    def update(self, dst: Path, codec: Codec[T], transform: Callable[[T], T], *, default: T,
+               backup: bool = True, mode: int | None = None) -> bool:
+        """Apply transform to dst's value (default when dst is missing); write if it changed.
+
+        The comparison is between values, so a file that only differs in formatting is left
+        alone. Errors from reading, codec.load or transform propagate and nothing is written.
+        """
+        value = codec.load(dst.read_text(encoding="utf-8")) if dst.exists() else default
+        result = transform(value)
+        if dst.exists() and result == value:
+            return False
+        return self.write_text(dst, codec.dump(result), backup=backup, mode=mode)
 
     def copy(self, src: Path, dst: Path, *, backup: bool = True) -> bool:
         """Copy src to dst unless dst already has the same content."""

@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 import re
+from typing import Any, cast
 
 
 # Keep JSON strings intact while accepting JSONC comments and trailing commas.
@@ -10,9 +11,17 @@ JSONC_TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|//[^\n]*|/\*.*?\*/', re.DOTALL)
 
 
 def read_jsonc_object(path: Path) -> dict:
+    try:
+        return loads_jsonc_object(path.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        raise ValueError(f"{exc} in {path}") from exc
+
+
+def loads_jsonc_object(text: str) -> dict[str, Any]:
+    """Parse JSONC text that must hold a JSON object; ValueError otherwise."""
     content = JSONC_TOKEN.sub(
         lambda match: match.group() if match.group().startswith('"') else " ",
-        path.read_text(encoding="utf-8"),
+        text,
     )
     content = re.sub(
         r'"(?:\\.|[^"\\])*"|,\s*(?=[}\]])',
@@ -21,8 +30,8 @@ def read_jsonc_object(path: Path) -> dict:
     )
     value = json.loads(content)
     if not isinstance(value, dict):
-        raise ValueError(f"Expected a JSON object in {path}")
-    return value
+        raise ValueError("Expected a JSON object")
+    return cast(dict[str, Any], value)
 
 
 def merge_config_objects(base: dict, override: dict) -> dict:

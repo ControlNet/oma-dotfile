@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
 
-from omadotfile.agents.base import Agent, Component
+from omadotfile.agents.base import Agent
 from omadotfile.agents.claude import Claude
 from omadotfile.agents.codex import Codex
 from omadotfile.agents.omo import OmoConfig
@@ -18,8 +18,9 @@ from omadotfile.agents.tokscale import Tokscale
 from omadotfile.console import BANNER, error, info, step, success, warn
 from omadotfile.constants import AGENT_LABELS, GATEWAY_ENV_VARS, REQUIRED_ENV_VARS, REQUIRED_REPO_FILES
 from omadotfile.context import Context, Options, RepoRef
-from omadotfile.features.skills import Skills
-from omadotfile.features.wakatime import WakaTime
+from omadotfile.features.skills import install_shared_skills
+from omadotfile.features.wakatime import configure_wakatime
+from omadotfile.step import Step
 
 # One instance per agent, in the order of constants.AGENT_LABELS.
 AGENTS: dict[str, Agent] = {agent.key: agent for agent in (
@@ -28,16 +29,16 @@ AGENTS: dict[str, Agent] = {agent.key: agent for agent in (
 assert list(AGENTS) == list(AGENT_LABELS), "AGENTS must follow AGENT_LABELS"
 
 # The install steps, run in this order and numbered from 1.
-STEPS: tuple[Component, ...] = (
+STEPS: tuple[Step, ...] = (
     AGENTS["opencode"],
     OmoConfig(),
     AGENTS["omo"],
     AGENTS["omp"],
     AGENTS["codex"],
-    WakaTime(),
+    configure_wakatime,
     AGENTS["claude"],
     AGENTS["tokscale"],
-    Skills(),
+    install_shared_skills,
 )
 
 # What to run after --oauth to log in to each agent.
@@ -107,11 +108,11 @@ def report_done(ctx: Context) -> None:
 
 def run_steps(ctx: Context) -> None:
     total = len(STEPS)
-    for number, component in enumerate(STEPS, start=1):
-        enabled = component.enabled(ctx)
-        if step(f"{number}/{total}", component.title(ctx), enabled,
-                "" if enabled else component.skip_reason(ctx)):
-            component.run(ctx)
+    for number, current in enumerate(STEPS, start=1):
+        enabled = current.enabled(ctx)
+        if step(f"{number}/{total}", current.title(ctx), enabled,
+                "" if enabled else current.skip_reason(ctx)):
+            current.run(ctx)
 
 
 def main(argv: Sequence[str] | None = None, repo: Path | None = None,

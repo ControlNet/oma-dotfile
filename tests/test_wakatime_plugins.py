@@ -16,7 +16,7 @@ from omadotfile.core import proc
 from omadotfile.core.proc import Runner
 from omadotfile.features import wakatime
 from omadotfile.features.wakatime import ClaudePlugins, CodexPlugins, ensure_plugin
-from support import make_context
+from support import TestCase, make_context
 
 EMPTY_PLUGIN_LIST = {"installed": [], "available": []}
 INSTALLED_PLUGIN_LIST = {
@@ -105,7 +105,7 @@ def run_claude_ensure(responses: dict[str, object], claude_config_dir: Path):
     return fake, installed
 
 
-class CodexWakatimePluginTests(unittest.TestCase):
+class CodexWakatimePluginTests(TestCase):
     def test_first_install_adds_marketplace_then_plugin(self) -> None:
         # Given a Codex home without the WakaTime marketplace or plugin.
         with tempfile.TemporaryDirectory() as tmp:
@@ -218,7 +218,7 @@ class CodexWakatimePluginTests(unittest.TestCase):
             )
 
 
-class ClaudeWakatimePluginTests(unittest.TestCase):
+class ClaudeWakatimePluginTests(TestCase):
     def test_first_install_adds_marketplace_then_plugin(self) -> None:
         # Given a Claude Code config directory without the marketplace or plugin.
         with tempfile.TemporaryDirectory() as tmp:
@@ -361,7 +361,7 @@ class ClaudeWakatimePluginTests(unittest.TestCase):
             self.assertEqual(fake.calls, [])
 
 
-class AgentCliLookupTests(unittest.TestCase):
+class AgentCliLookupTests(TestCase):
     def test_cli_only_in_extra_bin_dir_is_used_by_path(self) -> None:
         # Given codex installed only in an extra bin dir that a piped install's PATH lacks.
         extra = "/home/me/.bun/bin/codex"
@@ -378,7 +378,7 @@ class AgentCliLookupTests(unittest.TestCase):
         self.assertEqual(fake.envs[0]["PATH"].split(os.pathsep)[0], "/home/me/.bun/bin")
 
 
-class WakatimePrerequisiteTests(unittest.TestCase):
+class WakatimePrerequisiteTests(TestCase):
     def test_prerequisites_are_not_checked_when_both_steps_skip(self) -> None:
         # Given neither agent CLI is available.
         with tempfile.TemporaryDirectory() as tmp, \
@@ -394,7 +394,7 @@ FAKE_KEY = "test-only-fake-wakatime-key"
 FAKE_URL = "https://wakapi.example.invalid/api"
 
 
-class WakatimeConfigTests(unittest.TestCase):
+class WakatimeConfigTests(TestCase):
     def setUp(self) -> None:
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.cfg = self.tmp / ".wakatime.cfg"

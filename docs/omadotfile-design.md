@@ -101,7 +101,16 @@ class Files:
     def replace_tree(self, src: Path, dst: Path) -> None
     def copy_items(self, src: Path, dst: Path) -> None
     def retire(self, path: Path) -> None       # today's rename_path_if_exists
+    def update(self, dst: Path, codec: Codec[T], transform: Callable[[T], T], *, default: T,
+               backup: bool = True, mode: int | None = None) -> bool
 ```
+
+`update` is the read-modify-write every merged config goes through: it loads dst with a
+`Codec` (`core/codec.py`: `JSON`, `JSONC`, `LINES`, `TEXT`; `Codec[T]` is a Protocol with
+`load` and `dump`), applies a pure `transform`, and writes only when the value changed. A
+transform is usually a module-level function with its fixed arguments bound by
+`functools.partial`, e.g. `partial(with_extension_disabled, "rules")`, or a closure built by a
+function such as `codex.config_transform(ctx, codex_dir)`.
 
 Each call compares first and writes only on change; `backup` follows `Options.backup` and keeps
 `max_backups` copies. Today the compare-backup-write sequence is written out separately in
@@ -113,14 +122,20 @@ Content is computed by plain functions (`str -> str` or `dict -> dict`) that do 
 today's `render_omo_oauth_config`, `render_omp_models`, `render_wakatime_config`. New code follows
 the same split: compute in a pure function, write through `Files`.
 
-### Components and agents
+### Steps, components and agents
 
 ```python
-class Component:                     # one numbered step
-    title: str
+class Step(Protocol):                # omadotfile/step.py: one numbered step
+    def title(self, ctx: Context) -> str
     def enabled(self, ctx: Context) -> bool
     def skip_reason(self, ctx: Context) -> str
     def run(self, ctx: Context) -> None
+
+@step("Configuring WakaTime config and plugins", when=found_any("opencode", "omp", "codex", "claude"),
+      skip="no WakaTime-tracked agent found")
+def configure_wakatime(ctx: Context) -> None: ...   # becomes a FunctionStep (a frozen dataclass)
+
+class Component:                     # a Step that installs `files` under target_dir, then configure()
 
 @dataclass(frozen=True)
 class FileSpec:                      # pure data, declared in constants.py
@@ -135,8 +150,8 @@ class Agent(Component):
     executable: ClassVar[str | None]
     files: ClassVar[tuple[FileSpec, ...]] = ()
 
-    @classmethod
-    def config_dir(cls, env: Mapping[str, str], home: Path) -> Path
+    @staticmethod
+    def config_dir(env: Mapping[str, str], home: Path) -> Path
     def detect(self, env, home) -> bool            # default: executable found
     def enabled(self, ctx) -> bool                 # default: self.key in ctx.found
     def run(self, ctx) -> None                     # mkdir, install files, then configure()
@@ -147,13 +162,22 @@ class Agent(Component):
 `configure`, which only Codex, Claude, OMO Native and a few others override. Files with an
 `--oauth` variant (`opencode.jsonc`, `omo.jsonc`, `omp_config.yml`) are marked `oauth=True`; under
 `--oauth` the agent's `install_oauth_file` writes the rewritten copy, so `constants.py` holds no
-code. There is one
-level of inheritance and no factories: the steps are a literal, ordered list in `cli.py`:
+code.
+
+`Step` is a Protocol, so a step is anything with those four methods: the agent classes
+inherit them from `Component` (inheritance only for the shared template method), and the two
+steps that install no files, WakaTime and shared skills, are functions made into steps by
+`@step`. `found_any(*keys)` returns the predicate closure they run under. A method that does
+not use `self` is a `@staticmethod` (`config_dir`, `configure`, `install_oauth_file`,
+`install_merged_file`, the codecs' `load`/`dump`), declared static in the base class too so
+overrides type-check; `title`, `enabled`, `skip_reason` and `target_dir` stay instance methods
+because `Agent`'s versions read `self`. `@classmethod` builds instances (`Options.from_env`,
+`RepoRef.from_env`). There are no factories: the steps are a literal, ordered tuple in `cli.py`:
 
 ```python
-AGENTS = (OpenCode(), OmoNative(), Omp(), Codex(), Claude(), Tokscale())   # detection order
-STEPS = (AGENTS[0], OmoConfig(), AGENTS[1], AGENTS[2], AGENTS[3], WakaTime(),
-         AGENTS[4], AGENTS[5], Skills())
+STEPS: tuple[Step, ...] = (AGENTS["opencode"], OmoConfig(), AGENTS["omo"], AGENTS["omp"],
+                           AGENTS["codex"], configure_wakatime, AGENTS["claude"],
+                           AGENTS["tokscale"], install_shared_skills)
 ```
 
 Today's steps 2 and 5 (OpenCode files and plugins) become one step, as do 7 and 8 (Codex assets
@@ -243,8 +267,12 @@ Everything else must be identical:
 4. `__pycache__` in a local checkout is no longer copied into the Claude Code plugin dir.
 
 Error handling stays as it is: expected failures (unreadable config, bad JSON, a CLI that fails)
-are caught where they happen, print `[WARN]` and the run goes on; an unexpected exception aborts
-the run with a traceback; a failed clone or a missing required repo file exits 1.
+print `[WARN]` and the run goes on; an unexpected exception aborts the run with a traceback; a
+failed clone or a missing required repo file exits 1. Inside, pure helpers raise (`ValueError`
+for bad content); the function that does one install action is decorated with
+`@warns_on(OSError, ValueError, message="Failed to read {dst} ({error}); ...")`
+(`core/errors.py`), which turns exactly those errors into the warning and returns None. The
+message fields are checked against the function's parameters when the module is imported.
 
 ## Migration plan
 
@@ -314,3 +342,24 @@ sandboxes, then diff the trees. Backup files and other timestamps are ignored. E
 - `tests/test_install_run.py` runs `cli.main` twice with stub `codex`, `claude` and `npx`, and
   checks that the second run changes no file, makes no backup and re-adds nothing.
 - Tests run with `python3 -m unittest discover -s tests` from the repo root.
+
+### Second pass: higher-order functions and decorators (2026-11-07)
+
+- `@warns_on` replaced each hand-written try/except-warn block; `Files.update` with a `Codec`
+  replaced the seven read-modify-write blocks (Claude settings, OMO Native settings and
+  models, Tokscale, Codex config.toml, WakaTime cfg, OMP config.yml).
+- WakaTime and shared skills became `@step` functions; `OmoConfig` stays a `Component`.
+- Methods that never use `self` became `@staticmethod` through the whole hierarchy.
+- Style choices, from the owner: decorators and closures yes; no `>>` pipe objects (they
+  wreck tracebacks), no facade namespace objects, Protocols for interfaces.
+- Types are checked with pyright (`pyrightconfig.json`: standard mode, strict for `step.py`,
+  `core/errors.py`, `core/codec.py`, `core/yaml_merge.py`); `@warns_on` keeps the decorated
+  function's signature through `ParamSpec` and adds `| None` to its return type.
+- The suite runs on Python 3.10 to 3.14 (`pixi exec --spec python=3.X`); on 3.10, 21 tests
+  that parse the written TOML with `tomllib` (or test a safeguard that needs it) are skipped
+  by `@requires_tomllib`, and `support.TestCase` adds `enterContext` (Python 3.11+). A full
+  sandboxed install under each version wrote the same files, apart from the interpreter path
+  in Codex's `notify`.
+- A golden run against the previous commit matched in four sandboxes (fresh, `--oauth`,
+  existing config, two runs). The one output change: Tokscale now prints "Updated ...;
+  preserved unrelated settings" after writing instead of "Updating ..." before it.

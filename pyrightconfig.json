@@ -1,0 +1,11 @@
+{
+  "include": ["omadotfile", "pull.py"],
+  "pythonVersion": "3.10",
+  "typeCheckingMode": "standard",
+  "strict": [
+    "omadotfile/step.py",
+    "omadotfile/core/errors.py",
+    "omadotfile/core/codec.py",
+    "omadotfile/core/yaml_merge.py"
+  ]
+}

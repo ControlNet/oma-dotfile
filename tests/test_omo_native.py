@@ -11,7 +11,7 @@ from omadotfile.agents import omo_native
 from omadotfile.agents.omo import OmoConfig
 from omadotfile.agents.omo_native import OmoNative
 from omadotfile.core.jsonc import read_jsonc_object
-from support import ROOT, make_context
+from support import ROOT, TestCase, make_context
 
 # Agent names OMO Native 5.1.0 defines (omo-ai bin/lib/setup-opencode-models.js NATIVE_AGENT_NAMES).
 NATIVE_AGENT_NAMES = {
@@ -42,7 +42,7 @@ def model_strings(value) -> list[str]:
     return []
 
 
-class NativeTemplateTests(unittest.TestCase):
+class NativeTemplateTests(TestCase):
     def test_native_block_uses_only_native_agent_names(self) -> None:
         native = omo_template()["[native]"]
         self.assertEqual(set(native["agents"]), NATIVE_AGENT_NAMES)
@@ -80,7 +80,7 @@ class NativeTemplateTests(unittest.TestCase):
         self.assertTrue(all(model.startswith("codex/") for model in models), models)
 
 
-class NativeOAuthRenderTests(unittest.TestCase):
+class NativeOAuthRenderTests(TestCase):
     def setUp(self) -> None:
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.omo_dir = self.tmp / ".omo"
@@ -105,7 +105,7 @@ class NativeOAuthRenderTests(unittest.TestCase):
         self.assertEqual(normalized, (ROOT / "omo.jsonc").read_text(encoding="utf-8"))
 
 
-class NativeModelsTests(unittest.TestCase):
+class NativeModelsTests(TestCase):
     def setUp(self) -> None:
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.models = self.tmp / "models.json"
@@ -168,7 +168,7 @@ class NativeModelsTests(unittest.TestCase):
         self.assertIn("models.json", stderr)
 
 
-class NativeSettingsTests(unittest.TestCase):
+class NativeSettingsTests(TestCase):
     def setUp(self) -> None:
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.settings = self.tmp / "settings.json"
@@ -215,7 +215,7 @@ class NativeSettingsTests(unittest.TestCase):
         self.assertIn("settings.json", stderr)
 
 
-class NativeAgentDirTests(unittest.TestCase):
+class NativeAgentDirTests(TestCase):
     def test_agent_dir_follows_omo_override_order(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)

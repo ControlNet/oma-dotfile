@@ -36,6 +36,21 @@ Things worth knowing when changing it:
 - An agent is a `Component` with `files` (`FileSpec` in `constants.py`) plus `configure`.
   A file with an `--oauth` variant is `FileSpec(..., oauth=True)` and the agent overrides
   `install_oauth_file`.
+- A config the installer edits rather than replaces goes through
+  `ctx.files.update(dst, codec, transform, default=...)`: `Codec` (`core/codec.py`) loads and
+  dumps, `transform` is a pure function (bind arguments with `functools.partial`). The function
+  doing it is wrapped in `@warns_on(OSError, ValueError, message="...{dst}...({error})")`
+  (`core/errors.py`) instead of a try/except; pure helpers just raise.
+- A step that installs no files is a function decorated with `@step(title, when=found_any(...),
+  skip=...)` (`omadotfile/step.py`); `Step` is a Protocol that agent classes also satisfy.
+- Types: `pixi exec --spec pyright pyright` from the repo root (config in `pyrightconfig.json`)
+  should report 0 errors.
+- Supported Pythons are 3.10 to 3.14 (Ubuntu 22.04 ships 3.10). Run the suite on each with
+  `for v in 3.10 3.11 3.12 3.13 3.14; do pixi exec --spec "python=$v" -- python -m unittest discover -s tests; done`.
+  Test classes inherit `support.TestCase` (adds `enterContext` on 3.10); tests that need
+  `tomllib` to check output carry `@requires_tomllib` and are skipped on 3.10.
+- A method that never uses `self` is a `@staticmethod` (declared static in the base class as
+  well, or pyright reports the override).
 - A file the agent also writes to is `FileSpec(..., merge=True)`; the agent's
   `install_merged_file` merges it (OMP `config.yml`, see `omp-config-merge.md`).
 - The steps are the literal `STEPS` tuple in `cli.py`; their numbers come from its order.
