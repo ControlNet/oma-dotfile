@@ -9,7 +9,7 @@ import re
 from omadotfile.agents.base import Agent
 from omadotfile.console import Note, info, success, warn
 from omadotfile.constants import CODEX_DISABLED_SHARED_SKILLS, CODEX_FILES
-from omadotfile.context import Context
+from omadotfile.context import Context, Options
 from omadotfile.core.codec import LINES
 from omadotfile.core.errors import warns_on
 from omadotfile.core import toml_edit
@@ -19,7 +19,7 @@ from omadotfile.core.toml_edit import (TOML_ASSIGNMENT_START, TOML_TABLE_HEADER,
                                        find_toml_key_assignment_ranges, read_toml_string_assignment,
                                        replace_toml_section, toml_basic_string, toml_key_name,
                                        toml_statement_starts)
-from omadotfile.inject import inject
+from omadotfile.inject import env_of, inject, options_of, uses
 
 
 def ensure_oauth_provider(lines: list[str]) -> list[str]:
@@ -210,11 +210,12 @@ def unchanged(lines: list[str]) -> list[str]:
     return lines
 
 
-def provider_edit(ctx: Context) -> Callable[[list[str]], list[str]]:
+@uses(options_of, env_of)
+def provider_edit(options: Options, env: Mapping[str, str], /) -> Callable[[list[str]], list[str]]:
     """How this run sets config.toml's model provider: OAuth, the gateway, or not at all."""
-    if ctx.options.oauth:
+    if options.oauth:
         return ensure_oauth_provider
-    codex_base_url = ctx.env.get("CODEX_BASE_URL", "").strip()
+    codex_base_url = env.get("CODEX_BASE_URL", "").strip()
     if not codex_base_url:
         warn("CODEX_BASE_URL is not set; skip Codex model provider config in config.toml.")
         return unchanged

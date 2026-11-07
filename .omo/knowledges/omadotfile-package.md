@@ -97,7 +97,9 @@ Things worth knowing when changing it:
   under `@inject` (`def f(files: Files, runner: Runner, /, dst: Path)`; callers still pass `ctx`).
   Only `Files`/`Runner`/`Options`/`RepoRef` inject by type; for `Path`/`Mapping` fields use
   `@uses(home_of, repo_of)`. Put `@inject` above `@warns_on`. A new injectable type goes in both
-  `PROVIDERS` and the `Dep1..3` constraints (a test checks they match). Ambiguous Context fields
+  `PROVIDERS` and the `Dep1..3` constraints (a test checks they match). Providers for `@uses`:
+  `files_of`, `runner_of`, `options_of`, `source_of`, `repo_of`, `home_of`, `work_of`, `env_of`,
+  `python_of`. Not for Agent/Component methods, `@step` actions, or functions that pass `ctx` on. Ambiguous Context fields
   (`home`/`repo`/`work`/`env`) stay on `@uses`: decided 2026-11-07 not to wrap them in NewTypes
   just to make them type-injectable (pyright would support it: a TypeVar constrained to
   `NewType("Home", Path)` rejects a plain `Path`).

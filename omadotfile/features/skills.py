@@ -4,7 +4,7 @@ OpenCode, Codex, OMP and OMO Native read ~/.agents/skills. Claude Code does not,
 skills CLI also links each skill into its skills dir when Claude Code is installed for.
 """
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import json
@@ -26,7 +26,7 @@ from omadotfile.context import Context, RepoRef
 from omadotfile.core.errors import skips, warns_on
 from omadotfile.core.files import Files
 from omadotfile.core.proc import CommandFailed, Runner
-from omadotfile.inject import inject
+from omadotfile.inject import env_of, home_of, inject, uses
 from omadotfile.migration import migration
 from omadotfile.step import found_any, requires, step
 
@@ -82,12 +82,13 @@ def installed_skill_names(document: object) -> set[str]:
             and isinstance(entry.get("name"), str)}
 
 
-def lock_path(ctx: Context) -> Path:
+@uses(env_of, home_of)
+def lock_path(env: Mapping[str, str], home: Path, /) -> Path:
     """The skills CLI's global lock file, located the way the CLI locates it."""
-    state_home = ctx.env.get("XDG_STATE_HOME")
+    state_home = env.get("XDG_STATE_HOME")
     if state_home:
         return Path(state_home) / "skills" / ".skill-lock.json"
-    return ctx.home / ".agents" / ".skill-lock.json"
+    return home / ".agents" / ".skill-lock.json"
 
 
 def locked_skills(ctx: Context) -> dict[str, dict]:

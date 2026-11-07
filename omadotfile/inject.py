@@ -10,7 +10,7 @@ type, so the function names the services it really uses and callers still pass t
 
 Only the service types in PROVIDERS are injected that way: each has exactly one instance in
 a run. A type the Context holds several of (`repo`, `home` and `work` are all `Path`; `env` is
-a `Mapping`) is ambiguous, so pyright reports "no overloads match" for it under `@inject`; such a
+a `Mapping`, `python` a `str`) is ambiguous, so pyright reports "no overloads match" for it under `@inject`; such a
 function names its providers instead:
 
     @uses(home_of, repo_of)
@@ -23,7 +23,7 @@ Rules both decorators keep, so the runtime injects exactly what pyright sees:
   not injectable, so stacking a second one fails when decorating instead of misbinding.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from functools import wraps
 import inspect
 from pathlib import Path
@@ -68,6 +68,14 @@ def home_of(ctx: Context) -> Path:
 
 def work_of(ctx: Context) -> Path:
     return ctx.work
+
+
+def env_of(ctx: Context) -> Mapping[str, str]:
+    return ctx.env
+
+
+def python_of(ctx: Context) -> str:
+    return ctx.python
 
 
 # The types @inject resolves, and how. Static: nothing registers into it at import time.

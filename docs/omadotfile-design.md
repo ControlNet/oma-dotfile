@@ -486,6 +486,19 @@ type was considered and declined (more churn in Context than it saves).
 Pilot: the four Files-only wrappers (`claude.update_settings`, `omo_native.update_settings`,
 `omp.write_models`, `skills.save_commits`). Golden runs: identical.
 
+Rollout (same day): `@inject` on every module-level function whose Context use is only
+`Files`/`Runner` (codex and wakatime `update_config`, the three `retire_legacy_*` migrations,
+`skills.ls_remote_commit`, `omo_native.ensure_herdr_dag` under its `@requires`); `@uses` where the
+needed fields are ambiguous (`claude.global_hooks_dir`, `claude.stage_plugin`,
+`omo_native.update_models`, `tokscale.install_model_aliases`, `skills.lock_path`,
+`codex.provider_edit`, `omp.gateway_models`). Left on `ctx` on purpose:
+- Agent/Component methods (`title`, `configure`, `install_*`, ...): the template method calls
+  them all with `ctx`; one uniform signature per hook beats per-override wiring.
+- `@step` actions and orchestrators that pass `ctx` on to other functions.
+- Functions that read `found`/`dirs`/`stamp` (`ensure_plugins`, `done_notes`): run state, not
+  services, and only reachable through the Context.
+- `omp.oauth_models`, which uses no service but must keep `gateway_models`' call shape.
+
 ### Ambient state through the composition root (2026-11-07)
 
 After the DI pass, `cli.main` is the only reader of process state; everything below it gets

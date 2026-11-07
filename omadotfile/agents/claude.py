@@ -12,8 +12,8 @@ from omadotfile.context import Context, expand_home
 from omadotfile.core.codec import JSON, JsonObject
 from omadotfile.core.errors import warns_on
 from omadotfile.core.files import IGNORED_NAMES, Files
-from omadotfile.core.proc import CommandFailed
-from omadotfile.inject import inject
+from omadotfile.core.proc import CommandFailed, Runner
+from omadotfile.inject import home_of, inject, python_of, runner_of, uses, work_of
 
 
 def with_hook_command(document: JsonObject, command: str) -> JsonObject:
@@ -45,16 +45,17 @@ def install_plugin(ctx: Context, src_dir: Path, dst_dir: Path) -> None:
     success(f"Installed Claude Code plugin: {dst_dir}")
 
 
+@uses(work_of, python_of)
 @warns_on(OSError, ValueError, KeyError, TypeError, message="Failed to render Claude Code hooks: {reason}")
-def stage_plugin(ctx: Context, src_dir: Path) -> Path:
+def stage_plugin(work: Path, python: str, /, src_dir: Path) -> Path:
     """A scratch copy of the plugin with its hooks rendered, so an unchanged one is left as it is."""
-    staged = ctx.work / "claude-plugins" / src_dir.name
+    staged = work / "claude-plugins" / src_dir.name
     if staged.exists():
         shutil.rmtree(staged)
     _ = shutil.copytree(src_dir, staged, ignore=shutil.ignore_patterns(*IGNORED_NAMES))
     hooks = staged / "hooks" / "hooks.json"
     # The plugin's scripts import from this Python's standard library only; run them with it.
-    document = with_hook_command(JSON.load(hooks.read_text(encoding="utf-8")), ctx.python)
+    document = with_hook_command(JSON.load(hooks.read_text(encoding="utf-8")), python)
     _ = hooks.write_text(JSON.dump(document), encoding="utf-8")
     return staged
 
@@ -80,11 +81,12 @@ def update_settings(files: Files, /, dst: Path) -> bool:
     return files.update(dst, JSON, without_attribution)
 
 
+@uses(runner_of, home_of)
 @warns_on(CommandFailed, message="{reason}; commit-msg hook not installed")
-def global_hooks_dir(ctx: Context) -> Path | None:
+def global_hooks_dir(runner: Runner, home: Path, /) -> Path | None:
     """The global core.hooksPath, set to ~/.config/git/hooks when unset; None if unusable."""
     # Unchecked: git exits 1 when the key is unset.
-    result = ctx.runner.run(["git", "config", "--global", "--type=path", "--get", "core.hooksPath"], check=False)
+    result = runner.run(["git", "config", "--global", "--type=path", "--get", "core.hooksPath"], check=False)
     if result.returncode == 0 and result.stdout.strip():
         hooks_dir = Path(result.stdout.strip())
         if not hooks_dir.is_absolute():
@@ -92,8 +94,8 @@ def global_hooks_dir(ctx: Context) -> Path | None:
                  "each repo resolves it itself, so the commit-msg hook is not installed")
             return None
         return hooks_dir
-    hooks_dir = ctx.home / ".config" / "git" / "hooks"
-    _ = ctx.runner.run(["git", "config", "--global", "core.hooksPath", str(hooks_dir)])
+    hooks_dir = home / ".config" / "git" / "hooks"
+    _ = runner.run(["git", "config", "--global", "core.hooksPath", str(hooks_dir)])
     item(f"git core.hooksPath set to {hooks_dir}")
     warn("         Hooks in each repo's .git/hooks no longer run; with git-lfs, "
          "run `git lfs install` to put its hooks there too")

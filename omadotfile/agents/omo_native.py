@@ -18,7 +18,7 @@ from omadotfile.core.errors import Skip, skips, warns_on
 from omadotfile.core.files import Files
 from omadotfile.core.jsonc import read_jsonc_object
 from omadotfile.core.proc import Runner
-from omadotfile.inject import inject
+from omadotfile.inject import files_of, inject, repo_of, uses
 from omadotfile.step import requires
 
 # omo-ai bin/lib/agent-dir.js AGENT_DIR_ENV_NAMES, most specific first.
@@ -86,10 +86,11 @@ def with_provider(name: str, provider: JsonObject, document: JsonObject) -> Json
     return {**document, "providers": {**providers, name: provider}}
 
 
+@uses(files_of, repo_of)
 @warns_on(OSError, ValueError, KeyError, message="Failed to update {dst} ({error}); leaving models.json unchanged")
-def update_models(ctx: Context, dst: Path, codex_base_url: str) -> bool:
-    provider = build_gateway_provider(ctx.repo, codex_base_url)
-    return ctx.files.update(dst, JSONC, partial(with_provider, "codex", provider))
+def update_models(files: Files, repo: Path, /, dst: Path, codex_base_url: str) -> bool:
+    provider = build_gateway_provider(repo, codex_base_url)
+    return files.update(dst, JSONC, partial(with_provider, "codex", provider))
 
 
 def ensure_settings(ctx: Context, agent_dir: Path) -> None:

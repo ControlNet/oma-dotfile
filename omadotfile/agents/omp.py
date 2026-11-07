@@ -14,7 +14,7 @@ from omadotfile.core import yaml_merge
 from omadotfile.core.codec import TEXT
 from omadotfile.core.errors import warns_on
 from omadotfile.core.files import Files
-from omadotfile.inject import inject
+from omadotfile.inject import env_of, inject, uses
 
 BASE_URL_PLACEHOLDER = re.compile(r'^(\s*baseUrl:\s*)(["\']?)CODEX_BASE_URL\2(\s*(?:#.*)?)$', re.MULTILINE)
 
@@ -49,12 +49,13 @@ def oauth_models(ctx: Context, src: Path) -> str:
     return src.read_text(encoding="utf-8")
 
 
+@uses(env_of)
 @warns_on(OSError, message="Failed to read {src}: {reason}")
-def gateway_models(ctx: Context, src: Path) -> str:
+def gateway_models(env: Mapping[str, str], /, src: Path) -> str:
     """The gateway catalog with CODEX_BASE_URL inlined, or with the placeholder left in."""
     item(f"{Path(OMP_MODELS).name} (render CODEX_BASE_URL)")
     content = src.read_text(encoding="utf-8")
-    codex_base_url = ctx.env.get("CODEX_BASE_URL", "").strip()
+    codex_base_url = env.get("CODEX_BASE_URL", "").strip()
     if not codex_base_url:
         warn("CODEX_BASE_URL is not set; leaving `baseUrl: CODEX_BASE_URL` in omp models.yml. oh-my-pi will not auto-expand it.")
         return content

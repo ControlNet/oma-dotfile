@@ -8,9 +8,11 @@ from pathlib import Path
 from omadotfile.agents.base import Agent
 from omadotfile.console import info, success
 from omadotfile.constants import TOKSCALE_MODEL_ALIASES
-from omadotfile.context import Context
+from omadotfile.context import Context, Options
 from omadotfile.core.codec import JSON, JsonObject
 from omadotfile.core.errors import warns_on
+from omadotfile.core.files import Files
+from omadotfile.inject import files_of, options_of, repo_of, uses
 
 
 def parse_aliases(text: str) -> dict[str, str]:
@@ -35,18 +37,19 @@ def with_aliases(aliases: dict[str, str], settings: JsonObject) -> JsonObject:
     return {**settings, "modelAliases": merged}
 
 
+@uses(files_of, options_of, repo_of)
 @warns_on(OSError, ValueError,
           message="Failed to load Tokscale aliases/settings ({error}); leaving settings unchanged")
-def install_model_aliases(ctx: Context, config_dir: Path) -> None:
+def install_model_aliases(files: Files, options: Options, repo: Path, /, config_dir: Path) -> None:
     """Merge managed aliases while preserving unrelated user settings."""
-    aliases = parse_aliases((ctx.repo / TOKSCALE_MODEL_ALIASES).read_text(encoding="utf-8"))
+    aliases = parse_aliases((repo / TOKSCALE_MODEL_ALIASES).read_text(encoding="utf-8"))
     dst = config_dir / "settings.json"
     existed = dst.exists()
-    if not ctx.files.update(dst, JSON, partial(with_aliases, aliases)):
+    if not files.update(dst, JSON, partial(with_aliases, aliases)):
         info("Tokscale model aliases already configured; skip")
         return
     if existed:
-        info(f"Updated {dst}; preserved unrelated settings (backup enabled: {ctx.options.backup})")
+        info(f"Updated {dst}; preserved unrelated settings (backup enabled: {options.backup})")
     success(f"Configured Tokscale model aliases: {dst}")
 
 
