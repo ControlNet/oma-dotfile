@@ -39,6 +39,10 @@
     "missing protocol".
   - Left out of `GIT_CHAINED_HOOKS`: `reference-transaction` and `post-index-change` (run on nearly
     every command) and `proc-receive` (a stdin/stdout protocol).
+  - `push-to-checkout` is left out too. Unlike the others, its existence changes git's behavior: with
+    `receive.denyCurrentBranch=updateInstead`, git updates the pushed-to worktree only when no such
+    hook exists. A chain exiting 0 left the worktree stale while the push succeeded. The managed
+    copy from the first chaining version (2ada252) is removed (`GIT_RETIRED_HOOKS`).
 - Tests: `tests/test_commit_attribution.py` runs real git against a temporary `GIT_CONFIG_GLOBAL`
   and `HOME`.
 

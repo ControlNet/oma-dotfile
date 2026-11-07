@@ -121,8 +121,9 @@ class GitHookTests(unittest.TestCase):
         for name in ("commit-msg", "pre-commit", "prepare-commit-msg", "pre-push", "post-checkout",
                      "post-commit", "post-merge", "post-rewrite", "pre-receive", "post-receive"):
             self.assertIn(name, pull.GIT_CHAINED_HOOKS)
-        # These run on every ref update or speak a protocol over stdin and stdout.
-        for name in ("reference-transaction", "post-index-change", "proc-receive"):
+        # These run on every ref update or speak a protocol over stdin and stdout, and
+        # push-to-checkout replaces git's own worktree update merely by existing.
+        for name in ("reference-transaction", "post-index-change", "proc-receive", "push-to-checkout"):
             self.assertNotIn(name, pull.GIT_CHAINED_HOOKS)
 
     def test_unset_hooks_path_is_set_to_the_default_dir(self):
@@ -193,6 +194,23 @@ class GitHookTests(unittest.TestCase):
         self.install()
         self.assert_chained(hooks, ["pre-commit"])
         self.assertEqual(self.backups(hooks), [])
+
+    def test_managed_push_to_checkout_from_an_earlier_version_is_removed(self):
+        hooks = self.home / "hooks"
+        hooks.mkdir()
+        _ = (hooks / "push-to-checkout").write_bytes(CHAIN.read_bytes())
+        self.set_hooks_path(str(hooks))
+        self.install()
+        self.assertFalse((hooks / "push-to-checkout").exists())
+
+    def test_own_push_to_checkout_is_kept(self):
+        hooks = self.home / "hooks"
+        hooks.mkdir()
+        _ = (hooks / "push-to-checkout").write_text("#!/bin/sh\ngit read-tree -u -m HEAD \"$1\"\n",
+                                                   encoding="utf-8")
+        self.set_hooks_path(str(hooks))
+        self.install()
+        self.assertTrue((hooks / "push-to-checkout").is_file())
 
     def test_second_run_changes_nothing(self):
         self.install()
@@ -311,6 +329,18 @@ class ChainedHookBehaviourTests(unittest.TestCase):
         self.git(self.repo, "config", "core.hooksPath", str(hooks))
         self.git(self.repo, "commit", "-q", "--allow-empty", "-m", f"G\n\n{self.CLAUDE}")
         self.assertEqual(self.message(), "G\n\n")
+
+    def test_push_to_a_checked_out_branch_still_updates_its_worktree(self):
+        target = self.tmp / "target"
+        self.git(self.tmp, "init", "-q", str(target))
+        self.git(target, "commit", "-q", "--allow-empty", "-m", "base")
+        self.git(target, "config", "receive.denyCurrentBranch", "updateInstead")
+        self.git(self.tmp, "clone", "-q", str(target), str(self.tmp / "work"))
+        _ = (self.tmp / "work" / "new.txt").write_text("pushed\n", encoding="utf-8")
+        self.git(self.tmp / "work", "add", "new.txt")
+        self.git(self.tmp / "work", "commit", "-q", "-m", "J")
+        self.git(self.tmp / "work", "push", "-q", "origin", "HEAD:main")
+        self.assertEqual((target / "new.txt").read_text(encoding="utf-8"), "pushed\n")
 
     @unittest.skipUnless(shutil.which("git-lfs"), "git-lfs is not installed")
     def test_git_lfs_objects_are_uploaded_and_downloaded(self):

@@ -1049,14 +1049,17 @@ def ensure_claude_attribution(claude_config_dir: Path, stamp: str) -> None:
 
 GIT_HOOK_MARKER = b"# managed by oma-dotfile"
 # Client hooks, plus receive hooks for repos pushed to on this machine. Left out:
-# reference-transaction and post-index-change run on nearly every git command, and
-# proc-receive speaks a protocol over stdin and stdout.
+# reference-transaction and post-index-change run on nearly every git command,
+# proc-receive speaks a protocol over stdin and stdout, and push-to-checkout replaces
+# git's own worktree update for receive.denyCurrentBranch=updateInstead just by existing.
 GIT_CHAINED_HOOKS = (
     "applypatch-msg", "pre-applypatch", "post-applypatch", "pre-commit", "pre-merge-commit",
     "prepare-commit-msg", "commit-msg", "post-commit", "pre-rebase", "post-checkout",
     "post-merge", "pre-push", "post-rewrite", "pre-auto-gc", "sendemail-validate",
-    "push-to-checkout", "pre-receive", "update", "post-receive", "post-update",
+    "pre-receive", "update", "post-receive", "post-update",
 )
+# Installed by an earlier version; removed when still the managed copy.
+GIT_RETIRED_HOOKS = ("push-to-checkout",)
 GIT_LFS_HOOKS = ("pre-push", "post-checkout", "post-commit", "post-merge")
 
 
@@ -1107,6 +1110,11 @@ def ensure_git_hooks(repo_path: Path, stamp: str) -> None:
     drop = drop_src.read_bytes()
     hooks_dir.mkdir(parents=True, exist_ok=True)
     install_executable(hooks_dir / "drop-claude-attribution", drop)
+    for name in GIT_RETIRED_HOOKS:
+        dst = hooks_dir / name
+        if dst.is_file() and not dst.is_symlink() and GIT_HOOK_MARKER in dst.read_bytes():
+            dst.unlink()
+            print(f"         - removed {dst}")
     changed: list[str] = []
     kept: list[str] = []
     for name in GIT_CHAINED_HOOKS:
