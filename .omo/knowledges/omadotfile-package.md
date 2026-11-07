@@ -36,6 +36,8 @@ Things worth knowing when changing it:
 - An agent is a `Component` with `files` (`FileSpec` in `constants.py`) plus `configure`.
   A file with an `--oauth` variant is `FileSpec(..., oauth=True)` and the agent overrides
   `install_oauth_file`.
+- A file the agent also writes to is `FileSpec(..., merge=True)`; the agent's
+  `install_merged_file` merges it (OMP `config.yml`, see `omp-config-merge.md`).
 - The steps are the literal `STEPS` tuple in `cli.py`; their numbers come from its order.
 - One-off cleanups are `@migration(since=, reason=, remove_by=)`. They run on every install
   until deleted; `tests/test_migrations.py` fails from the `remove_by` month on.

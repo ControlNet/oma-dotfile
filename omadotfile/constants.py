@@ -47,6 +47,7 @@ class FileSpec:
     dst: str  # path under the agent's config dir
     managed: bool = False  # repo-owned code: replaced without a backup
     oauth: bool = False  # the agent's code writes a rewritten copy under --oauth
+    merge: bool = False  # merged into the file on disk by the agent's install_merged_file
 
 
 OPENCODE_FILES = (
@@ -62,7 +63,7 @@ OMO_FILES = (FileSpec("omo.jsonc", "omo.jsonc", oauth=True),)
 OMO_NATIVE_FILES = (FileSpec("_AGENTS.md", "AGENTS.md"),)
 
 OMP_FILES = (
-    FileSpec("omp_config.yml", "config.yml", oauth=True),
+    FileSpec("omp_config.yml", "config.yml", oauth=True, merge=True),  # OMP writes to it too
     # OMP loads ~/.config/opencode/AGENTS.md only when opencode is in enabledProviders, which
     # would also pull in OpenCode's plugins and MCP.
     FileSpec("_AGENTS.md", "AGENTS.md"),

@@ -53,11 +53,11 @@ retry:
   maxRetries: 10
   modelFallback: false
 completion:
-  notify: off
+  notify: "off"
 error:
-  notify: off
+  notify: "off"
 ask:
-  notify: off
+  notify: "off"
 advisor:
   enabled: false
 steeringMode: one-at-a-time

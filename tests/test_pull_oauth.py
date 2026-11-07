@@ -155,8 +155,7 @@ class OAuthTests(unittest.TestCase):
         self.assertEqual((self.tmp / 'omo.jsonc').read_text(), (ROOT / 'omo.jsonc').read_text())
 
     def test_omp_native_roles_and_model_overrides(self):
-        omp.Omp().install_oauth_file(self.context('oauth', oauth=True), ROOT / 'omp_config.yml',
-                                     self.tmp / 'config.yml')
+        install_files(omp.Omp(), self.context('oauth', oauth=True), self.tmp)
         content = (self.tmp / 'config.yml').read_text()
         self.assertEqual(content, (ROOT / 'omp_config.yml').read_text().replace('codex_api/', 'openai-codex/'))
         dst = self.tmp / 'models.yml'

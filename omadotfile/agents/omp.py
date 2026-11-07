@@ -7,10 +7,16 @@ import re
 
 from omadotfile.agents.base import Agent
 from omadotfile.console import info, item, warn
-from omadotfile.constants import OMP_FILES, OMP_MODELS, OMP_MODELS_DST, OMP_MODELS_OAUTH
+from omadotfile.constants import FileSpec, OMP_FILES, OMP_MODELS, OMP_MODELS_DST, OMP_MODELS_OAUTH
 from omadotfile.context import Context
+from omadotfile.core import yaml_merge
 
 BASE_URL_PLACEHOLDER = re.compile(r'^(\s*baseUrl:\s*)(["\']?)CODEX_BASE_URL\2(\s*(?:#.*)?)$', re.MULTILINE)
+
+
+def render_oauth_config(content: str) -> str:
+    """OMP reaches ChatGPT OAuth through its built-in `openai-codex` provider."""
+    return content.replace("codex_api/", "openai-codex/")
 
 
 def render_models(content: str, codex_base_url: str) -> tuple[str, bool]:
@@ -78,9 +84,17 @@ class Omp(Agent):
     def title(self, ctx: Context) -> str:
         return f"Installing oh-my-pi config files to: {self.target_dir(ctx)}"
 
-    def install_oauth_file(self, ctx: Context, src: Path, dst: Path) -> None:
-        content = src.read_text(encoding="utf-8").replace("codex_api/", "openai-codex/")
-        ctx.files.write_text(dst, content)
+    def install_merged_file(self, ctx: Context, spec: FileSpec, src: Path, dst: Path) -> None:
+        """Set this repo's keys in config.yml and keep the ones OMP or the user added."""
+        managed = src.read_text(encoding="utf-8")
+        if spec.oauth and ctx.options.oauth:
+            managed = render_oauth_config(managed)
+        existing = dst.read_text(encoding="utf-8") if dst.exists() else ""
+        merged = yaml_merge.merge(existing, managed)
+        if merged is None:
+            warn(f"{dst} could not be merged (unsupported YAML); replacing it, backup kept")
+            merged = managed
+        ctx.files.write_text(dst, merged)
 
     def configure(self, ctx: Context, target: Path) -> None:
         install_models(ctx, target)

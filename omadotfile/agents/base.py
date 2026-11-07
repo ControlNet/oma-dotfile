@@ -52,7 +52,9 @@ class Component:
             return
         item(file_label(spec))
         dst = target / spec.dst
-        if spec.oauth and ctx.options.oauth:
+        if spec.merge:
+            self.install_merged_file(ctx, spec, src, dst)
+        elif spec.oauth and ctx.options.oauth:
             self.install_oauth_file(ctx, src, dst)
         else:
             ctx.files.copy(src, dst, backup=not spec.managed)
@@ -60,6 +62,10 @@ class Component:
     def install_oauth_file(self, ctx: Context, src: Path, dst: Path) -> None:
         """Write the --oauth variant of a file marked `oauth` in `files`."""
         raise NotImplementedError(f"{type(self).__name__} has no OAuth variant of {src.name}")
+
+    def install_merged_file(self, ctx: Context, spec: FileSpec, src: Path, dst: Path) -> None:
+        """Merge a file marked `merge` in `files` into the one on disk."""
+        raise NotImplementedError(f"{type(self).__name__} cannot merge {src.name}")
 
     def configure(self, ctx: Context, target: Path | None) -> None:
         """Everything the component does besides installing `files`."""
