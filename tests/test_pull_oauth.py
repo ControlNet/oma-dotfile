@@ -169,7 +169,7 @@ class OAuthTests(unittest.TestCase):
             if hasattr(pull, name):
                 self.enterContext(patch.object(pull, name, return_value=self.tmp / name))
         self.enterContext(patch.object(Path, 'home', return_value=self.tmp))
-        for name in ('install_claude_plugin', 'install_tokscale_model_aliases'):
+        for name in ('install_claude_plugins', 'install_tokscale_model_aliases'):
             if hasattr(pull, name):
                 self.enterContext(patch.object(pull, name))
         # The Codex CLI is never invoked here; the fake clone below answers every
@@ -179,8 +179,8 @@ class OAuthTests(unittest.TestCase):
         self.enterContext(patch.object(pull, 'ensure_omo_herdr_dag'))
         # So would npx and the skills CLI.
         self.enterContext(patch.object(pull, 'ensure_agent_skills'))
-        # git config would also hit the fake clone.
-        self.enterContext(patch.object(pull, 'ensure_git_hooks'))
+        # git config would also hit the fake clone and the real ~/.gitconfig.
+        self.enterContext(patch.object(pull, 'remove_git_hook_chain'))
         # Detection belongs to the gating tests; this one routes every target.
         self.enterContext(patch.object(pull, 'detect_targets',
                                        return_value={name: True for name in pull.TARGET_LABELS}))

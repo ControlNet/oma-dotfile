@@ -1,83 +1,71 @@
-# Claude Code commit attribution (checked 2026-11-07, Claude Code 2.1.319, git 2.34)
+# Claude Code commit attribution (checked 2026-11-07, Claude Code 2.1.319)
 
 - `settings.json` key `attribution` with `{"commit": "", "pr": ""}` hides Claude Code's own commit and
   PR attribution (`Co-Authored-By: Claude`, "Generated with Claude Code"). Its schema text says
   "Empty string hides attribution." The older `includeCoAuthoredBy: false` still exists but is the
   legacy form.
 - The setting does not cover lines the model is told to write by its system prompt, such as the
-  `Claude-Session: https://claude.ai/code/session_…` trailer some Claude Code sessions request. Those
-  were removed by the global `commit-msg` hook (now `git-hooks/drop-claude-attribution`), and a user rule against
-  agent co-author lines takes precedence over that system-prompt request.
-- Git has no global hooks dir by default: without `core.hooksPath` it only runs `.git/hooks` of
-  each repo. Setting `core.hooksPath` globally makes every repo use that dir and silently ignore its
-  own `.git/hooks` (pre-commit framework installs, repo-level git-lfs hooks). husky sets
-  `core.hooksPath` per repo, which overrides the global value, so the global hook does not run there.
-  `git lfs install` writes its hooks into `core.hooksPath` when it is set.
-- `git config --global --type=path --get core.hooksPath` expands `~`. A relative `core.hooksPath` is
-  resolved per repo, so a global install cannot target it.
-- `pull.py` step 10 (only when Claude Code is detected):
-  - merges the attribution setting, with a backup only when it changes;
-  - sets `core.hooksPath` to `~/.config/git/hooks` when unset, and leaves a relative value alone;
-  - installs nothing when `python3` is missing;
-  - installs `git-hooks/chain` under every name in `GIT_CHAINED_HOOKS`.
-- Global hooks layout (drop-in dirs, since 2026-11-07). Hook-specific knowledge lives in `<name>.d/`,
-  not in the chain script:
-  - `chain` runs every executable in `<name>.d/`, sorted, then the repo's own hook, stopping at the
-    first failure.
-  - With one runner it `exec`s it, which keeps `proc-receive`'s stdin/stdout protocol intact. With
-    several, stdin is saved to a temp file and fed to each (skipped when stdin is a terminal).
-  - `commit-msg.d/drop-claude-attribution` is the original Python hook, unchanged.
-  - `<name>.d/git-lfs` is written by git-lfs itself: `git -c core.hooksPath=<tmp> lfs install --local`
-    inside a scratch repo writes its hooks there and leaves the global config alone. Run outside a
-    repo, `git lfs install` writes no hooks. `--manual` printed nothing there.
-  - When git-lfs is missing, the `git-lfs` drop-ins are removed. When it fails, they are kept.
-  - A foreign hook already in the dir moves to `<name>.d/previous`, or `previous-N`, and keeps
-    running. It is dropped when the same bytes are already in `<name>.d/`, which covers Git LFS's own
-    hooks and the first commit-msg version.
-  - Symlinks and non-files are left alone, with a warning.
-  - Files marked `# managed by oma-dotfile` are replaced.
-  - `GIT_RETIRED_HOOK_FILES` removes the managed top-level `push-to-checkout` and
-    `drop-claude-attribution` left by earlier versions.
-- Upgrading from earlier versions was checked on 2026-11-07. Each version was installed from git
-  history into a sandbox whose hooks dir already held Git LFS's own hooks, then the new version was
-  installed on top.
-  - Versions checked: `eaccad9` (Python `commit-msg` only), `2ada252` (LFS-aware chain plus
-    `push-to-checkout`) and `21567f0`.
-  - All three ended the same: 25 chains and 5 drop-ins, no other files, a silent second run, Claude
-    lines dropped and LFS objects pushed.
-  - The `<name>.bak-<stamp>` files those versions left are removed when their content is in
-    `<name>.d/`. Others are listed every run as not running.
-  - If git-lfs was upgraded between versions, its old hook text differs from what it writes now. It
-    then lands in `<name>.d/previous` next to `git-lfs` and LFS runs twice; that is harmless but
-    slower.
-- Hook names:
-  - Git runs only the names in githooks(5). A repo hook under any other name never ran anyway.
-  - `GIT_CHAINED_HOOKS` is githooks(5) of git 2.34 (28 names) minus `GIT_UNCHAINED_HOOKS`.
-  - The test compares it with `man githooks`, so a git that adds a hook fails the test instead of
-    silently skipping that repo hook.
-  - There is no command that lists hooks: git 2.34 has no `git hook`, and
-    `/usr/share/git-core/templates/hooks` has only 13 samples.
-- Chaining facts:
-  - `git rev-parse --git-path hooks/<name>` resolves to `core.hooksPath` itself, so a chain using it
-    would call itself forever. Use `$(git rev-parse --git-common-dir)/hooks/<name>`; this also works
-    from linked worktrees and bare repos.
+  `Claude-Session: https://claude.ai/code/session_…` trailer some Claude Code sessions request. A user
+  rule against agent co-author lines takes precedence over that request, but the model can still slip.
+- `pull.py` step 10 (only when Claude Code is detected) merges the attribution setting, with a backup
+  only when it changes, and installs the `strip-attribution` plugin from `claude-plugins/`.
+
+## strip-attribution plugin
+
+- A PreToolUse hook on `Bash`. It rewrites `git commit` and `gh pr create|edit` commands, dropping
+  whole lines (and `-m`/`--trailer` arguments) that are `Co-Authored-By: Claude …@anthropic.com`,
+  `🤖 Generated with [Claude Code](…)` or `Claude-Session: https://claude.ai/code/session_…` (the bare
+  link too: Claude Code asks for it that way at the end of PR descriptions). A closing `"`, `'` or `)`
+  on such a line, and the command after it, is kept. Files named by `-F`/`--file`/`--body-file` are
+  cleaned in place before the command runs.
+- Limitation: once a commit command is anywhere in the Bash call, every attribution-only line in the
+  call is dropped, including one in another command's heredoc (`cat > notes.md <<EOF … && git commit`).
+- It must not block: a `deny`/exit-2 hook makes Claude retry the command, which costs a turn. Output
+  `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": {...}}}` with no
+  `permissionDecision`. Checked with `claude -p --model haiku --settings <file>`:
+  - The command runs rewritten; Claude sees no difference and does not retry (2 turns end to end).
+  - Permission rules still apply, to the rewritten command: an unallowed `touch` was refused and the
+    refusal showed the rewritten text. `updatedInput` must hold the whole `tool_input` (keep
+    `description`).
+- Testing it: `claude -p --plugin-dir claude-plugins/strip-attribution` loads it without installing.
+  Haiku refuses to run a commit with attribution when the user's own rules forbid it, unless the
+  prompt says the command tests the hook that removes those lines. An allow rule such as
+  `Bash(git commit:*)` does not match `git -c … commit`.
+
+## Global git hooks (tried, abandoned on 2026-11-07)
+
+Versions `eaccad9` to `b182b57` used a global `commit-msg` hook instead. It worked, but needed too
+much machinery, and the next `pull.py` puts back what they replaced (`remove_git_hook_chain`).
+
+- Git has no global hooks dir by default. Setting `core.hooksPath` globally makes every repo use that
+  dir and silently ignore its own `.git/hooks` (pre-commit framework installs, repo-level git-lfs
+  hooks). husky sets `core.hooksPath` per repo, which overrides the global value.
+- Keeping repo hooks running meant a chain script under every hook name in githooks(5), drop-in
+  `<name>.d/` dirs, and regenerating git-lfs's hooks. A review found further gaps: include/system
+  config, `proc-receive` stdin/stdout, hooks that find files relative to `$0`, `GIT_DIR` leaking into
+  nested git calls, and symlinked hooks.
+- Git 2.54 (released 2026-04-20) adds config-defined hooks (`hook.<name>.command`, `hook.<name>.event`)
+  that run alongside the hookdir hook, which would avoid the chain. Ubuntu 26.04 ships git 2.53 and
+  24.04 ships 2.43, so it is not available without the git-core PPA.
+- Facts found on the way:
+  - `git rev-parse --git-path hooks/<name>` resolves to `core.hooksPath` itself; the repo's own hooks
+    dir is `$(git rev-parse --git-common-dir)/hooks`.
   - With a foreign `pre-push` already in `core.hooksPath`, `git lfs install` prints
-    "Hook already exists" and skips its hooks, though it still writes the `filter.lfs.*` config.
+    "Hook already exists" and skips its hooks. `git -c core.hooksPath=<tmp> lfs install --local` in a
+    scratch repo writes them into `<tmp>`.
   - `git lfs post-commit` creates `.git/lfs` in every repo, so that dir does not show a repo uses LFS.
-  - `git lfs pre-push` needs a named remote to find its endpoint. Pushing to a bare path fails with
-    "missing protocol".
-  - `push-to-checkout` is not chained, because its existence changes git's behavior: with
-    `receive.denyCurrentBranch=updateInstead`, git updates the pushed-to worktree only when no such
-    hook exists. A chain exiting 0 left the worktree stale while the push succeeded.
-  - `post-index-change` is not chained (it runs on every index write), and neither is
-    `fsmonitor-watchman` (called through the `core.fsmonitor` path).
-  - `reference-transaction` is chained and costs one `sh` plus `git rev-parse` per ref transaction.
-- Tests: `tests/test_commit_attribution.py` runs real git against a temporary `GIT_CONFIG_GLOBAL`
-  and `HOME`.
+  - `push-to-checkout` changes git's behavior just by existing: with
+    `receive.denyCurrentBranch=updateInstead`, git updates the pushed-to worktree only without it.
+- What `remove_git_hook_chain` undoes, in the global `core.hooksPath` dir: files marked
+  `# managed by oma-dotfile` get back `<name>.d/previous*`, else the newest `<name>.bak-*`, else
+  `<name>.d/git-lfs`, else (commit-msg) `drop-claude-attribution`; unmarked hooks are never touched.
+  Our drop-ins are deleted, other `<name>.d/` files are kept with a warning, and `core.hooksPath` is
+  left set, since nothing shows who set it. The `eaccad9` state (only a Python `commit-msg`, no marker)
+  cannot be told apart from a user's own hook, so it is left for manual cleanup.
 
 ## Other agents (checked 2026-11-07)
 
-Nothing to change; only Claude Code needed the setting and the hook.
+Nothing to change; only Claude Code needed the setting and the plugin.
 
 - Codex 0.166:
   - The `git-attribution` extension (`codex-rs/ext/git-attribution`) tells the model to end commits
@@ -87,7 +75,7 @@ Nothing to change; only Claude Code needed the setting and the hook.
   - There is no `config.toml` key for it. The old `features.codex_git_commit` is listed as `removed`.
   - Each rollout's `world_state` records the result as `git_attribution`. It was `false` in all 70
     sessions with a world state over 30 days, with ChatGPT login and the `codex_api` provider.
-  - The commit-msg hook does not strip the Codex trailer. Extend it if that setting ever turns on.
+  - The strip-attribution plugin only runs in Claude Code, so it would not strip the Codex trailer.
 - OMO / oh-my-openagent (omo-ai 5.1.35):
   - `git_master.commit_footer` adds "Ultraworked with [omo](…)" unless it is `false`.
     `git_master.include_co_authored_by` controls the co-author trailer. Both default to `false`.

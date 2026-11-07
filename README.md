@@ -58,7 +58,7 @@ Rerun without `--oauth` to switch back.
 | OMO Native | `~/.omo/agent` | `AGENTS.md`, `models.json`, `settings.json` (ignores `~/.claude` rules); routing under `"[native]"` in `omo.jsonc`. With `herdr`, `node` and `npm` found: [omo-herdr-dag](https://github.com/jc01rho/omo-herdr-dag) (pinned, upstream installer, reinstalled only when changed; English by default, `npx omo-herdr-dag@<version> install --lang zh-cn` once to switch) |
 | OMP | `~/.omp/agent` | `AGENTS.md`, config, models, Gotify and WakaTime extensions |
 | Codex | `~/.codex` | `AGENTS.md`, Gotify notifier, WakaTime plugin; `config.toml` turns off the shared `skill-creator` so Codex keeps its bundled one |
-| Claude Code | `~/.claude` | Rule `rules/oma-dotfile.md`, Gotify plugin, WakaTime plugin, links to shared skills; commit attribution off (see [Commit attribution](#commit-attribution)) |
+| Claude Code | `~/.claude` | Rule `rules/oma-dotfile.md`, Gotify and strip-attribution plugins, WakaTime plugin, links to shared skills; commit attribution off (see [Commit attribution](#commit-attribution)) |
 | Tokscale | Tokscale `settings.json` | Model aliases from `tokscale_model_alias.json` |
 | Skills | `~/.agents/skills` | See [Skills](#skills) |
 
@@ -104,22 +104,14 @@ Claude Code already has.
 When Claude Code is found, commits and PRs carry no Claude attribution:
 
 - `settings.json` gets `"attribution": {"commit": "", "pr": ""}`; other settings are kept.
-- Git hooks go into the global `core.hooksPath` dir, which is set to `~/.config/git/hooks` when unset.
-  Git then skips each repo's own `.git/hooks`, so every hook name there gets `git-hooks/chain`. For
-  hook `<name>` it runs each executable in `<name>.d/`, then the repo's own `<name>` hook, and stops at
-  the first one that fails.
-  - `commit-msg.d/drop-claude-attribution` (from `git-hooks/commit-msg.d/`) drops
-    `Co-Authored-By: Claude …@anthropic.com`, `Generated with [Claude Code]` and `Claude-Session:` lines,
-    including ones an agent writes into the message itself.
-  - With git-lfs installed, `<name>.d/git-lfs` holds the hooks git-lfs itself writes. `git lfs install`
-    then reports "Hook already exists"; that is expected, and LFS still works.
-  - A hook already in that dir is moved to `<name>.d/previous` and keeps running, unless the same
-    content is already in `<name>.d/`.
-  - Not chained: `push-to-checkout` (its mere presence stops git updating a pushed-to worktree),
-    `post-index-change` (runs on every index write), and `fsmonitor-watchman` (found through
-    `core.fsmonitor`, not by name). Repo hooks with the first two names do not run.
-  - A relative `core.hooksPath` is left alone, and nothing is installed when `python3` is not on `PATH`.
-  - Repos that set their own `core.hooksPath` (such as husky) do not use these hooks.
+- The `strip-attribution` plugin (`claude-plugins/strip-attribution`) catches what the model writes
+  itself. Before a `git commit` or `gh pr create|edit` command runs, it drops
+  `Co-Authored-By: Claude …@anthropic.com`, `Generated with [Claude Code]` and Claude Code session-link lines
+  from the command and from the message files it names (`-F`, `--file`, `--body-file`). The command is
+  rewritten, not blocked, so Claude does not retry it, and your permission rules still apply.
+- Earlier versions installed global git hooks for this. The next run puts back the hooks they
+  replaced in your `core.hooksPath` dir and deletes the rest, but leaves `core.hooksPath` set; unset it
+  with `git config --global --unset core.hooksPath` if you did not set it yourself.
 
 ## OMP Gotify notifications
 

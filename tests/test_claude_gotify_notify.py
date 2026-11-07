@@ -188,8 +188,8 @@ class PluginInstallTests(unittest.TestCase):
             unrelated = target / "skills" / "personal-skill" / "SKILL.md"
             unrelated.parent.mkdir(parents=True)
             unrelated.write_text("Synthetic user skill", encoding="utf-8")
-            pull.install_claude_plugin(ROOT, target, "test-first")
-            pull.install_claude_plugin(ROOT, target, "test-second")
+            pull.install_claude_plugins(ROOT, target, "test-first")
+            pull.install_claude_plugins(ROOT, target, "test-second")
             plugin = target / "skills" / "gotify-notify"
             self.assertEqual(settings.read_text(), '{"hooks":{}}')
             self.assertEqual(unrelated.read_text(), "Synthetic user skill")
