@@ -109,7 +109,7 @@ class Agent(Component):
         ...
 
     def detect(self, env: Mapping[str, str], home: Path) -> bool:
-        return find_executable(self.executable, home) is not None
+        return find_executable(self.executable, env, home) is not None
 
     def enabled(self, ctx: Context) -> bool:
         return self.key in ctx.found

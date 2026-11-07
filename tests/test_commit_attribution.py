@@ -17,6 +17,7 @@ import unittest
 from unittest.mock import patch
 
 from omadotfile.agents import claude
+from omadotfile.core.proc import Runner
 from support import ROOT, TestCase, make_context
 
 HOOK = ROOT / "config" / "git-hooks" / "commit-msg"
@@ -145,7 +146,7 @@ class GitHookTests(TestCase):
 
     def test_without_python3_the_hook_is_not_installed(self):
         # The hook runs through `#!/usr/bin/env python3`; without it every commit would fail.
-        with patch.object(claude.shutil, "which", return_value=None):
+        with patch.object(Runner, "on_path", return_value=None):
             output = self.install()
         self.assertEqual(self.hooks_path(), "")
         self.assertFalse((self.home / ".config").exists())

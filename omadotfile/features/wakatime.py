@@ -9,7 +9,6 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from functools import partial
 from pathlib import Path
-import shutil
 
 from omadotfile.console import info, success, warn
 from omadotfile.constants import (
@@ -240,7 +239,7 @@ def ensure_plugins(ctx: Context) -> None:
             ctx.dirs[key].mkdir(parents=True, exist_ok=True)
     installed = [ensure_plugin(CodexPlugins(ctx.runner, ctx.dirs["codex"])),
                  ensure_plugin(ClaudePlugins(ctx.runner, ctx.dirs["claude"]))]
-    if any(installed) and shutil.which("node") is None:
+    if any(installed) and ctx.runner.on_path("node") is None:
         warn("node not found on PATH; the WakaTime plugin hooks require it")
 
 

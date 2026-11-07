@@ -112,7 +112,7 @@ def ensure_commit_msg_hook(ctx: Context) -> None:
     if not src.is_file():
         warn(f"Source file not found: {src}")
         return
-    if shutil.which("python3") is None:
+    if ctx.runner.on_path("python3") is None:
         # The hook runs through `#!/usr/bin/env python3`; without it every commit would fail.
         warn("python3 not found on PATH; commit-msg hook not installed")
         return

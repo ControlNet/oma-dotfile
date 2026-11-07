@@ -26,35 +26,49 @@ def make_executable(path: Path) -> None:
     path.chmod(0o755)
 
 
-# Captured before patching: proc.shutil is the shared module, so a helper calling
-# shutil.which while the patch is active would recurse into itself.
-REAL_WHICH = shutil.which
-
-
-def which_only_via_extra_path(name: str, path: str | None = None):
-    """Answer like shutil.which for a machine whose PATH lists no agent at all."""
-    if path is None:
-        return None
-    return REAL_WHICH(name, path=path)
-
-
 class AgentDetectionTests(TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.home = self.tmp / "home"
+        self.home.mkdir()
+        # A PATH that lists only this dir, and a process PATH that lists nothing useful:
+        # lookups must follow the run's env, not os.environ.
+        self.bin = self.tmp / "bin"
+        self.bin.mkdir()
+        self.env = {"PATH": str(self.bin)}
+        self.enterContext(patch.dict(os.environ, {"PATH": str(self.tmp / "empty")}))
+
     def test_path_executable_is_detected(self) -> None:
         # Given only codex on PATH.
-        with tempfile.TemporaryDirectory() as tmp, \
-                patch.object(proc.shutil, "which",
-                             lambda name, path=None: "/usr/bin/codex" if name == "codex" else None):
-            # When each agent is resolved.
-            codex = proc.find_executable("codex", Path(tmp))
-            opencode = proc.find_executable("opencode", Path(tmp))
+        make_executable(self.bin / "codex")
+        # When each agent is resolved.
+        codex = proc.find_executable("codex", self.env, self.home)
+        opencode = proc.find_executable("opencode", self.env, self.home)
         # Then only codex resolves.
-        self.assertEqual(codex, Path("/usr/bin/codex"))
+        self.assertEqual(codex, self.bin / "codex")
         self.assertIsNone(opencode)
+
+    def test_the_run_env_path_wins_over_the_process_path(self) -> None:
+        # Given codex on the process PATH only.
+        process_bin = self.tmp / "process-bin"
+        make_executable(process_bin / "codex")
+        with patch.dict(os.environ, {"PATH": str(process_bin)}):
+            # Then neither lookup sees it, and an env without PATH gets os.defpath, not os.environ.
+            self.assertIsNone(proc.find_executable("codex", self.env, self.home))
+            self.assertIsNone(proc.on_path("codex", {}))
+            # And it is found once the run's env lists it.
+            self.assertEqual(proc.on_path("codex", {"PATH": str(process_bin)}), process_bin / "codex")
+
+    def test_on_path_skips_the_per_user_bin_dirs(self) -> None:
+        # Given node only under nvm, where detection looks but a hook's `env node` does not.
+        make_executable(self.home / ".nvm/versions/node/v24.11.1/bin/node")
+        self.assertIsNotNone(proc.find_executable("node", self.env, self.home))
+        self.assertIsNone(proc.on_path("node", self.env))
 
     def test_empty_command_name_never_resolves(self) -> None:
         # Given a target that ships no CLI, such as Tokscale.
-        self.assertIsNone(proc.find_executable("", Path.home()))
-        self.assertIsNone(proc.find_executable(None, Path.home()))
+        self.assertIsNone(proc.find_executable("", self.env, self.home))
+        self.assertIsNone(proc.find_executable(None, self.env, self.home))
 
     def test_home_bin_directories_are_searched_when_path_omits_them(self) -> None:
         # Given agents installed in per-user bin directories that PATH does not list.
@@ -65,57 +79,45 @@ class AgentDetectionTests(TestCase):
             with self.subTest(relative=relative), tempfile.TemporaryDirectory() as tmp:
                 home = Path(tmp)
                 make_executable(home / relative)
-                command = Path(relative).name
-                with patch.object(proc.shutil, "which", which_only_via_extra_path):
-                    # When the agent is resolved.
-                    found = proc.find_executable(command, home)
+                # When the agent is resolved.
+                found = proc.find_executable(Path(relative).name, self.env, home)
                 # Then the known install location is searched too.
                 self.assertEqual(found, home / relative)
 
     def test_newest_nvm_node_wins(self) -> None:
         # Given the same CLI under several nvm versions; string order would pick v20 and
         # put v9 after v10.
-        with tempfile.TemporaryDirectory() as tmp:
-            home = Path(tmp)
-            for version in ("v9.11.2", "v10.0.0", "v20.13.1", "v24.11.1"):
-                make_executable(home / f".nvm/versions/node/{version}/bin/codex")
-            with patch.object(proc.shutil, "which", which_only_via_extra_path):
-                found = proc.find_executable("codex", home)
-                nvm_dirs = [Path(d).parent.name for d in proc.extra_bin_search_path(home).split(os.pathsep)
-                            if ".nvm" in d]
+        for version in ("v9.11.2", "v10.0.0", "v20.13.1", "v24.11.1"):
+            make_executable(self.home / f".nvm/versions/node/{version}/bin/codex")
+        found = proc.find_executable("codex", self.env, self.home)
+        nvm_dirs = [Path(d).parent.name for d in proc.extra_bin_search_path(self.home).split(os.pathsep)
+                    if ".nvm" in d]
         # Then the newest install is used, as a fresh nvm shell would.
-        self.assertEqual(found, home / ".nvm/versions/node/v24.11.1/bin/codex")
+        self.assertEqual(found, self.home / ".nvm/versions/node/v24.11.1/bin/codex")
         self.assertEqual(nvm_dirs, ["v24.11.1", "v20.13.1", "v10.0.0", "v9.11.2"])
 
     def test_detect_targets_reads_every_agent(self) -> None:
         # Given a machine with only opencode and omp installed.
-        installed = {"opencode", "omp"}
-        with tempfile.TemporaryDirectory() as tmp, \
-                patch.object(proc.shutil, "which",
-                             lambda name, path=None: f"/usr/bin/{name}" if name in installed else None):
-            found = cli.detect_agents({}, Path(tmp))
+        for name in ("opencode", "omp"):
+            make_executable(self.bin / name)
+        found = cli.detect_agents(self.env, self.home)
         # Then exactly those targets are enabled.
         self.assertEqual(found, frozenset({"opencode", "omp"}))
 
     def test_tokscale_follows_its_config_directory(self) -> None:
         # Given Tokscale, which ships no CLI on PATH.
-        with tempfile.TemporaryDirectory() as tmp:
-            present = Path(tmp) / "present"
-            present.mkdir()
-            for config_dir, expected in ((present, True), (Path(tmp) / "absent", False)):
-                with self.subTest(config_dir=config_dir.name), \
-                        patch.object(proc.shutil, "which", lambda name, path=None: None):
-                    # When targets are detected.
-                    found = cli.detect_agents({"TOKSCALE_CONFIG_DIR": str(config_dir)}, Path(tmp))
+        present = self.tmp / "present"
+        present.mkdir()
+        for config_dir, expected in ((present, True), (self.tmp / "absent", False)):
+            with self.subTest(config_dir=config_dir.name):
+                # When targets are detected.
+                found = cli.detect_agents({**self.env, "TOKSCALE_CONFIG_DIR": str(config_dir)}, self.home)
                 # Then its configuration directory decides.
                 self.assertEqual("tokscale" in found, expected)
 
     def test_force_enables_every_target_without_any_agent(self) -> None:
-        # Given a machine with nothing installed.
-        with tempfile.TemporaryDirectory() as tmp, \
-                patch.object(proc.shutil, "which", lambda name, path=None: None):
-            # When detection is forced.
-            found = cli.detect_agents({}, Path(tmp), force=True)
+        # Given a machine with nothing installed; when detection is forced.
+        found = cli.detect_agents(self.env, self.home, force=True)
         # Then every known target is enabled.
         self.assertEqual(found, frozenset(cli.AGENTS))
 

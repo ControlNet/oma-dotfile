@@ -102,7 +102,12 @@ Things worth knowing when changing it:
   would make `home` injectable by type if ever needed.
 - One-off cleanups are `@migration(since=, reason=, remove_by=)`. They run on every install
   until deleted; `tests/test_migrations.py` fails from the `remove_by` month on.
-- PATH lookups (`shutil.which`) still read the process environment, not `ctx.env`; tests
-  that need a fake PATH patch `os.environ` as well.
+- PATH lookups read the run's env (`ctx.env["PATH"]`), never the process PATH:
+  `proc.find_executable(name, env, home)` / `Runner.which` (PATH, then per-user bin dirs) to find
+  an agent CLI, `proc.on_path(name, env)` / `Runner.on_path` (PATH only) for what a hook or
+  shebang will find (`python3`, `node`). An env without PATH gets `os.defpath`: passing
+  `path=None` to `shutil.which` would fall back to `os.environ`. Tests give a fake PATH through
+  `env={"PATH": ...}` instead of patching `shutil.which`. Residue: on Windows `shutil.which`
+  still reads `PATHEXT` from `os.environ`.
 - Run the tests from the repo root: `python3 -m unittest discover -s tests` (the dotted
   `python3 -m unittest tests.test_x` form cannot import `tests/support.py`).

@@ -32,11 +32,20 @@ def nvm_version_key(name: str) -> tuple[int, ...]:
     return tuple(int(part) for part in match.groups()) if match else (-1,)
 
 
-def find_executable(name: str | None, home: Path) -> Path | None:
-    """Resolve a CLI from PATH, then from known per-user install locations under home."""
+def on_path(name: str, env: Mapping[str, str]) -> Path | None:
+    """Resolve a command from env's PATH alone, as a shell or shebang with that env would.
+
+    An env without PATH gets os.defpath, never the process PATH (shutil.which's fallback).
+    """
+    found = shutil.which(name, path=env.get("PATH", os.defpath))
+    return Path(found) if found else None
+
+
+def find_executable(name: str | None, env: Mapping[str, str], home: Path) -> Path | None:
+    """Resolve a CLI from env's PATH, then from known per-user install locations under home."""
     if not name:
         return None
-    found = shutil.which(name) or shutil.which(name, path=extra_bin_search_path(home))
+    found = on_path(name, env) or shutil.which(name, path=extra_bin_search_path(home))
     return Path(found) if found else None
 
 
@@ -61,7 +70,12 @@ class Runner:
         return replace(self, pin={**self.pin, **pin})
 
     def which(self, name: str | None) -> Path | None:
-        return find_executable(name, self.home)
+        """Where a CLI is: PATH, then per-user bin dirs (see find_executable)."""
+        return find_executable(name, self.env, self.home)
+
+    def on_path(self, name: str) -> Path | None:
+        """Where `name` is on this run's PATH alone: what a hook or shebang will find."""
+        return on_path(name, self.env)
 
     def run(self, command: list[str]) -> subprocess.CompletedProcess[str]:
         """Run command; CommandFailed if it cannot start or exits non-zero."""
