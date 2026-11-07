@@ -409,3 +409,9 @@ sandboxes, then diff the trees. Backup files and other timestamps are ignored. E
 - `Codec` gained `empty()`, the value of a missing file (a new object per call), so
   `Files.update(dst, codec, transform)` has no `default=` argument: the seven call sites lost
   it, and a default that does not match the codec cannot be written any more.
+- The Codex config.toml edits that could not be made (an inline `skills.config`, an entry
+  that would break the file) are reported through a `note: Note = warn` parameter
+  (`console.Note = Callable[[str], None]`) instead of a `warn()` call inside the transform; tests
+  pass `notes.append`. Whether to set the model provider is decided once, outside the
+  transform, by `codex.provider_edit(ctx)`, so `ensure_api_provider` always has a URL. With
+  CODEX_BASE_URL unset, its warning now prints before config.toml is read rather than after.

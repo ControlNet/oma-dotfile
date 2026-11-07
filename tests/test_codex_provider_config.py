@@ -60,13 +60,24 @@ class CodexProviderConfigTests(TestCase):
                 self.assertEqual(saved["model_providers"]["codex_api"]["env_key"], "CODEX_API_TOKEN")
 
     def test_empty_base_url_preserves_configuration(self) -> None:
-        # Given a disabled provider and no usable URL.
+        # Given a disabled provider and a blank CODEX_BASE_URL.
         lines = ['# model_provider = "codex_api"', '[model_providers.codex_api]']
-        # When provider configuration is requested (ensure_config strips CODEX_BASE_URL).
-        with contextlib.redirect_stderr(io.StringIO()):
-            result = codex.ensure_api_provider(lines, " ".strip())
-        # Then configuration is unchanged.
-        self.assertEqual(result, lines)
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(Path(tmp), env={"CODEX_BASE_URL": " "})
+            # When the provider edit is chosen, the user is told it is skipped.
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                edit = codex.provider_edit(ctx)
+        self.assertIn("CODEX_BASE_URL is not set; skip Codex model provider config", err.getvalue())
+        # Then the edit leaves the configuration unchanged.
+        self.assertEqual(edit(lines), lines)
+
+    def test_provider_edit_follows_the_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            oauth = codex.provider_edit(make_context(Path(tmp), oauth=True))
+            api = codex.provider_edit(make_context(Path(tmp), env={"CODEX_BASE_URL": "https://example.test/v1"}))
+        lines = ['model_provider = "codex_api"']
+        self.assertEqual(oauth(lines), codex.ensure_oauth_provider(lines))
+        self.assertEqual(api([]), codex.ensure_api_provider([], "https://example.test/v1"))
 
 
 class TomlStructureTests(TestCase):
@@ -192,12 +203,15 @@ class CodexSharedSkillOverrideTests(TestCase):
             '[skills.config.x]\ny = 1\n',
         ):
             for fallback in (False, True):
+                notes: list[str] = []
                 with self.subTest(original=original, fallback=fallback), \
-                        patch.object(toml_edit, "tomllib", None if fallback else tomllib), \
-                        contextlib.redirect_stderr(io.StringIO()) as err:
-                    lines = codex.ensure_shared_skills_disabled(original.splitlines(), self.skills_dir)
+                        patch.object(toml_edit, "tomllib", None if fallback else tomllib):
+                    lines = codex.ensure_shared_skills_disabled(original.splitlines(), self.skills_dir,
+                                                                notes.append)
                 self.assertEqual(lines, original.splitlines())
-                self.assertIn("skill-creator", err.getvalue())
+                self.assertEqual(len(notes), 1)
+                self.assertIn("skill-creator", notes[0])
+                self.assertIn("by hand", notes[0])
 
     @requires_tomllib
     def test_sub_table_of_an_entry_is_not_mistaken_for_inline_config(self) -> None:
@@ -214,19 +228,20 @@ class CodexSharedSkillOverrideTests(TestCase):
     def test_an_edit_that_would_break_the_file_is_dropped(self) -> None:
         # A table under skills.config that the static check does not catch.
         original = '[skills.config.x]\ny = 1\n'
-        with patch.object(codex, "skills_config_is_static", return_value=False), \
-                contextlib.redirect_stderr(io.StringIO()) as err:
-            lines = codex.ensure_shared_skills_disabled(original.splitlines(), self.skills_dir)
+        notes: list[str] = []
+        with patch.object(codex, "skills_config_is_static", return_value=False):
+            lines = codex.ensure_shared_skills_disabled(original.splitlines(), self.skills_dir, notes.append)
         self.assertEqual(lines, original.splitlines())
-        self.assertIn("skill-creator", err.getvalue())
+        self.assertEqual(len(notes), 1)
+        self.assertIn("without breaking it", notes[0])
 
     @requires_tomllib  # checks a safeguard that only runs with tomllib
     def test_inline_entry_that_already_disables_it_is_accepted(self) -> None:
         original = f'[skills]\nconfig = [{{ path = "{self.shared}", enabled = false }}]\n'
-        with contextlib.redirect_stderr(io.StringIO()) as err:
-            lines = codex.ensure_shared_skills_disabled(original.splitlines(), self.skills_dir)
+        notes: list[str] = []
+        lines = codex.ensure_shared_skills_disabled(original.splitlines(), self.skills_dir, notes.append)
         self.assertEqual(lines, original.splitlines())
-        self.assertEqual(err.getvalue(), "")
+        self.assertEqual(notes, [])
 
     def test_second_run_changes_nothing(self) -> None:
         once = codex.ensure_shared_skills_disabled([], self.skills_dir)

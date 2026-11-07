@@ -1,13 +1,14 @@
 """Codex: AGENTS.md, the Gotify notifier, and config.toml (notify, provider, skills)."""
 
 from collections.abc import Callable, Mapping
+from functools import partial
 import json
 from pathlib import Path
 import re
 import sys
 
 from omadotfile.agents.base import Agent, agent
-from omadotfile.console import info, success, warn
+from omadotfile.console import Note, info, success, warn
 from omadotfile.constants import CODEX_DISABLED_SHARED_SKILLS, CODEX_FILES
 from omadotfile.context import Context
 from omadotfile.core.codec import LINES
@@ -42,11 +43,7 @@ def ensure_oauth_provider(lines: list[str]) -> list[str]:
 
 
 def ensure_api_provider(lines: list[str], codex_base_url: str) -> list[str]:
-    """Select the gateway as the model provider; CODEX_BASE_URL is its base_url."""
-    if not codex_base_url:
-        warn("CODEX_BASE_URL is not set; skip Codex model provider config in config.toml.")
-        return lines
-
+    """Select the gateway as the model provider; CODEX_BASE_URL (non-empty) is its base_url."""
     # Reuse a commented gateway selector so repeated switches do not add lines.
     first_section = find_first_toml_section_idx(lines)
     end = len(lines) if first_section is None else first_section
@@ -155,16 +152,16 @@ def skill_path_already_disabled(lines: list[str], skill_path: str) -> bool:
         for entry in entries)
 
 
-def ensure_skill_path_disabled(lines: list[str], skill_path: str) -> list[str]:
+def ensure_skill_path_disabled(lines: list[str], skill_path: str, note: Note = warn) -> list[str]:
     """Make a `[[skills.config]]` entry for skill_path say `enabled = false`.
 
     Codex ignores an entry that names both a path and a name, so such entries are not
-    reused. A skills.config written inline is left for the user to edit.
+    reused. A skills.config written inline is left for the user to edit, as `note` says.
     """
     if skill_path_already_disabled(lines, skill_path):
         return lines
     if skills_config_is_static(lines):
-        warn(f"skills.config in Codex config.toml is not written as [[skills.config]] entries; "
+        note(f"skills.config in Codex config.toml is not written as [[skills.config]] entries; "
              f"add one with path = {toml_basic_string(skill_path)} and enabled = false by hand")
         return lines
     headers = [(idx, header) for idx in toml_statement_starts(lines)
@@ -182,41 +179,56 @@ def ensure_skill_path_disabled(lines: list[str], skill_path: str) -> list[str]:
         enabled = find_toml_key_assignment_ranges(block, "enabled")
         a, b = enabled[0] if enabled else (paths[0][1], paths[0][1])
         block = [*block[:a], "enabled = false", *block[b:]]
-        return keep_valid_toml(lines, [*lines[:start + 1], *block, *lines[end:]], skill_path)
+        return keep_valid_toml(lines, [*lines[:start + 1], *block, *lines[end:]], skill_path, note)
     entry = ["[[skills.config]]", f"path = {toml_basic_string(skill_path)}", "enabled = false"]
     return keep_valid_toml(
-        lines, [*lines, "", *entry] if lines and lines[-1].strip() else [*lines, *entry], skill_path)
+        lines, [*lines, "", *entry] if lines and lines[-1].strip() else [*lines, *entry], skill_path, note)
 
 
-def keep_valid_toml(lines: list[str], new_lines: list[str], skill_path: str) -> list[str]:
-    """Return new_lines unless they break a config.toml that parsed before."""
+def keep_valid_toml(lines: list[str], new_lines: list[str], skill_path: str, note: Note = warn) -> list[str]:
+    """Return new_lines unless they break a config.toml that parsed before (then `note` it)."""
     if toml_edit.parses(lines) is not True:
         return new_lines
     if not toml_edit.parses(new_lines):
-        warn(f"Could not add a skills.config entry for {skill_path} to Codex config.toml "
+        note(f"Could not add a skills.config entry for {skill_path} to Codex config.toml "
              f"without breaking it; add one with enabled = false by hand")
         return lines
     return new_lines
 
 
-def ensure_shared_skills_disabled(lines: list[str], skills_dir: Path) -> list[str]:
+def ensure_shared_skills_disabled(lines: list[str], skills_dir: Path, note: Note = warn) -> list[str]:
     """Disable, in Codex only, the shared copies of skills Codex already bundles.
 
     The selector is the path: a name selector would hide Codex's bundled copy as well.
     """
     for name in CODEX_DISABLED_SHARED_SKILLS:
-        lines = ensure_skill_path_disabled(lines, str(skills_dir / name / "SKILL.md"))
+        lines = ensure_skill_path_disabled(lines, str(skills_dir / name / "SKILL.md"), note)
     return lines
 
 
-def config_transform(ctx: Context, codex_dir: Path) -> Callable[[list[str]], list[str]]:
-    """The edit this run makes to config.toml's lines: notify, shared skills, then provider."""
+def unchanged(lines: list[str]) -> list[str]:
+    return lines
+
+
+def provider_edit(ctx: Context) -> Callable[[list[str]], list[str]]:
+    """How this run sets config.toml's model provider: OAuth, the gateway, or not at all."""
+    if ctx.options.oauth:
+        return ensure_oauth_provider
     codex_base_url = ctx.env.get("CODEX_BASE_URL", "").strip()
+    if not codex_base_url:
+        warn("CODEX_BASE_URL is not set; skip Codex model provider config in config.toml.")
+        return unchanged
+    return partial(ensure_api_provider, codex_base_url=codex_base_url)
+
+
+def config_transform(ctx: Context, codex_dir: Path, note: Note = warn) -> Callable[[list[str]], list[str]]:
+    """The edit this run makes to config.toml's lines: notify, shared skills, then provider."""
+    set_provider = provider_edit(ctx)
 
     def configure(lines: list[str]) -> list[str]:
         lines = ensure_notify(lines, codex_dir)
-        lines = ensure_shared_skills_disabled(lines, ctx.shared_skills_dir)
-        return ensure_oauth_provider(lines) if ctx.options.oauth else ensure_api_provider(lines, codex_base_url)
+        lines = ensure_shared_skills_disabled(lines, ctx.shared_skills_dir, note)
+        return set_provider(lines)
 
     return configure
 

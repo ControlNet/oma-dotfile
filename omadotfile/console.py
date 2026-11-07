@@ -1,6 +1,11 @@
 """Console output: the banner, colored message prefixes and step headings."""
 
+from collections.abc import Callable
 import sys
+
+# Where a config transform reports what it could not do: `warn` in a run, `list.append` in a
+# test. Passing it keeps the transform free of print calls of its own.
+Note = Callable[[str], None]
 
 RESET = "\033[0m"
 BOLD = "\033[1m"
