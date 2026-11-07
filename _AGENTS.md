@@ -4,6 +4,7 @@
 - When giving terminal steps, always include copy-pastable CLI commands.
 - Never include secrets/tokens/keys in code, logs, docs, or gists. Assume public by default; use env vars and mention .gitignore/.env.local.
 - Never use `git clean` which will causes untended changes.
+- Git commits must not include any agent co-author or attribution lines (e.g. `Co-Authored-By`, session links).
 - Prefer minimal, reviewable patches; avoid large refactors unless asked.
 - For non-trivial changes: include exact verification commands (lint/test/run) and expected outcome/signals (what should pass / what to look for).
 - Warn before any destructive action (delete/overwrite/migration/force push).
