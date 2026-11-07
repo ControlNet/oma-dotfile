@@ -2,11 +2,13 @@
 
 from collections.abc import Iterable, Mapping
 from contextlib import AbstractContextManager
+from dataclasses import dataclass, field
 from pathlib import Path
 import sys
 from typing import TypeVar
 import unittest
 
+from omadotfile.console import Level
 from omadotfile.context import Context, Options, RepoRef
 
 try:
@@ -21,6 +23,28 @@ T = TypeVar("T")
 # Tests that parse the TOML the installer wrote need a real parser; Python 3.10 has none.
 # The installer's own no-tomllib path is covered by test_pull_toml_fallback on every version.
 requires_tomllib = unittest.skipIf(tomllib is None, "needs tomllib (Python 3.11+) to check the TOML")
+
+
+@dataclass
+class Recorder:
+    """A Console that keeps each line with its level, for tests to read instead of stdout/stderr."""
+
+    lines: list[tuple[Level, str]] = field(default_factory=list[tuple[Level, str]])
+
+    def emit(self, level: Level, text: str) -> None:
+        self.lines.append((level, text))
+
+    def of(self, level: Level) -> list[str]:
+        return [text for kind, text in self.lines if kind == level]
+
+    @property
+    def warnings(self) -> list[str]:
+        return self.of("warn")
+
+    @property
+    def text(self) -> str:
+        """Every line's text, one per line, whatever its level."""
+        return "\n".join(text for _, text in self.lines)
 
 
 class TestCase(unittest.TestCase):

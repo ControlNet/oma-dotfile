@@ -6,6 +6,7 @@ skills CLI also links each skill into its skills dir when Claude Code is install
 
 from collections.abc import Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -151,7 +152,9 @@ def remote_commits(ctx: Context, sources: set[str]) -> dict[str, str]:
         return {}
     ordered = sorted(sources)
     with ThreadPoolExecutor(max_workers=len(ordered)) as pool:
-        commits = list(pool.map(lambda source: ls_remote_commit(ctx, source), ordered))
+        # Each lookup runs in a copy of this context, so it prints to the bound Console.
+        futures = [pool.submit(copy_context().run, ls_remote_commit, ctx, source) for source in ordered]
+        commits = [future.result() for future in futures]
     return {source: commit for source, commit in zip(ordered, commits) if commit}
 
 

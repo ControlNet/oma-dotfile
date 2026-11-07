@@ -15,7 +15,7 @@ from omadotfile.agents.omo_native import OmoNative
 from omadotfile.agents.omp import Omp
 from omadotfile.agents.opencode import OpenCode
 from omadotfile.agents.tokscale import Tokscale
-from omadotfile.console import BANNER, error, info, step, success, warn
+from omadotfile.console import BANNER, Console, Terminal, error, info, line, step, success, use_console, warn
 from omadotfile.constants import GATEWAY_ENV_VARS, REQUIRED_ENV_VARS, REQUIRED_REPO_FILES
 from omadotfile.context import Context, Options, RepoRef
 from omadotfile.features.skills import install_shared_skills
@@ -107,7 +107,7 @@ def done_notes(ctx: Context) -> list[str]:
 
 
 def report_done(ctx: Context) -> None:
-    print()
+    line()
     success("Installation complete!")
     for note in done_notes(ctx):
         info(note)
@@ -123,15 +123,25 @@ def run_steps(ctx: Context) -> None:
 
 
 def main(argv: Sequence[str] | None = None, repo: Path | None = None,
-         env: Mapping[str, str] | None = None, home: Path | None = None) -> Context:
-    """Install from the checkout at repo (by default, the one this package is in)."""
-    args = parse_args(argv)
+         env: Mapping[str, str] | None = None, home: Path | None = None,
+         console: Console | None = None) -> Context:
+    """Install from the checkout at repo (by default, the one this package is in).
+
+    The composition root: the only reader of the process's env, home, platform and
+    interpreter, and where the run's Console (by default the Terminal) is bound.
+    """
+    with use_console(Terminal() if console is None else console):
+        return install(parse_args(argv), repo, env, home)
+
+
+def install(args: argparse.Namespace, repo: Path | None, env: Mapping[str, str] | None,
+            home: Path | None) -> Context:
     env = dict(os.environ if env is None else env)
     home = Path.home() if home is None else home
     repo = Path(__file__).resolve().parent.parent if repo is None else repo
     options = Options.from_env(env, oauth=args.oauth, install_all=args.install_all)
 
-    print(BANNER)
+    line(BANNER)
     warn_missing_required_env_vars(env, oauth=options.oauth)
     found = detect_agents(env, home, sys.platform, force=options.install_all)
     report_agents(found, forced=options.install_all)

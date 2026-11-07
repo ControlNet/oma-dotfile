@@ -522,3 +522,26 @@ The detection, Tokscale and Codex notify tests now pass a fake PATH, platform or
 as arguments instead of patching `shutil.which`, `tokscale.sys` or `codex.sys`. Golden runs: identical JSON in all five scenarios.
 Left as is: `pull.py` (the bootstrap reads its own env before the package is importable),
 `Context.stamp` (the clock), and `PATHEXT`, which `shutil.which` reads from `os.environ` on Windows.
+
+### Console: the run's output sink, bound in scope (2026-11-07)
+
+Output was the last process-wide dependency: `info`/`warn`/`success`/`item` printed straight to
+stdout/stderr, and tests captured the streams with `redirect_stdout`/`redirect_stderr`.
+Parameter injection could not cover it: `@warns_on`, `@skips`, `@requires` and `console.step`
+print too, and they wrap functions without seeing the Context. So the Console is bound for a
+scope instead, the way a logging handler is:
+
+- `Console` is a Protocol with one method, `emit(level, text)`; `Terminal` is the real one
+  (same prefixes, warnings and errors on stderr after flushing stdout, streams looked up per
+  line so `redirect_stdout` still works).
+- `cli.main(..., console=None)` binds the run's Console with `use_console` (a `ContextVar`,
+  default `Terminal()`); the module functions emit to `current_console()`. Call sites and
+  decorators are unchanged.
+- Threads do not inherit a `ContextVar` binding: `skills.remote_commits` submits each lookup
+  with `copy_context().run` (a test fails without it).
+- Tests bind `support.Recorder` and assert on `(level, text)` lines. Pilot: the WakaTime tests,
+  which now print nothing; stricter assertions there showed that a rejected `WAKATIME_API_URL`
+  is followed by the missing-config hint (unchanged behaviour). The other test files still
+  capture streams and move over as they are touched.
+
+Golden runs: byte-identical output (the banner and blank line go through `line()`).

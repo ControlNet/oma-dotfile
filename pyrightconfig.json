@@ -7,6 +7,7 @@
     "omadotfile/core/errors.py",
     "omadotfile/core/codec.py",
     "omadotfile/core/yaml_merge.py",
-    "omadotfile/inject.py"
+    "omadotfile/inject.py",
+    "omadotfile/console.py"
   ]
 }

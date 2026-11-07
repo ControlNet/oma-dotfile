@@ -1,7 +1,5 @@
 """Mocked agent CLI calls only; no marketplace is contacted and no user state changes."""
 
-import contextlib
-import io
 import json
 import os
 from pathlib import Path
@@ -16,7 +14,8 @@ from omadotfile.core import proc
 from omadotfile.core.proc import Runner
 from omadotfile.features import wakatime
 from omadotfile.features.wakatime import ClaudePlugins, CodexPlugins, ensure_plugin
-from support import TestCase, make_context
+from omadotfile.console import use_console
+from support import Recorder, TestCase, make_context
 
 EMPTY_PLUGIN_LIST = {"installed": [], "available": []}
 INSTALLED_PLUGIN_LIST = {
@@ -46,6 +45,14 @@ CLAUDE_MARKETPLACE_ENTRY = {
     "source": "git",
     "url": constants.CLAUDE_WAKATIME_MARKETPLACE_GIT_URL,
 }
+
+
+class WakatimeTestCase(TestCase):
+    """Each test's output goes to self.console, a Recorder, instead of the terminal."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.console = self.enterContext(use_console(Recorder()))
 
 
 class FakeCli:
@@ -105,7 +112,7 @@ def run_claude_ensure(responses: dict[str, object], claude_config_dir: Path):
     return fake, installed
 
 
-class SettingsFromEnvTests(TestCase):
+class SettingsFromEnvTests(WakatimeTestCase):
     def test_set_values_become_settings_and_line_breaks_are_rejected(self):
         settings, rejected = wakatime.settings_from_env(
             {"WAKATIME_API_URL": " https://w.example.invalid ", "WAKATIME_API_KEY": "a\nb", "OTHER": "x"})
@@ -116,7 +123,7 @@ class SettingsFromEnvTests(TestCase):
         self.assertEqual(wakatime.settings_from_env({"WAKATIME_API_KEY": "  "}), ({}, []))
 
 
-class CodexWakatimePluginTests(TestCase):
+class CodexWakatimePluginTests(WakatimeTestCase):
     def test_first_install_adds_marketplace_then_plugin(self) -> None:
         # Given a Codex home without the WakaTime marketplace or plugin.
         with tempfile.TemporaryDirectory() as tmp:
@@ -231,17 +238,15 @@ class CodexWakatimePluginTests(TestCase):
 
     def test_plugin_add_without_a_json_object_is_reported(self) -> None:
         # Given `codex plugin add` succeeds but prints something other than a JSON object.
-        with tempfile.TemporaryDirectory() as tmp, \
-                contextlib.redirect_stdout(io.StringIO()) as out, \
-                contextlib.redirect_stderr(io.StringIO()) as err:
+        with tempfile.TemporaryDirectory() as tmp:
             run_ensure({"plugin list": EMPTY_PLUGIN_LIST, "marketplace list": {"marketplaces": []},
                         "marketplace add": {}, "plugin add": "[]"}, Path(tmp))
         # Then the install is reported as failed, not as done.
-        self.assertIn(f"Failed to install {constants.CODEX_WAKATIME_PLUGIN_ID}\n", err.getvalue())
-        self.assertNotIn("Installed Codex plugin", out.getvalue())
+        self.assertIn(f"Failed to install {constants.CODEX_WAKATIME_PLUGIN_ID}", self.console.warnings)
+        self.assertEqual(self.console.of("success"), [])
 
 
-class ClaudeWakatimePluginTests(TestCase):
+class ClaudeWakatimePluginTests(WakatimeTestCase):
     def test_first_install_adds_marketplace_then_plugin(self) -> None:
         # Given a Claude Code config directory without the marketplace or plugin.
         with tempfile.TemporaryDirectory() as tmp:
@@ -374,13 +379,11 @@ class ClaudeWakatimePluginTests(TestCase):
 
     def test_failing_install_command_is_one_warning(self) -> None:
         # Given the marketplace is added but `claude plugin install` exits non-zero.
-        with tempfile.TemporaryDirectory() as tmp, \
-                contextlib.redirect_stdout(io.StringIO()), \
-                contextlib.redirect_stderr(io.StringIO()) as err:
+        with tempfile.TemporaryDirectory() as tmp:
             _, installed = run_claude_ensure(
                 {"plugin list": [], "marketplace list": [], "marketplace add": ""}, Path(tmp))
         # Then the runner's line is the only warning.
-        warnings = [line for line in err.getvalue().splitlines() if "[WARN]" in line]
+        warnings = self.console.warnings
         self.assertEqual(len(warnings), 1)
         self.assertRegex(warnings[0], r"/usr/bin/claude plugin install \S+ --json failed with exit code 1$")
         self.assertFalse(installed)
@@ -397,7 +400,7 @@ class ClaudeWakatimePluginTests(TestCase):
             self.assertEqual(fake.calls, [])
 
 
-class AgentCliLookupTests(TestCase):
+class AgentCliLookupTests(WakatimeTestCase):
     def test_cli_only_in_extra_bin_dir_is_used_by_path(self) -> None:
         # Given codex installed only in an extra bin dir that a piped install's PATH lacks.
         extra = "/home/me/.bun/bin/codex"
@@ -414,7 +417,7 @@ class AgentCliLookupTests(TestCase):
         self.assertEqual(fake.envs[0]["PATH"].split(os.pathsep)[0], "/home/me/.bun/bin")
 
 
-class WakatimePrerequisiteTests(TestCase):
+class WakatimePrerequisiteTests(WakatimeTestCase):
     def test_prerequisites_are_not_checked_when_both_steps_skip(self) -> None:
         # Given neither agent CLI is available.
         with tempfile.TemporaryDirectory() as tmp, \
@@ -425,10 +428,11 @@ class WakatimePrerequisiteTests(TestCase):
         config_path.assert_not_called()
 
 
-class NodeWarningTests(TestCase):
+class NodeWarningTests(WakatimeTestCase):
     """The plugin hooks run `node` from the user's PATH; the run's env PATH stands for it."""
 
     def setUp(self) -> None:
+        super().setUp()
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.bin = self.tmp / "bin"
         self.bin.mkdir()
@@ -437,28 +441,30 @@ class NodeWarningTests(TestCase):
         make_node(process_bin / "node")
         self.enterContext(patch.dict(os.environ, {"PATH": str(process_bin)}))
 
-    def ensure(self, installed: bool) -> str:
+    def ensure(self, installed: bool) -> list[str]:
+        """The warnings ensure_plugins prints."""
         ctx = make_context(self.tmp / "home", env={"PATH": str(self.bin)}, found={"codex"})
-        with patch.object(wakatime, "ensure_plugin", return_value=installed), \
-                contextlib.redirect_stdout(io.StringIO()), \
-                contextlib.redirect_stderr(io.StringIO()) as err:
+        with patch.object(wakatime, "ensure_plugin", return_value=installed):
             wakatime.ensure_plugins(ctx)
-        return err.getvalue()
+        return self.console.warnings
 
     def test_installed_plugin_without_node_on_path_warns(self) -> None:
-        self.assertIn("node not found on PATH", self.ensure(installed=True))
+        self.assertEqual(self.ensure(installed=True), [NO_NODE])
 
     def test_node_only_in_a_per_user_bin_dir_still_warns(self) -> None:
         # Detection searches nvm dirs; the hook's `node` lookup does not.
         make_node(self.tmp / "home" / ".nvm/versions/node/v24.11.1/bin/node")
-        self.assertIn("node not found on PATH", self.ensure(installed=True))
+        self.assertEqual(self.ensure(installed=True), [NO_NODE])
 
     def test_node_on_path_is_quiet(self) -> None:
         make_node(self.bin / "node")
-        self.assertNotIn("node", self.ensure(installed=True))
+        self.assertEqual(self.ensure(installed=True), [])
 
     def test_nothing_installed_is_quiet(self) -> None:
-        self.assertNotIn("node", self.ensure(installed=False))
+        self.assertEqual(self.ensure(installed=False), [])
+
+
+NO_NODE = "node not found on PATH; the WakaTime plugin hooks require it"
 
 
 def make_node(path: Path) -> None:
@@ -473,29 +479,30 @@ FAKE_KEY = "test-only-fake-wakatime-key"
 FAKE_URL = "https://wakapi.example.invalid/api"
 
 
-class WakatimeConfigTests(TestCase):
+class WakatimeConfigTests(WakatimeTestCase):
     def setUp(self) -> None:
+        super().setUp()
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.cfg = self.tmp / ".wakatime.cfg"
 
-    def ensure(self, **env: str) -> tuple[str, str]:
+    def ensure(self, **env: str) -> Recorder:
+        """Run ensure_config with only these variables; the lines it printed."""
         # Only the given variables: the developer's own WakaTime ones never reach the run.
         # Backups are on, to show that the cfg is still written without one.
         ctx = make_context(self.tmp / "home", env={"WAKATIME_HOME": str(self.tmp), **env}, backup=True)
-        with contextlib.redirect_stdout(io.StringIO()) as out, \
-                contextlib.redirect_stderr(io.StringIO()) as err:
+        with use_console(Recorder()) as recorder:
             wakatime.ensure_config(ctx)
-        return out.getvalue(), err.getvalue()
+        return recorder
 
     def test_env_creates_private_config(self) -> None:
         # Given no config file and both variables set.
-        out, err = self.ensure(WAKATIME_API_URL=FAKE_URL, WAKATIME_API_KEY=FAKE_KEY)
+        printed = self.ensure(WAKATIME_API_URL=FAKE_URL, WAKATIME_API_KEY=FAKE_KEY)
         # Then a [settings] section holds both values and only the owner can read it.
         self.assertEqual(self.cfg.read_text(encoding="utf-8"),
                          f"[settings]\napi_url = {FAKE_URL}\napi_key = {FAKE_KEY}\n")
         self.assertEqual(self.cfg.stat().st_mode & 0o777, 0o600)
         # And the key is never printed.
-        self.assertNotIn(FAKE_KEY, out + err)
+        self.assertNotIn(FAKE_KEY, printed.text)
 
     def test_env_replaces_only_managed_keys(self) -> None:
         # Given a config with other settings, comments, sections and the legacy apikey alias.
@@ -556,10 +563,10 @@ class WakatimeConfigTests(TestCase):
         # Given a config that already matches the environment.
         self.ensure(WAKATIME_API_URL=FAKE_URL, WAKATIME_API_KEY=FAKE_KEY)
         with patch.object(files_module.os, "open") as open_file:
-            out, _ = self.ensure(WAKATIME_API_URL=FAKE_URL, WAKATIME_API_KEY=FAKE_KEY)
+            printed = self.ensure(WAKATIME_API_URL=FAKE_URL, WAKATIME_API_KEY=FAKE_KEY)
         # Then the file is not opened for writing.
         open_file.assert_not_called()
-        self.assertIn("skip", out)
+        self.assertEqual(printed.of("info"), [f"WakaTime config already matches the environment; skip: {self.cfg}"])
 
     def test_unchanged_config_with_key_is_still_made_private(self) -> None:
         # Given a shared-readable config an older installer already wrote the key into.
@@ -571,23 +578,25 @@ class WakatimeConfigTests(TestCase):
 
     def test_line_break_in_value_is_rejected(self) -> None:
         # Given a value that would inject another INI line.
-        _, err = self.ensure(WAKATIME_API_URL=f"{FAKE_URL}\ndebug = true")
+        printed = self.ensure(WAKATIME_API_URL=f"{FAKE_URL}\ndebug = true")
         # Then nothing is written and the variable is named.
         self.assertFalse(self.cfg.exists())
-        self.assertIn("WAKATIME_API_URL", err)
+        # The rejection comes first; with no file and no key, the missing-config hint follows.
+        self.assertEqual(printed.warnings[0], f"WAKATIME_API_URL contains a line break; not written to {self.cfg}")
 
     def test_without_env_nothing_is_created(self) -> None:
         # Given neither variable set and no config file.
-        _, err = self.ensure()
+        printed = self.ensure()
         # Then no file appears and exactly one warning names the missing config.
         self.assertFalse(self.cfg.exists())
-        self.assertEqual(err.count(str(self.cfg)), 1)
+        self.assertEqual(len(printed.warnings), 1)
+        self.assertIn(str(self.cfg), printed.warnings[0])
 
     def test_existing_config_without_env_is_left_quietly(self) -> None:
         self.cfg.write_text("[settings]\napi_key = kept\n", encoding="utf-8")
-        _, err = self.ensure()
+        printed = self.ensure()
         self.assertEqual(self.cfg.read_text(encoding="utf-8"), "[settings]\napi_key = kept\n")
-        self.assertEqual(err, "")
+        self.assertEqual(printed.lines, [])
 
 
 if __name__ == "__main__":
