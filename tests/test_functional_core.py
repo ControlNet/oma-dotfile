@@ -1,6 +1,7 @@
 """The higher-order building blocks: warns_on/Skip, Codec + Files.update, @step, found_any, requires,
 and dependency injection (@inject by type, @uses with explicit providers)."""
 
+from collections.abc import Mapping
 import contextlib
 import inspect
 import io
@@ -247,6 +248,22 @@ class InjectTests(TestCase):
 
         self.assertEqual(paths(self.ctx, "n"), (self.ctx.home, self.ctx.repo, "n"))
         self.assertEqual(list(inspect.signature(paths).parameters), ["ctx", "name"])
+
+    def test_each_provider_returns_its_context_field(self):
+        ctx = make_context(Path("/h"), env={"A": "1"}, python="/py/bin/python3")
+        fields = {injection.files_of: ctx.files, injection.runner_of: ctx.runner,
+                  injection.options_of: ctx.options, injection.source_of: ctx.source,
+                  injection.repo_of: ctx.repo, injection.home_of: ctx.home, injection.work_of: ctx.work,
+                  injection.env_of: ctx.env, injection.python_of: ctx.python}
+        for provide, value in fields.items():
+            with self.subTest(provider=provide.__name__):
+                self.assertIs(provide(ctx), value)
+
+        @uses(injection.env_of, injection.python_of)
+        def interpreter(env: Mapping[str, str], python: str, /, key: str) -> tuple[str, str]:
+            return env[key], python
+
+        self.assertEqual(interpreter(ctx, "A"), ("1", "/py/bin/python3"))
 
     def test_uses_needs_positional_only_parameters_for_its_providers(self):
         def loose(runner: Runner, options: Options) -> None: ...

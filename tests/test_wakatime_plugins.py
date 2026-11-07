@@ -425,6 +425,49 @@ class WakatimePrerequisiteTests(TestCase):
         config_path.assert_not_called()
 
 
+class NodeWarningTests(TestCase):
+    """The plugin hooks run `node` from the user's PATH; the run's env PATH stands for it."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.bin = self.tmp / "bin"
+        self.bin.mkdir()
+        # The process PATH has node: only the run's env may decide.
+        process_bin = self.tmp / "process-bin"
+        make_node(process_bin / "node")
+        self.enterContext(patch.dict(os.environ, {"PATH": str(process_bin)}))
+
+    def ensure(self, installed: bool) -> str:
+        ctx = make_context(self.tmp / "home", env={"PATH": str(self.bin)}, found={"codex"})
+        with patch.object(wakatime, "ensure_plugin", return_value=installed), \
+                contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()) as err:
+            wakatime.ensure_plugins(ctx)
+        return err.getvalue()
+
+    def test_installed_plugin_without_node_on_path_warns(self) -> None:
+        self.assertIn("node not found on PATH", self.ensure(installed=True))
+
+    def test_node_only_in_a_per_user_bin_dir_still_warns(self) -> None:
+        # Detection searches nvm dirs; the hook's `node` lookup does not.
+        make_node(self.tmp / "home" / ".nvm/versions/node/v24.11.1/bin/node")
+        self.assertIn("node not found on PATH", self.ensure(installed=True))
+
+    def test_node_on_path_is_quiet(self) -> None:
+        make_node(self.bin / "node")
+        self.assertNotIn("node", self.ensure(installed=True))
+
+    def test_nothing_installed_is_quiet(self) -> None:
+        self.assertNotIn("node", self.ensure(installed=False))
+
+
+def make_node(path: Path) -> None:
+    """A stand-in `node` that `which` accepts; it is never run."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _ = path.write_text("#!/bin/sh\n", encoding="utf-8")
+    path.chmod(0o755)
+
+
 # Test-only fake credentials; they never reach a WakaTime server.
 FAKE_KEY = "test-only-fake-wakatime-key"
 FAKE_URL = "https://wakapi.example.invalid/api"
