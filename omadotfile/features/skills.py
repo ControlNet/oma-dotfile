@@ -123,13 +123,14 @@ def install_key(source: str, names: tuple[str, ...], agents: tuple[str, ...]) ->
     return f"skills@{SKILLS_CLI_VERSION} {source} -a {' '.join(agents)} -s {' '.join(names)}"
 
 
-def ls_remote_commit(ctx: Context, source: str) -> str | None:
+@inject
+def ls_remote_commit(runner: Runner, /, source: str) -> str | None:
     """The commit the skills CLI would clone for `owner/repo[#ref]`, or None if unknown.
 
     `git ls-remote` needs no GitHub API quota and downloads no files.
     """
     repo, _, ref = source.partition("#")
-    git = ctx.runner.pinned({"GIT_TERMINAL_PROMPT": "0"})
+    git = runner.pinned({"GIT_TERMINAL_PROMPT": "0"})
     try:
         result = git.run(["git", "ls-remote", f"https://github.com/{repo}.git", ref or "HEAD"], timeout=30)
     except CommandFailed:

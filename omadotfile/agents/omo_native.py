@@ -17,6 +17,7 @@ from omadotfile.core.codec import JSONC, JsonObject
 from omadotfile.core.errors import Skip, skips, warns_on
 from omadotfile.core.files import Files
 from omadotfile.core.jsonc import read_jsonc_object
+from omadotfile.core.proc import Runner
 from omadotfile.inject import inject
 from omadotfile.step import requires
 
@@ -198,8 +199,9 @@ def extract_npm_package(tarball: Path, dest: Path) -> Path:
 
 @requires("herdr", skip=f"         {HERDR_DAG_LABEL} skipped: herdr not found")
 @requires("node", "npm", skip=f"         {HERDR_DAG_LABEL} skipped: node and npm are required")
+@inject
 @skips
-def ensure_herdr_dag(ctx: Context, agent_dir: Path, work_dir: Path) -> None:
+def ensure_herdr_dag(runner: Runner, /, agent_dir: Path, work_dir: Path) -> None:
     """Install the pinned omo-herdr-dag with its own installer, only when its files changed.
 
     Each upstream install adds a generation and keeps the old ones, so an unchanged
@@ -207,7 +209,7 @@ def ensure_herdr_dag(ctx: Context, agent_dir: Path, work_dir: Path) -> None:
     later installs keep the language chosen by hand.
     """
     work_dir.mkdir(parents=True, exist_ok=True)
-    cli = ctx.runner.pinned({"OMO_CODING_AGENT_DIR": str(agent_dir)})
+    cli = runner.pinned({"OMO_CODING_AGENT_DIR": str(agent_dir)})
     packed = cli.json(
         ["npm", "pack", f"omo-herdr-dag@{OMO_HERDR_DAG_VERSION}", "--pack-destination", str(work_dir), "--json"])
     package = extract_npm_package(tarball_from_pack(packed, work_dir), work_dir / "extract")

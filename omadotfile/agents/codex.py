@@ -13,11 +13,13 @@ from omadotfile.context import Context
 from omadotfile.core.codec import LINES
 from omadotfile.core.errors import warns_on
 from omadotfile.core import toml_edit
+from omadotfile.core.files import Files
 from omadotfile.core.toml_edit import (TOML_ASSIGNMENT_START, TOML_TABLE_HEADER,
                                        ensure_top_level_config_line, find_first_toml_section_idx,
                                        find_toml_key_assignment_ranges, read_toml_string_assignment,
                                        replace_toml_section, toml_basic_string, toml_key_name,
                                        toml_statement_starts)
+from omadotfile.inject import inject
 
 
 def ensure_oauth_provider(lines: list[str]) -> list[str]:
@@ -242,9 +244,10 @@ def ensure_config(ctx: Context, codex_dir: Path) -> None:
     success(f"Configured Codex config: {config_path}")
 
 
+@inject
 @warns_on(OSError, message="Failed to read {dst}: {reason}")
-def update_config(ctx: Context, dst: Path, transform: Callable[[list[str]], list[str]]) -> bool:
-    return ctx.files.update(dst, LINES, transform)
+def update_config(files: Files, /, dst: Path, transform: Callable[[list[str]], list[str]]) -> bool:
+    return files.update(dst, LINES, transform)
 
 
 class Codex(Agent, key="codex", label="Codex", executable="codex"):

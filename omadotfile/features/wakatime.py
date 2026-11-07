@@ -22,8 +22,10 @@ from omadotfile.constants import (
 from omadotfile.context import Context, expand_home
 from omadotfile.core.codec import TEXT
 from omadotfile.core.errors import Skip, skips, warns_on
+from omadotfile.core.files import Files
 from omadotfile.core.ini import set_section_keys
 from omadotfile.core.proc import CommandFailed, Runner
+from omadotfile.inject import inject
 from omadotfile.step import found_any, step
 
 # Installer env var -> [settings] key. wakatime-cli itself reads WAKATIME_API_KEY but
@@ -79,15 +81,16 @@ def ensure_config(ctx: Context) -> None:
     success(f"Configured WakaTime {', '.join(settings)}: {path}")
 
 
+@inject
 @warns_on(OSError, ValueError, message="Failed to update {path} ({error}); leaving it unchanged")
-def update_config(ctx: Context, path: Path, settings: dict[str, str]) -> bool:
+def update_config(files: Files, /, path: Path, settings: dict[str, str]) -> bool:
     # A new file is owner-only. An existing one is made owner-only before the key is
     # written into it, or when an older run already put it there; without a key to
     # write, it keeps the mode the user chose.
     if "api_key" in settings and path.exists():
         path.chmod(0o600)
     # No backup: only env-sourced values change, and a backup would keep the old key.
-    return ctx.files.update(path, TEXT, partial(render_config, settings=settings),
+    return files.update(path, TEXT, partial(render_config, settings=settings),
                             backup=False, mode=0o600)
 
 

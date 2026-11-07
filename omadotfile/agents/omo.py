@@ -5,7 +5,9 @@ from pathlib import Path
 from omadotfile.agents.base import Component
 from omadotfile.constants import LEGACY_OMO_CONFIG_NAMES, OMO_FILES
 from omadotfile.context import Context
+from omadotfile.core.files import Files
 from omadotfile.core.jsonc import find_jsonc_top_level_object, rewrite_model_prefix
+from omadotfile.inject import inject
 from omadotfile.migration import migration
 from omadotfile.step import found_any
 
@@ -27,9 +29,10 @@ def render_oauth_config(content: str) -> str:
 
 
 @migration(since="2026-08", reason="config.json(c) in ~/.omo before omo.jsonc", remove_by="2027-08")
-def retire_legacy_omo_files(ctx: Context, directory: Path) -> None:
+@inject
+def retire_legacy_omo_files(files: Files, /, directory: Path) -> None:
     for name in LEGACY_OMO_CONFIG_NAMES:
-        ctx.files.retire(directory / name)
+        files.retire(directory / name)
 
 
 class OmoConfig(Component):

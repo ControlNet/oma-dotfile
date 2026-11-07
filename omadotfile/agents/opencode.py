@@ -9,7 +9,9 @@ from omadotfile.console import item
 from omadotfile.constants import (LEGACY_OPENAGENT_CONFIG_NAMES, LEGACY_OPENCODE_JSON,
                                   OPENCODE_FILES, OPENCODE_PLUGINS)
 from omadotfile.context import Context
+from omadotfile.core.files import Files
 from omadotfile.core.jsonc import merge_config_objects, read_jsonc_object
+from omadotfile.inject import inject
 from omadotfile.migration import migration
 
 
@@ -41,15 +43,17 @@ def render_oauth_config(src: Path, config_dir: Path, dst: Path) -> str:
 
 @migration(since="2026-02", reason="opencode.json from before the switch to opencode.jsonc",
            remove_by="2027-02")
-def retire_legacy_opencode_json(ctx: Context, config_dir: Path) -> None:
-    ctx.files.retire(config_dir / LEGACY_OPENCODE_JSON)
+@inject
+def retire_legacy_opencode_json(files: Files, /, config_dir: Path) -> None:
+    files.retire(config_dir / LEGACY_OPENCODE_JSON)
 
 
 @migration(since="2026-04", reason="oh-my-opencode / oh-my-openagent config names",
            remove_by="2027-04")
-def retire_legacy_openagent_files(ctx: Context, config_dir: Path) -> None:
+@inject
+def retire_legacy_openagent_files(files: Files, /, config_dir: Path) -> None:
     for name in LEGACY_OPENAGENT_CONFIG_NAMES:
-        ctx.files.retire(config_dir / name)
+        files.retire(config_dir / name)
 
 
 # The OMO OpenCode plugin has no executable of its own, so the OpenCode target gates its config.
