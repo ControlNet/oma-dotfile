@@ -1,7 +1,5 @@
 """Synthetic TOML and URLs in temporary directories; no user config is changed."""
 
-import contextlib
-import io
 from pathlib import Path, PureWindowsPath
 import tempfile
 import unittest
@@ -9,7 +7,8 @@ from unittest.mock import patch
 
 from omadotfile.agents import codex
 from omadotfile.core import toml_edit
-from support import TestCase, make_context, requires_tomllib, tomllib
+from omadotfile.console import use_console
+from support import Recorder, TestCase, make_context, requires_tomllib, tomllib
 
 GATEWAY_ENV = {"CODEX_BASE_URL": "https://example.test/v1"}
 
@@ -65,9 +64,9 @@ class CodexProviderConfigTests(TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(Path(tmp), env={"CODEX_BASE_URL": " "})
             # When the provider edit is chosen, the user is told it is skipped.
-            with contextlib.redirect_stderr(io.StringIO()) as err:
+            with use_console(Recorder()) as printed:
                 edit = codex.provider_edit(ctx)
-        self.assertIn("CODEX_BASE_URL is not set; skip Codex model provider config", err.getvalue())
+        self.assertEqual(printed.warnings, ["CODEX_BASE_URL is not set; skip Codex model provider config in config.toml."])
         # Then the edit leaves the configuration unchanged.
         self.assertEqual(edit(lines), lines)
 

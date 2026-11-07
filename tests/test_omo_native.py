@@ -1,7 +1,5 @@
 """OMO Native install tests use synthetic configs in temporary directories only."""
 
-import contextlib
-import io
 import json
 from pathlib import Path
 import tempfile
@@ -11,7 +9,8 @@ from omadotfile.agents import omo_native
 from omadotfile.agents.omo import OmoConfig
 from omadotfile.agents.omo_native import OmoNative
 from omadotfile.core.jsonc import read_jsonc_object
-from support import ROOT, TestCase, make_context
+from omadotfile.console import use_console
+from support import ROOT, Recorder, TestCase, make_context
 
 # Agent names OMO Native 5.1.0 defines (omo-ai bin/lib/setup-opencode-models.js NATIVE_AGENT_NAMES).
 NATIVE_AGENT_NAMES = {
@@ -87,7 +86,7 @@ class NativeOAuthRenderTests(TestCase):
 
     def install(self) -> None:
         ctx = make_context(self.tmp, oauth=True, backup=False)
-        with contextlib.redirect_stdout(io.StringIO()):
+        with use_console(Recorder()):
             OmoConfig().run(ctx)
 
     def test_oauth_routes_each_harness_to_its_own_subscription_provider(self) -> None:
@@ -112,10 +111,9 @@ class NativeModelsTests(TestCase):
 
     def install(self, env: dict, oauth: bool = False) -> str:
         ctx = make_context(self.tmp, env=env, oauth=oauth, backup=True)
-        with contextlib.redirect_stdout(io.StringIO()), \
-                contextlib.redirect_stderr(io.StringIO()) as err:
+        with use_console(Recorder()) as printed:
             omo_native.install_models(ctx, self.tmp)
-        return err.getvalue()
+        return "\n".join(printed.warnings)
 
     def test_gateway_provider_mirrors_opencode_codex_models(self) -> None:
         self.install({"CODEX_BASE_URL": GATEWAY_URL})
@@ -175,9 +173,9 @@ class NativeSettingsTests(TestCase):
 
     def configure(self) -> str:
         ctx = make_context(self.tmp, backup=False)
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
+        with use_console(Recorder()) as printed:
             omo_native.ensure_settings(ctx, self.tmp)
-        return err.getvalue()
+        return "\n".join(printed.warnings)
 
     def test_rules_extension_is_disabled_and_other_settings_survive(self) -> None:
         _ = self.settings.write_text(json.dumps({

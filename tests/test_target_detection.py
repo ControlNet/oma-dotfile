@@ -1,7 +1,5 @@
 """Synthetic PATHs and temporary HOMEs only; no real agent or user directory is touched."""
 
-import contextlib
-import io
 import json
 import os
 from pathlib import Path
@@ -19,7 +17,8 @@ from omadotfile.context import expand_home
 from omadotfile.constants import LEGACY_OMO_CONFIG_NAMES, LEGACY_OPENAGENT_CONFIG_NAMES
 from omadotfile.core import proc
 from omadotfile.features import skills, wakatime
-from support import ROOT, TestCase
+from omadotfile.console import use_console
+from support import ROOT, Recorder, TestCase
 
 
 def make_executable(path: Path) -> None:
@@ -167,22 +166,21 @@ class AgentDetectionTests(TestCase):
 
     def test_report_names_detected_and_skipped_targets(self) -> None:
         # Given a machine with Codex but no Claude Code.
-        with contextlib.redirect_stdout(io.StringIO()) as out, \
-                contextlib.redirect_stderr(io.StringIO()) as err:
+        with use_console(Recorder()) as printed:
             cli.report_agents(frozenset({"codex"}))
         # Then both sides are named and the escape hatch is offered.
-        self.assertIn("Codex", out.getvalue())
-        self.assertIn("Claude Code", err.getvalue())
-        self.assertIn("--all", out.getvalue())
+        infos = "\n".join(printed.of("info"))
+        self.assertIn("Codex", infos)
+        self.assertIn("Claude Code", "\n".join(printed.warnings))
+        self.assertIn("--all", infos)
 
     def test_report_is_quiet_about_skipping_when_everything_is_detected(self) -> None:
         # Given a machine with every agent installed.
-        with contextlib.redirect_stdout(io.StringIO()) as out, \
-                contextlib.redirect_stderr(io.StringIO()) as err:
+        with use_console(Recorder()) as printed:
             cli.report_agents(frozenset(cli.AGENTS))
         # Then nothing is reported as skipped.
-        self.assertEqual(err.getvalue(), "")
-        self.assertNotIn("--all", out.getvalue())
+        self.assertEqual(printed.warnings, [])
+        self.assertNotIn("--all", printed.text)
 
 
 # Where each agent's config goes in these tests, named as the legacy getters were.
@@ -227,8 +225,7 @@ class InstallGatingTests(TestCase):
         _ = shutil.copytree(ROOT / "skills", self.repo / "skills")
 
     def main(self, argv, env=None):
-        with contextlib.redirect_stdout(io.StringIO()), \
-                contextlib.redirect_stderr(io.StringIO()):
+        with use_console(Recorder()):
             cli.main(argv, repo=self.repo, env={**self.env, **(env or {})}, home=self.home)
 
     def run_main(self, argv=None, env=None, **detected):

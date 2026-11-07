@@ -1,6 +1,5 @@
 """Synthetic Claude events and credentials; network calls are mocked in all tests."""
 
-import contextlib
 import importlib.util
 import io
 import json
@@ -182,7 +181,8 @@ ORIGINAL_POST = notify.post_json
 class PluginInstallTests(TestCase):
     def test_manifest_hooks_and_repeat_install_preserve_local_config(self):
         from omadotfile.agents import claude
-        from support import make_context
+        from omadotfile.console import use_console
+        from support import Recorder, make_context
 
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "claude"
@@ -193,7 +193,7 @@ class PluginInstallTests(TestCase):
             unrelated.parent.mkdir(parents=True)
             unrelated.write_text("Synthetic user skill", encoding="utf-8")
             ctx = make_context(Path(directory) / "home", repo=ROOT, work=Path(directory) / "work")
-            with contextlib.redirect_stdout(io.StringIO()):
+            with use_console(Recorder()):
                 claude.install_plugins(ctx, target)
                 claude.install_plugins(ctx, target)
             plugin = target / "skills" / "gotify-notify"

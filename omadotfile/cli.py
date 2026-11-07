@@ -15,7 +15,7 @@ from omadotfile.agents.omo_native import OmoNative
 from omadotfile.agents.omp import Omp
 from omadotfile.agents.opencode import OpenCode
 from omadotfile.agents.tokscale import Tokscale
-from omadotfile.console import BANNER, Console, Terminal, error, info, line, step, success, use_console, warn
+from omadotfile.console import BANNER, Console, current_console, error, info, line, step, success, use_console, warn
 from omadotfile.constants import GATEWAY_ENV_VARS, REQUIRED_ENV_VARS, REQUIRED_REPO_FILES
 from omadotfile.context import Context, Options, RepoRef
 from omadotfile.features.skills import install_shared_skills
@@ -128,9 +128,10 @@ def main(argv: Sequence[str] | None = None, repo: Path | None = None,
     """Install from the checkout at repo (by default, the one this package is in).
 
     The composition root: the only reader of the process's env, home, platform and
-    interpreter, and where the run's Console (by default the Terminal) is bound.
+    interpreter. Output goes to `console` if given, else to the Console already bound
+    (the Terminal unless a caller bound another).
     """
-    with use_console(Terminal() if console is None else console):
+    with use_console(current_console() if console is None else console):
         return install(parse_args(argv), repo, env, home)
 
 

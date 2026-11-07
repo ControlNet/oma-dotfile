@@ -112,10 +112,14 @@ Things worth knowing when changing it:
   `proc.py` itself, `expand_home`'s `~user` fallback and the `stamp` clock):
   `grep -rnE 'os\.environ|os\.getenv|os\.name\b|sys\.platform|sys\.executable|Path\.home\(|expanduser|expandvars|Path\.cwd|os\.getcwd|getpass|platform\.|subprocess\.|shutil\.which\(|datetime\.now' omadotfile | grep -v 'omadotfile/cli.py'`. git runs through `ctx.runner` like every other CLI: `run(..., check=False)`
   when a non-zero exit is an answer (`git config --get` of an unset key), `timeout=` per call.
-- Output goes to the Console bound with `use_console` (default `Terminal()`; `cli.main` binds
-  one, `main(console=...)` takes a test's). In tests, `with use_console(Recorder()) as printed:`
-  (from `support`) and assert on `printed.warnings` / `printed.of("info")` / `printed.lines`
-  instead of `redirect_stdout`. Gotchas: a `ThreadPoolExecutor` worker does not see the binding
+- Output goes to the Console bound with `use_console` (default `Terminal()`;
+  `main(console=...)` binds one only when given, so a caller's binding wins). Every
+  `support.TestCase` runs with a Recorder bound as `self.console` (bound in `run()`, so it covers
+  setUp without `super().setUp()`), so the suite prints nothing. Assert on `self.console.warnings`
+  / `.of("info")` / `.lines`, or bind a fresh one around one call:
+  `with use_console(Recorder()) as printed:`. Stream capture is left only where the output does
+  not go through the Console: `pull.py` (bootstrap), argparse errors, the notifier scripts, and
+  the Terminal's own tests. Gotchas: a `ThreadPoolExecutor` worker does not see the binding
   (submit `copy_context().run, fn, ...`, each copy made in the submitting thread); pyright strict
   wants `@contextmanager` functions annotated `-> Generator[T, None, None]`, not `Iterator[T]`;
   with stdout piped, buffered test output can land after unittest's summary line, so match

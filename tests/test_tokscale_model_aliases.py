@@ -1,7 +1,5 @@
 """Synthetic settings in temporary directories; no user configuration is changed."""
 
-import contextlib
-import io
 import json
 from pathlib import Path
 import tempfile
@@ -10,7 +8,8 @@ import unittest
 from omadotfile.agents import tokscale
 from omadotfile.agents.tokscale import Tokscale
 from omadotfile.constants import TOKSCALE_MODEL_ALIASES
-from support import ROOT, TestCase, make_context
+from omadotfile.console import use_console
+from support import ROOT, Recorder, TestCase, make_context
 
 
 class TokscaleAliasesTests(TestCase):
@@ -23,7 +22,7 @@ class TokscaleAliasesTests(TestCase):
 
     def install(self, repo=ROOT):
         ctx = make_context(self.directory, repo=repo, backup=self.backup, stamp="20260908-120000")
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        with use_console(Recorder()):
             tokscale.install_model_aliases(ctx, self.config)
 
     def test_merge_backup_and_idempotence(self):

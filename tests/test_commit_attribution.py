@@ -4,8 +4,6 @@ Settings files, hook dirs and commit messages are synthetic and live in temporar
 directories. Git runs for real, but against a temporary global config and HOME.
 """
 
-import contextlib
-import io
 import json
 import os
 from pathlib import Path
@@ -19,16 +17,17 @@ from unittest.mock import patch
 from omadotfile.agents import claude
 from omadotfile.core import proc
 from omadotfile.core.proc import Runner
-from support import ROOT, TestCase, make_context
+from omadotfile.console import use_console
+from support import ROOT, Recorder, TestCase, make_context
 
 HOOK = ROOT / "config" / "git-hooks" / "commit-msg"
 
 
 def quiet(function, *args):
-    with contextlib.redirect_stdout(io.StringIO()) as out, \
-            contextlib.redirect_stderr(io.StringIO()) as err:
+    """Call function with a Recorder bound; every line it printed, one per line."""
+    with use_console(Recorder()) as printed:
         function(*args)
-    return out.getvalue() + err.getvalue()
+    return printed.text
 
 
 class ClaudeAttributionTests(TestCase):

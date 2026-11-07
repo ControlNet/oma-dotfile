@@ -8,7 +8,7 @@ import sys
 from typing import TypeVar
 import unittest
 
-from omadotfile.console import Level
+from omadotfile.console import Level, use_console
 from omadotfile.context import Context, Options, RepoRef
 
 try:
@@ -48,7 +48,15 @@ class Recorder:
 
 
 class TestCase(unittest.TestCase):
-    """unittest.TestCase, with enterContext on Python 3.10 too."""
+    """unittest.TestCase with a Recorder bound as the Console for each test (self.console), so
+    no test prints to the terminal; and enterContext on Python 3.10 too."""
+
+    console: Recorder
+
+    def run(self, result: unittest.TestResult | None = None) -> unittest.TestResult | None:
+        # Around setUp, the test and its cleanups, whether or not a subclass calls super().setUp().
+        with use_console(Recorder()) as self.console:
+            return super().run(result)
 
     if sys.version_info < (3, 11):
         def enterContext(self, cm: AbstractContextManager[T]) -> T:

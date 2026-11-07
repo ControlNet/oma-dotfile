@@ -4,7 +4,6 @@ Package and agent directories are synthetic layouts in temporary directories; th
 contents are fake stand-ins, not upstream code. npm, node and herdr are never run.
 """
 
-import contextlib
 import io
 import json
 from pathlib import Path
@@ -20,7 +19,8 @@ from omadotfile.constants import OMO_HERDR_DAG_VERSION
 from omadotfile.core.errors import Skip
 from omadotfile.core import proc
 from omadotfile.core.proc import CommandFailed, Runner
-from support import TestCase, make_context
+from omadotfile.console import use_console
+from support import Recorder, TestCase, make_context
 
 MARKER = "// managed by omo-herdr-dag"
 FAKE_DIST = {
@@ -182,10 +182,11 @@ class EnsureTests(TestCase):
         self.pins.append(runner.pin)
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
-    def ensure(self) -> str:
-        with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err:
+    def ensure(self) -> Recorder:
+        """Run ensure_herdr_dag with a Recorder bound; the lines it printed."""
+        with use_console(Recorder()) as printed:
             omo_native.ensure_herdr_dag(make_context(self.tmp), self.agent, self.work)
-        return out.getvalue() + err.getvalue()
+        return printed
 
     def installs(self):
         return [command for command in self.commands if "install" in command]
@@ -217,48 +218,48 @@ class EnsureTests(TestCase):
 
     def test_skipped_without_herdr(self):
         self.found.discard("herdr")
-        output = self.ensure()
+        printed = self.ensure()
         self.assertEqual(self.commands, [])
-        self.assertIn(f"         omo-herdr-dag {OMO_HERDR_DAG_VERSION} skipped: herdr not found\n", output)
+        self.assertEqual(printed.warnings, [f"         omo-herdr-dag {OMO_HERDR_DAG_VERSION} skipped: herdr not found"])
 
     def test_skipped_without_npm(self):
         self.found.discard("npm")
-        output = self.ensure()
+        printed = self.ensure()
         self.assertEqual(self.commands, [])
-        self.assertIn(f"         omo-herdr-dag {OMO_HERDR_DAG_VERSION} skipped: node and npm are required\n",
-                      output)
+        self.assertEqual(printed.warnings,
+                         [f"         omo-herdr-dag {OMO_HERDR_DAG_VERSION} skipped: node and npm are required"])
 
     def test_failed_npm_pack_is_one_warning_and_installs_nothing(self):
         self.npm.side_effect = CommandFailed("/fake/bin/npm pack ... failed with exit code 1")
-        output = self.ensure()
+        printed = self.ensure()
         self.assertEqual(self.installs(), [])
-        self.assertEqual(output.count("[WARN]"), 1)
-        self.assertIn("/fake/bin/npm pack ... failed with exit code 1\n", output)
+        self.assertEqual(printed.warnings, ["/fake/bin/npm pack ... failed with exit code 1"])
 
     def test_failed_installer_is_warned_about(self):
         self.node.side_effect = CommandFailed("/fake/bin/node .../omo-herdr-dag.mjs install failed with exit code 1")
-        self.assertIn("omo-herdr-dag.mjs install failed with exit code 1\n", self.ensure())
+        self.assertEqual(self.ensure().warnings,
+                         ["/fake/bin/node .../omo-herdr-dag.mjs install failed with exit code 1"])
 
     def test_unreported_tarball_warns_and_installs_nothing(self):
         self.npm.side_effect = None
         self.npm.return_value = None
-        output = self.ensure()
+        printed = self.ensure()
         self.assertEqual(self.installs(), [])
-        self.assertIn(f"npm pack did not report a tarball for omo-herdr-dag {OMO_HERDR_DAG_VERSION}\n", output)
+        self.assertEqual(printed.warnings, [f"npm pack did not report a tarball for omo-herdr-dag {OMO_HERDR_DAG_VERSION}"])
 
     def test_messages_for_each_install_state(self):
-        output = self.ensure()
-        self.assertIn(f"omo-herdr-dag {OMO_HERDR_DAG_VERSION} (Herdr DAG side pane; /reload running sessions)",
-                      output)
+        self.assertEqual(self.ensure().of("item"),
+                         [f"omo-herdr-dag {OMO_HERDR_DAG_VERSION} (Herdr DAG side pane; /reload running sessions)"])
         dist = self.tmp / "dist"
         write_tree(dist, FAKE_DIST)
         install_generation(self.agent, dist)
-        self.assertIn(f"omo-herdr-dag {OMO_HERDR_DAG_VERSION} (already installed)", self.ensure())
+        self.assertEqual(self.ensure().of("item"), [f"omo-herdr-dag {OMO_HERDR_DAG_VERSION} (already installed)"])
 
     def test_unmanaged_install_is_reported(self):
         (self.agent / "herdr-dag" / "integration").mkdir(parents=True)
+        (warning,) = self.ensure().warnings
         self.assertIn(f"was not written by omo-herdr-dag; leaving omo-herdr-dag {OMO_HERDR_DAG_VERSION} "
-                      "uninstalled", self.ensure())
+                      "uninstalled", warning)
 
 
 if __name__ == "__main__":

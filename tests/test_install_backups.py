@@ -1,7 +1,5 @@
 """Backup policy: back up user-editable config only when it changes; never back up plugin code."""
 
-import contextlib
-import io
 import os
 from pathlib import Path
 import tempfile
@@ -9,7 +7,8 @@ import unittest
 
 from omadotfile.agents import omp
 from omadotfile.core.files import Files
-from support import ROOT, TestCase, make_context
+from omadotfile.console import use_console
+from support import ROOT, Recorder, TestCase, make_context
 
 # Later than the older backup a test plants, so pruning has a newest backup to keep.
 STAMP = "20261007-120000"
@@ -85,7 +84,7 @@ class BackupPolicyTests(TestCase):
         agent_dir = self.tmp / "omp"
         dst = agent_dir / "models.yml"
         env = {"CODEX_BASE_URL": "https://example.invalid/v1"}
-        with contextlib.redirect_stdout(io.StringIO()):
+        with use_console(Recorder()):
             for stamp in (STAMP, "20261007-120001"):
                 omp.install_models(make_context(self.tmp, repo=ROOT, env=env, stamp=stamp), agent_dir)
 

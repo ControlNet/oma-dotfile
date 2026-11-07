@@ -534,14 +534,17 @@ scope instead, the way a logging handler is:
 - `Console` is a Protocol with one method, `emit(level, text)`; `Terminal` is the real one
   (same prefixes, warnings and errors on stderr after flushing stdout, streams looked up per
   line so `redirect_stdout` still works).
-- `cli.main(..., console=None)` binds the run's Console with `use_console` (a `ContextVar`,
-  default `Terminal()`); the module functions emit to `current_console()`. Call sites and
+- The module functions emit to `current_console()`, a `ContextVar` whose default is
+  `Terminal()`; `use_console` binds another for a block. `cli.main(..., console=None)` binds
+  `console` when given and otherwise keeps the bound one, so a caller's binding wins. Call sites and
   decorators are unchanged.
 - Threads do not inherit a `ContextVar` binding: `skills.remote_commits` submits each lookup
   with `copy_context().run` (a test fails without it).
-- Tests bind `support.Recorder` and assert on `(level, text)` lines. Pilot: the WakaTime tests,
-  which now print nothing; stricter assertions there showed that a rejected `WAKATIME_API_URL`
-  is followed by the missing-config hint (unchanged behaviour). The other test files still
-  capture streams and move over as they are touched.
+- Tests assert on `(level, text)` lines kept by `support.Recorder`, which every
+  `support.TestCase` binds for each test (`self.console`); the suite prints nothing.
+  Exact-list assertions replaced many substring checks on captured streams; they showed that a
+  rejected `WAKATIME_API_URL` is followed by the missing-config hint (unchanged behaviour).
+  Stream capture remains only for output outside the Console (`pull.py`, argparse, the
+  notifier scripts, the Terminal's own tests).
 
 Golden runs: byte-identical output (the banner and blank line go through `line()`).

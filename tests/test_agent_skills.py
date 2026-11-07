@@ -4,8 +4,6 @@ Repos, agent skill directories and skills CLI JSON replies are synthetic stand-i
 temporary directories. npx and the skills CLI are never run.
 """
 
-import contextlib
-import io
 import json
 from pathlib import Path
 import subprocess
@@ -19,7 +17,8 @@ from omadotfile.context import RepoRef
 from omadotfile.core import proc
 from omadotfile.core.proc import CommandFailed, Runner
 from omadotfile.features import skills
-from support import ROOT, TestCase, make_context
+from omadotfile.console import use_console
+from support import ROOT, Recorder, TestCase, make_context
 
 THIS_REPO = RepoRef()
 REPO_SOURCE = THIS_REPO.skills_source
@@ -134,10 +133,9 @@ class AgentSkillsHarness(TestCase):
         return reply
 
     def run_install(self) -> str:
-        with contextlib.redirect_stdout(io.StringIO()) as out, \
-                contextlib.redirect_stderr(io.StringIO()) as err:
+        with use_console(Recorder()) as printed:
             skills.ensure_skills(self.ctx, self.legacy)
-        return out.getvalue() + err.getvalue()
+        return printed.text
 
 
 class EnsureAgentSkillsTests(AgentSkillsHarness):
@@ -200,7 +198,7 @@ class EnsureAgentSkillsTests(AgentSkillsHarness):
         self.replies = {"vercel-labs/skills": CommandFailed(failed),
                         "vercel-labs/agent-skills": cli_reply(installed=("web-design-guidelines",))}
         output = self.run_install()
-        self.assertIn(f"{failed}\n", output)
+        self.assertIn(failed, output.splitlines())
         self.assertIn("Not installed from vercel-labs/skills: find-skills", output)
         self.assertIn("web-design-guidelines (vercel-labs/agent-skills)", output)
         self.assertEqual(len(self.cli.call_args_list), len(skills.skill_installs(
@@ -232,14 +230,14 @@ class EnsureAgentSkillsTests(AgentSkillsHarness):
         output = self.run_install()
         self.cli.assert_not_called()
         self.assertTrue(old.is_file())
-        self.assertIn("         skills skipped: npx not found (install Node.js)\n", output)
+        self.assertIn("         skills skipped: npx not found (install Node.js)", output.splitlines())
 
 
 class ClaudeCodeSkillTests(AgentSkillsHarness):
     """Claude Code does not read ~/.agents/skills; the CLI links skills into its own dir."""
 
     def run_with_claude(self) -> None:
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        with use_console(Recorder()):
             skills.ensure_skills(self.ctx, self.legacy, self.tmp / "claude")
 
     def installs(self) -> list[tuple[str, tuple[str, ...], tuple[str, ...]]]:
@@ -368,10 +366,9 @@ class SkipUnchangedSourceTests(AgentSkillsHarness):
         return [call.args[1][4] for call in self.cli.call_args_list]
 
     def run_with_claude(self) -> str:
-        with contextlib.redirect_stdout(io.StringIO()) as out, \
-                contextlib.redirect_stderr(io.StringIO()) as err:
+        with use_console(Recorder()) as printed:
             skills.ensure_skills(self.ctx, self.legacy, self.claude)
-        return out.getvalue() + err.getvalue()
+        return printed.text
 
     def test_unchanged_source_with_its_skills_on_disk_is_skipped(self):
         self.commits = {self.SOURCE: "a" * 40}

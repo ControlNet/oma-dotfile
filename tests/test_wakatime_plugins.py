@@ -47,14 +47,6 @@ CLAUDE_MARKETPLACE_ENTRY = {
 }
 
 
-class WakatimeTestCase(TestCase):
-    """Each test's output goes to self.console, a Recorder, instead of the terminal."""
-
-    def setUp(self) -> None:
-        super().setUp()
-        self.console = self.enterContext(use_console(Recorder()))
-
-
 class FakeCli:
     """Answer agent plugin subcommands from a canned response table.
 
@@ -112,7 +104,7 @@ def run_claude_ensure(responses: dict[str, object], claude_config_dir: Path):
     return fake, installed
 
 
-class SettingsFromEnvTests(WakatimeTestCase):
+class SettingsFromEnvTests(TestCase):
     def test_set_values_become_settings_and_line_breaks_are_rejected(self):
         settings, rejected = wakatime.settings_from_env(
             {"WAKATIME_API_URL": " https://w.example.invalid ", "WAKATIME_API_KEY": "a\nb", "OTHER": "x"})
@@ -123,7 +115,7 @@ class SettingsFromEnvTests(WakatimeTestCase):
         self.assertEqual(wakatime.settings_from_env({"WAKATIME_API_KEY": "  "}), ({}, []))
 
 
-class CodexWakatimePluginTests(WakatimeTestCase):
+class CodexWakatimePluginTests(TestCase):
     def test_first_install_adds_marketplace_then_plugin(self) -> None:
         # Given a Codex home without the WakaTime marketplace or plugin.
         with tempfile.TemporaryDirectory() as tmp:
@@ -246,7 +238,7 @@ class CodexWakatimePluginTests(WakatimeTestCase):
         self.assertEqual(self.console.of("success"), [])
 
 
-class ClaudeWakatimePluginTests(WakatimeTestCase):
+class ClaudeWakatimePluginTests(TestCase):
     def test_first_install_adds_marketplace_then_plugin(self) -> None:
         # Given a Claude Code config directory without the marketplace or plugin.
         with tempfile.TemporaryDirectory() as tmp:
@@ -400,7 +392,7 @@ class ClaudeWakatimePluginTests(WakatimeTestCase):
             self.assertEqual(fake.calls, [])
 
 
-class AgentCliLookupTests(WakatimeTestCase):
+class AgentCliLookupTests(TestCase):
     def test_cli_only_in_extra_bin_dir_is_used_by_path(self) -> None:
         # Given codex installed only in an extra bin dir that a piped install's PATH lacks.
         extra = "/home/me/.bun/bin/codex"
@@ -417,7 +409,7 @@ class AgentCliLookupTests(WakatimeTestCase):
         self.assertEqual(fake.envs[0]["PATH"].split(os.pathsep)[0], "/home/me/.bun/bin")
 
 
-class WakatimePrerequisiteTests(WakatimeTestCase):
+class WakatimePrerequisiteTests(TestCase):
     def test_prerequisites_are_not_checked_when_both_steps_skip(self) -> None:
         # Given neither agent CLI is available.
         with tempfile.TemporaryDirectory() as tmp, \
@@ -428,11 +420,10 @@ class WakatimePrerequisiteTests(WakatimeTestCase):
         config_path.assert_not_called()
 
 
-class NodeWarningTests(WakatimeTestCase):
+class NodeWarningTests(TestCase):
     """The plugin hooks run `node` from the user's PATH; the run's env PATH stands for it."""
 
     def setUp(self) -> None:
-        super().setUp()
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.bin = self.tmp / "bin"
         self.bin.mkdir()
@@ -479,9 +470,8 @@ FAKE_KEY = "test-only-fake-wakatime-key"
 FAKE_URL = "https://wakapi.example.invalid/api"
 
 
-class WakatimeConfigTests(WakatimeTestCase):
+class WakatimeConfigTests(TestCase):
     def setUp(self) -> None:
-        super().setUp()
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.cfg = self.tmp / ".wakatime.cfg"
 

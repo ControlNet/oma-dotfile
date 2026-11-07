@@ -1,6 +1,7 @@
 """Console output goes to the Console bound for the run; the Terminal is the default."""
 
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import Context
 import contextlib
 import io
 from pathlib import Path
@@ -16,7 +17,8 @@ from support import Recorder, TestCase, make_context
 
 class BindingTests(TestCase):
     def test_the_terminal_is_the_default(self):
-        self.assertIsInstance(current_console(), Terminal)
+        # An empty context shows the default; tests otherwise run with a Recorder bound.
+        self.assertIsInstance(Context().run(current_console), Terminal)
 
     def test_a_bound_console_gets_every_level_until_the_block_ends(self):
         with use_console(Recorder()) as recorder:
@@ -28,7 +30,7 @@ class BindingTests(TestCase):
             line("raw")
         self.assertEqual(recorder.lines, [("info", "i"), ("success", "s"), ("warn", "w"),
                                           ("error", "e"), ("item", "x"), ("text", "raw")])
-        self.assertIsInstance(current_console(), Terminal)
+        self.assertIs(current_console(), self.console)  # the test's own binding is back
 
     def test_bindings_nest(self):
         with use_console(Recorder()) as outer:

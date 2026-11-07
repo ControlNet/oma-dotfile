@@ -1,7 +1,5 @@
 """OMP's config.yml is merged, not replaced: OMP writes to it too. Temporary dirs only."""
 
-import contextlib
-import io
 from pathlib import Path
 import tempfile
 import textwrap
@@ -9,7 +7,8 @@ import unittest
 
 from omadotfile.agents import omp
 from omadotfile.core import yaml_merge
-from support import ROOT, TestCase, make_context
+from omadotfile.console import use_console
+from support import ROOT, Recorder, TestCase, make_context
 
 REPO_CONFIG = (ROOT / "config/omp/config.yml").read_text(encoding="utf-8")
 
@@ -128,9 +127,9 @@ class OmpConfigInstallTests(TestCase):
         ctx = make_context(self.home, oauth=oauth, stamp=stamp,
                            dirs={"omp": self.agent_dir})
         spec = next(spec for spec in omp.Omp.files if spec.dst == "config.yml")
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
+        with use_console(Recorder()) as printed:
             omp.Omp().install_file(ctx, spec, self.agent_dir)
-        return ctx, err.getvalue()
+        return ctx, printed.warnings
 
     def test_fresh_install_writes_the_repo_config(self):
         self.install()
@@ -169,10 +168,11 @@ class OmpConfigInstallTests(TestCase):
     def test_unmergeable_config_is_replaced_with_a_backup_and_a_warning(self):
         self.config.write_text("{theme: {dark: other}}\n")
 
-        _, err = self.install()
+        _, warnings = self.install()
 
         self.assertEqual(self.config.read_text(), REPO_CONFIG)
-        self.assertIn("could not be merged", err)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("could not be merged", warnings[0])
         backup = self.agent_dir / "config.yml.bak-20261107-120000"
         self.assertEqual(backup.read_text(), "{theme: {dark: other}}\n")
 

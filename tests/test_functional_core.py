@@ -2,9 +2,7 @@
 and dependency injection (@inject by type, @uses with explicit providers)."""
 
 from collections.abc import Mapping
-import contextlib
 import inspect
-import io
 from pathlib import Path
 import subprocess
 import tempfile
@@ -21,13 +19,15 @@ from omadotfile import inject as injection
 from omadotfile.context import Options
 from omadotfile.inject import MAX_INJECTED, home_of, inject, options_of, repo_of, runner_of, uses
 from omadotfile.step import FunctionStep, Step, found_any, requires, step
-from support import TestCase, make_context
+from omadotfile.console import use_console
+from support import Recorder, TestCase, make_context
 
 
 def quietly(function, *args, **kwargs):
-    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
+    """Call function with a Recorder bound; its result and the warnings it printed."""
+    with use_console(Recorder()) as printed:
         result = function(*args, **kwargs)
-    return result, err.getvalue()
+    return result, printed.warnings
 
 
 class WarnsOnTests(TestCase):
@@ -36,10 +36,10 @@ class WarnsOnTests(TestCase):
         def read(path: str) -> str:
             raise ValueError("bad value")
 
-        result, err = quietly(read, "a.json")
+        result, warnings = quietly(read, "a.json")
 
         self.assertIsNone(result)
-        self.assertIn("Failed to read a.json (ValueError): bad value", err)
+        self.assertEqual(warnings, ["Failed to read a.json (ValueError): bad value"])
 
     def test_result_passes_through_and_metadata_is_kept(self):
         @warns_on(OSError, message="never")
@@ -72,10 +72,10 @@ class SkipTests(TestCase):
         def install(path: str) -> str:
             raise Skip(f"         {path} skipped: herdr not found")
 
-        result, err = quietly(install, "dag")
+        result, warnings = quietly(install, "dag")
 
         self.assertIsNone(result)
-        self.assertIn("[WARN]\x1b[0m             dag skipped: herdr not found\n", err)
+        self.assertEqual(warnings, ["         dag skipped: herdr not found"])
 
     def test_result_passes_through_and_other_errors_propagate(self):
         @skips
@@ -119,11 +119,11 @@ class RequiresTests(TestCase):
         def act(ctx) -> None:
             calls.append(ctx)
 
-        result, err = quietly(act, self.ctx)
+        result, warnings = quietly(act, self.ctx)
 
         self.assertIsNone(result)
         self.assertEqual(calls, [])
-        self.assertIn("dag skipped: node and npm are required", err)
+        self.assertEqual(warnings, ["dag skipped: node and npm are required"])
         self.assertEqual(self.looked_up, ["node", "npm"])
 
 
@@ -277,9 +277,9 @@ class InjectTests(TestCase):
         def write(files: Files, /, dst: Path) -> bool:
             raise OSError("disk full")
 
-        result, err = quietly(write, self.ctx, Path("x.json"))
+        result, warnings = quietly(write, self.ctx, Path("x.json"))
         self.assertIsNone(result)
-        self.assertIn("Failed to write x.json: disk full", err)
+        self.assertEqual(warnings, ["Failed to write x.json: disk full"])
 
 
 class CodecTests(TestCase):

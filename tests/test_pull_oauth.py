@@ -15,7 +15,8 @@ from omadotfile.agents.base import Component
 from omadotfile.constants import OMP_MODELS, OMP_MODELS_OAUTH
 from omadotfile.core.jsonc import read_jsonc_object
 from omadotfile.features import skills, wakatime
-from support import ROOT, TestCase, make_context, requires_tomllib, tomllib
+from omadotfile.console import use_console
+from support import ROOT, Recorder, TestCase, make_context, requires_tomllib, tomllib
 
 GATEWAY_URL = 'https://example.invalid/v1'
 
@@ -23,7 +24,7 @@ GATEWAY_URL = 'https://example.invalid/v1'
 def install_files(component: Component, ctx, target: Path) -> None:
     """Install a component's `files` into target, as its step does before `configure`."""
     target.mkdir(parents=True, exist_ok=True)
-    with contextlib.redirect_stdout(io.StringIO()):
+    with use_console(Recorder()):
         for spec in component.files:
             component.install_file(ctx, spec, target)
 
@@ -37,7 +38,7 @@ class OAuthTests(TestCase):
                             env={'CODEX_BASE_URL': GATEWAY_URL} if env is None else env)
 
     def codex_config(self, stamp, oauth=False):
-        with contextlib.redirect_stdout(io.StringIO()):
+        with use_console(Recorder()):
             codex.ensure_config(self.context(stamp, oauth=oauth), self.tmp)
 
     def test_codex_comments_only_top_level_gateway_assignment(self):
@@ -162,13 +163,13 @@ class OAuthTests(TestCase):
         self.assertEqual(content, (ROOT / 'config/omp/config.yml').read_text().replace('codex_api/', 'openai-codex/'))
         dst = self.tmp / 'models.yml'
         dst.write_text('providers: {}\n')
-        with contextlib.redirect_stderr(io.StringIO()) as stderr, contextlib.redirect_stdout(io.StringIO()):
+        with use_console(Recorder()) as printed:
             omp.install_models(self.context('oauth', oauth=True, env={}), self.tmp)
         self.assertEqual(dst.read_text(), (ROOT / 'config/omp/models.oauth.yml').read_text())
         for model in ('gpt-6.1-sol', 'gpt-6-luna', 'gpt-6.1-sol-fast', 'gpt-6-luna-fast'):
             self.assertIn(f'      {model}:\n        contextWindow: 272000\n        maxTokens: 128000', dst.read_text())
-        self.assertEqual(stderr.getvalue(), '')
-        with contextlib.redirect_stdout(io.StringIO()):
+        self.assertEqual(printed.warnings, [])
+        with use_console(Recorder()):
             omp.install_models(self.context('api'), self.tmp)
         self.assertIn('codex_api:', dst.read_text())
 
@@ -184,9 +185,10 @@ class OAuthTests(TestCase):
                     (repo / OMP_MODELS).mkdir()  # exists, but reading it fails
                     missing = OMP_MODELS
                 ctx = make_context(self.tmp, repo=repo, oauth=oauth)
-                with contextlib.redirect_stderr(io.StringIO()) as stderr, contextlib.redirect_stdout(io.StringIO()):
+                with use_console(Recorder()) as printed:
                     omp.install_models(ctx, dst.parent)
-                self.assertIn(f'Failed to read {repo / missing}: ', stderr.getvalue())
+                (warning,) = printed.warnings
+                self.assertTrue(warning.startswith(f'Failed to read {repo / missing}: '), warning)
                 self.assertFalse(dst.exists())
 
     def test_done_notes_name_logins_only_for_found_agents(self):
@@ -198,11 +200,11 @@ class OAuthTests(TestCase):
         self.assertEqual(cli.done_notes(make_context(self.tmp, backup=False, stamp='s')), ['Timestamp: s'])
 
     def test_oauth_environment_warnings_exclude_gateway(self):
-        with contextlib.redirect_stdout(io.StringIO()) as output:
+        with use_console(Recorder()) as printed:
             cli.warn_missing_required_env_vars({}, oauth=True)
-        self.assertNotIn('CODEX_BASE_URL', output.getvalue())
-        self.assertNotIn('CODEX_API_TOKEN', output.getvalue())
-        self.assertIn('GITHUB_PERSONAL_ACCESS_TOKEN', output.getvalue())
+        self.assertNotIn('CODEX_BASE_URL', printed.text)
+        self.assertNotIn('CODEX_API_TOKEN', printed.text)
+        self.assertIn('GITHUB_PERSONAL_ACCESS_TOKEN', printed.text)
 
     @requires_tomllib
     def test_main_routes_all_outputs_without_touching_auth(self):
@@ -236,8 +238,7 @@ class OAuthTests(TestCase):
             shutil.copy2(ROOT / name, repo / name)
 
         def main(argv):
-            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-                cli.main(argv, repo=repo, env=env, home=self.tmp)
+            cli.main(argv, repo=repo, env=env, home=self.tmp, console=Recorder())
 
         main([])
         main(['--oauth'])

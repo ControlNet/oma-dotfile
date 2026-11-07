@@ -5,8 +5,6 @@ state under the temporary HOME. PATH holds only them, git and python3, so no rea
 can run; `git ls-remote` is replaced, so nothing goes to the network.
 """
 
-import contextlib
-import io
 import json
 import os
 from pathlib import Path
@@ -19,8 +17,9 @@ import unittest
 from unittest.mock import patch
 
 from omadotfile import cli
+from omadotfile.context import Context
 from omadotfile.features import skills
-from support import ROOT, TestCase
+from support import ROOT, Recorder, TestCase
 
 # Each stand-in records its argv in $STUB_LOG and its state in marker files.
 STUB_PRELUDE = f"""#!{sys.executable}
@@ -121,11 +120,11 @@ class InstallRunTests(TestCase):
         self.enterContext(patch.dict(os.environ, self.env, clear=True))
         self.enterContext(patch.object(skills, "ls_remote_commit", lambda ctx, source: COMMIT))
 
-    def install(self, *argv: str):
-        with contextlib.redirect_stdout(io.StringIO()) as out, \
-                contextlib.redirect_stderr(io.StringIO()) as err:
-            ctx = cli.main(list(argv), repo=ROOT, env=self.env, home=self.home)
-        return ctx, out.getvalue(), err.getvalue()
+    def install(self, *argv: str) -> tuple[Context, Recorder]:
+        """Run the installer with a Recorder as its Console; the Context and what it printed."""
+        printed = Recorder()
+        ctx = cli.main(list(argv), repo=ROOT, env=self.env, home=self.home, console=printed)
+        return ctx, printed
 
     def stub_calls(self) -> list[list[str]]:
         if not self.log.exists():
@@ -133,11 +132,11 @@ class InstallRunTests(TestCase):
         return [json.loads(line) for line in self.log.read_text().splitlines()]
 
     def test_every_agent_is_detected_and_installed(self):
-        ctx, out, err = self.install()
+        ctx, printed = self.install()
         self.assertEqual(ctx.found, frozenset(cli.AGENTS))
-        self.assertNotIn("         skipped: ", err)  # no step is skipped
-        self.assertNotIn("Traceback", err)
-        self.assertIn("[9/9]", out)
+        # No step is skipped (console.step's skip line); a step's own optional parts may be.
+        self.assertFalse([line for line in printed.warnings if line.startswith("         skipped: ")])
+        self.assertTrue([line for line in printed.of("info") if line.startswith("[9/9] ")])
         for path in (".config/opencode/opencode.jsonc", ".config/opencode/AGENTS.md",
                      ".omo/omo.jsonc", ".omo/agent/models.json", ".omp/agent/models.yml",
                      ".codex/config.toml", ".claude/rules/oma-dotfile.md",
@@ -149,16 +148,16 @@ class InstallRunTests(TestCase):
         self.assertTrue((self.home / ".claude" / ".stub-wakatime").exists())
 
     def test_second_run_changes_nothing(self):
-        first, _, _ = self.install("--oauth")
+        first, _ = self.install("--oauth")
         self.assertTrue(first.files.changed)
         calls = len(self.stub_calls())
 
-        second, out, _ = self.install("--oauth")
+        second, printed = self.install("--oauth")
 
         self.assertEqual(second.files.changed, [])
         self.assertEqual(list(self.home.rglob("*.bak-*")), [])
-        self.assertIn("Codex WakaTime plugin already installed; skip", out)
-        self.assertIn("Claude Code WakaTime plugin already installed; skip", out)
+        self.assertIn("Codex WakaTime plugin already installed; skip", printed.of("info"))
+        self.assertIn("Claude Code WakaTime plugin already installed; skip", printed.of("info"))
         # Only the listings run again: no plugin is re-added and no skill re-installed.
         rerun = self.stub_calls()[calls:]
         self.assertFalse([call for call in rerun if "add" in call or "install" in call], rerun)
@@ -168,7 +167,7 @@ class InstallRunTests(TestCase):
         agents_md = self.home / ".config" / "opencode" / "AGENTS.md"
         agents_md.write_text("edited by hand\n")
 
-        ctx, _, _ = self.install()
+        ctx, _ = self.install()
 
         self.assertEqual(ctx.files.changed, [agents_md])
         backups = list(agents_md.parent.glob("AGENTS.md.bak-*"))
@@ -178,14 +177,11 @@ class InstallRunTests(TestCase):
         for name in ("codex", "claude", "npx"):
             (self.root / "bin" / name).write_text(FAILING_STUB)
 
-        _, out, err = self.install()
+        _, printed = self.install()
 
-        self.assertIn("[9/9]", out)
-        self.assertIn("Installation complete!", out)
-        self.assertNotIn("Traceback", err)
-        warnings = [re.sub(r"\x1b\[[0-9;]*m", "", line).removeprefix("[WARN]    ")
-                    .replace(str(self.root / "bin"), "BIN")
-                    for line in err.splitlines() if "[WARN]" in line]
+        self.assertTrue([line for line in printed.of("info") if line.startswith("[9/9] ")])
+        self.assertIn("Installation complete!", printed.of("success"))
+        warnings = [line.replace(str(self.root / "bin"), "BIN") for line in printed.warnings]
         wakatime = "https://github.com/wakatime"
         skill_warnings = [line for line in warnings if "npx" in line or "installed from" in line]
         self.assertEqual([line for line in warnings if line not in skill_warnings
@@ -218,12 +214,11 @@ class InstallRunTests(TestCase):
         repo = self.root / "repo"
         (repo / "config" / "opencode").mkdir(parents=True)
         (repo / "config" / "opencode" / "opencode.jsonc").write_text("{}")
-        with contextlib.redirect_stdout(io.StringIO()), \
-                contextlib.redirect_stderr(io.StringIO()) as err, \
-                self.assertRaises(SystemExit) as raised:
-            cli.main([], repo=repo, env=self.env, home=self.home)
+        printed = Recorder()
+        with self.assertRaises(SystemExit) as raised:
+            cli.main([], repo=repo, env=self.env, home=self.home, console=printed)
         self.assertEqual(raised.exception.code, 1)
-        self.assertIn("Required repository file is missing: config/omo/omo.jsonc", err.getvalue())
+        self.assertEqual(printed.of("error"), ["Required repository file is missing: config/omo/omo.jsonc"])
         self.assertFalse((self.home / ".config" / "opencode").exists())
 
 
