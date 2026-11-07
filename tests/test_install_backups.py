@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-SPEC = importlib.util.spec_from_file_location("pull_backup_policy", ROOT / "pull.py")
+SPEC = importlib.util.spec_from_file_location("pull_backup_policy", ROOT / "omadotfile" / "legacy.py")
 pull = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(pull)
 

@@ -1,6 +1,6 @@
 # omadotfile: design for splitting pull.py into a package
 
-Status: decided, not started. `pull.py` is about 2240 lines in one file. Each function is small; the
+Status: phase 1 (mechanical move) done; phases 2 to 5 to do. `pull.py` is about 2240 lines in one file. Each function is small; the
 problem is that everything about one agent is spread over several places, global state is read
 at import time, and generic helpers sit between agent-specific code. This document describes the
 target layout and the order in which to get there without breaking installs.

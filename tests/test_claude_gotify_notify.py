@@ -179,7 +179,7 @@ ORIGINAL_POST = notify.post_json
 
 class PluginInstallTests(unittest.TestCase):
     def test_manifest_hooks_and_repeat_install_preserve_local_config(self):
-        import pull
+        from omadotfile import legacy as pull
 
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory)
