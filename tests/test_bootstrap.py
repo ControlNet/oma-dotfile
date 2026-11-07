@@ -7,7 +7,9 @@ import ast
 import contextlib
 import importlib.util
 import io
+import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -31,6 +33,30 @@ def errors_of(function, *args) -> str:
     return err.getvalue()
 
 
+class Stream(io.StringIO):
+    """A captured stdout that says whether it is a terminal."""
+
+    def __init__(self, terminal: bool):
+        super().__init__()
+        self.terminal = terminal
+
+    def isatty(self) -> bool:
+        return self.terminal
+
+
+def visible(text: str) -> str:
+    """What a terminal shows of one line written with carriage returns."""
+    shown: list[str] = []
+    column = 0
+    for char in text:
+        if char == "\r":
+            column = 0
+        else:
+            shown[column:column + 1] = [char]
+            column += 1
+    return "".join(shown).strip()
+
+
 class BootstrapTests(TestCase):
     def test_repo_argument_is_taken_out_and_the_rest_passed_on(self):
         self.assertEqual(bootstrap.split_repo_arg(["--oauth", "--repo", "/x", "--all"]),
@@ -49,6 +75,34 @@ class BootstrapTests(TestCase):
             message = errors_of(bootstrap.run, Path(directory), [])
         self.assertIn("has no omadotfile package", message)
         self.assertNotIn("Traceback", message)
+
+    def clone(self, terminal: bool, returncode: int = 0) -> tuple[str, str]:
+        """Run the clone path with git and omadotfile mocked; what it wrote to stdout and stderr."""
+        out, err = Stream(terminal), io.StringIO()
+        done = subprocess.CompletedProcess(["git"], returncode, stdout="", stderr="fatal: no such ref\n")
+        with patch.dict(os.environ, {"REPO_OWNER": "o", "REPO_NAME": "n", "REPO_REV": "r"}), \
+                patch.object(bootstrap.subprocess, "run", return_value=done), \
+                patch.object(bootstrap, "run") as run, \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), \
+                contextlib.suppress(SystemExit):
+            bootstrap.main(["--oauth"])
+        self.assertEqual(run.called, returncode == 0)
+        return out.getvalue(), err.getvalue()
+
+    def test_clone_status_is_shown_on_a_terminal_and_cleared_before_the_banner(self):
+        out, _ = self.clone(terminal=True)
+        self.assertTrue(out.startswith("Cloning o/n (r)..."), out)
+        self.assertEqual(visible(out), "")
+        self.assertNotIn("\n", out)
+
+    def test_clone_status_is_not_written_off_a_terminal(self):
+        self.assertEqual(self.clone(terminal=False)[0], "")
+
+    def test_failed_clone_clears_the_status_and_reports_why(self):
+        out, err = self.clone(terminal=True, returncode=128)
+        self.assertEqual(visible(out), "")
+        self.assertIn("fatal: no such ref", err)
+        self.assertIn("Failed to clone o/n (r)", err)
 
     def test_old_python_gets_a_clear_message(self):
         with patch.object(bootstrap.sys, "version_info", (3, 9, 0)):

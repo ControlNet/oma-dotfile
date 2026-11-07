@@ -27,6 +27,24 @@ def fail(message):
     sys.exit(1)
 
 
+def show_status(message):
+    """Show message on the terminal while waiting; return what clears it.
+
+    The line is overwritten with spaces, not an ANSI code, so it goes on any terminal and the
+    banner starts on a clean line. Off a terminal (a log file, CI), nothing is written.
+    """
+    if not sys.stdout.isatty():
+        return lambda: None
+    sys.stdout.write(message)
+    sys.stdout.flush()
+
+    def clear():
+        sys.stdout.write("\r" + " " * len(message) + "\r")
+        sys.stdout.flush()
+
+    return clear
+
+
 def split_repo_arg(argv):
     """Return (the --repo path or None, the other arguments)."""
     repo, rest = None, []
@@ -65,11 +83,12 @@ def main(argv):
     rev = os.environ.get("REPO_REV", "master")
     with tempfile.TemporaryDirectory() as tmp:
         repo_dir = Path(tmp) / name
-        print("Cloning {}/{} ({})...".format(owner, name, rev), flush=True)
+        clear_status = show_status("Cloning {}/{} ({})...".format(owner, name, rev))
         result = subprocess.run(
             ["git", "clone", "--depth", "1", "--branch", rev,
              "https://github.com/{}/{}.git".format(owner, name), str(repo_dir)],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        clear_status()
         if result.returncode != 0:
             print(result.stderr, file=sys.stderr)
             fail("Failed to clone {}/{} ({})".format(owner, name, rev))

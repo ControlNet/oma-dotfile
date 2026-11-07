@@ -266,6 +266,9 @@ An external data file was ruled out: reading TOML needs `tomllib` (Python 3.11, 
 - It checks the Python version first and exits with one line on anything below 3.10.
 - If the checkout has no `omadotfile/` (a `REPO_REV` older than the split), it exits with one line
   naming the revision instead of an `ImportError` traceback.
+- "Cloning owner/name (rev)..." is a transient status on a terminal: written without a newline,
+  then overwritten with spaces and `\r` once git returns, so the banner is the first line left on
+  screen. Off a terminal nothing is written; a failed clone still prints git's error and one line.
 
 ## Behaviour changes
 
