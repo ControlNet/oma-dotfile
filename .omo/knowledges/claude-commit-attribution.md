@@ -18,31 +18,48 @@
 - `pull.py` step 10 (only when Claude Code is detected):
   - merges the attribution setting, with a backup only when it changes;
   - sets `core.hooksPath` to `~/.config/git/hooks` when unset, and leaves a relative value alone;
-  - installs `git-hooks/chain` under every name in `GIT_CHAINED_HOOKS`, plus the helper
-    `drop-claude-attribution`, which is the original Python hook, renamed;
-  - backs up and replaces Git LFS's own hooks and any `commit-msg`;
-  - keeps other foreign hooks and symlinks;
-  - replaces files marked `# managed by oma-dotfile` without a backup;
-  - installs nothing when `python3` is missing.
-- Chaining (since 2026-11-07), so that a global `core.hooksPath` does not silently disable repo hooks:
+  - installs nothing when `python3` is missing;
+  - installs `git-hooks/chain` under every name in `GIT_CHAINED_HOOKS`.
+- Global hooks layout (drop-in dirs, since 2026-11-07). Hook-specific knowledge lives in `<name>.d/`,
+  not in the chain script:
+  - `chain` runs every executable in `<name>.d/`, sorted, then the repo's own hook, stopping at the
+    first failure.
+  - With one runner it `exec`s it, which keeps `proc-receive`'s stdin/stdout protocol intact. With
+    several, stdin is saved to a temp file and fed to each (skipped when stdin is a terminal).
+  - `commit-msg.d/drop-claude-attribution` is the original Python hook, unchanged.
+  - `<name>.d/git-lfs` is written by git-lfs itself: `git -c core.hooksPath=<tmp> lfs install --local`
+    inside a scratch repo writes its hooks there and leaves the global config alone. Run outside a
+    repo, `git lfs install` writes no hooks. `--manual` printed nothing there.
+  - When git-lfs is missing, the `git-lfs` drop-ins are removed. When it fails, they are kept.
+  - A foreign hook already in the dir moves to `<name>.d/previous`, or `previous-N`, and keeps
+    running. It is dropped when the same bytes are already in `<name>.d/`, which covers Git LFS's own
+    hooks and the first commit-msg version.
+  - Symlinks and non-files are left alone, with a warning.
+  - Files marked `# managed by oma-dotfile` are replaced.
+  - `GIT_RETIRED_HOOK_FILES` removes the managed top-level `push-to-checkout` and
+    `drop-claude-attribution` left by earlier versions.
+- Hook names:
+  - Git runs only the names in githooks(5). A repo hook under any other name never ran anyway.
+  - `GIT_CHAINED_HOOKS` is githooks(5) of git 2.34 (28 names) minus `GIT_UNCHAINED_HOOKS`.
+  - The test compares it with `man githooks`, so a git that adds a hook fails the test instead of
+    silently skipping that repo hook.
+  - There is no command that lists hooks: git 2.34 has no `git hook`, and
+    `/usr/share/git-core/templates/hooks` has only 13 samples.
+- Chaining facts:
   - `git rev-parse --git-path hooks/<name>` resolves to `core.hooksPath` itself, so a chain using it
     would call itself forever. Use `$(git rev-parse --git-common-dir)/hooks/<name>`; this also works
     from linked worktrees and bare repos.
   - With a foreign `pre-push` already in `core.hooksPath`, `git lfs install` prints
     "Hook already exists" and skips its hooks, though it still writes the `filter.lfs.*` config.
-    So chain runs `git lfs <hook> "$@"` itself for `pre-push`, `post-checkout`, `post-commit` and
-    `post-merge` when git-lfs is on `PATH`. `pre-push` stdin is saved to a temp file and fed to both.
   - `git lfs post-commit` creates `.git/lfs` in every repo, so that dir does not show a repo uses LFS.
-    Without git-lfs, chain refuses those hooks only when `git ls-files ':(attr:filter=lfs)'` lists
-    something, as Git LFS's own hook would.
   - `git lfs pre-push` needs a named remote to find its endpoint. Pushing to a bare path fails with
     "missing protocol".
-  - Left out of `GIT_CHAINED_HOOKS`: `reference-transaction` and `post-index-change` (run on nearly
-    every command) and `proc-receive` (a stdin/stdout protocol).
-  - `push-to-checkout` is left out too. Unlike the others, its existence changes git's behavior: with
+  - `push-to-checkout` is not chained, because its existence changes git's behavior: with
     `receive.denyCurrentBranch=updateInstead`, git updates the pushed-to worktree only when no such
-    hook exists. A chain exiting 0 left the worktree stale while the push succeeded. The managed
-    copy from the first chaining version (2ada252) is removed (`GIT_RETIRED_HOOKS`).
+    hook exists. A chain exiting 0 left the worktree stale while the push succeeded.
+  - `post-index-change` is not chained (it runs on every index write), and neither is
+    `fsmonitor-watchman` (called through the `core.fsmonitor` path).
+  - `reference-transaction` is chained and costs one `sh` plus `git rev-parse` per ref transaction.
 - Tests: `tests/test_commit_attribution.py` runs real git against a temporary `GIT_CONFIG_GLOBAL`
   and `HOME`.
 

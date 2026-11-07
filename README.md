@@ -105,15 +105,19 @@ When Claude Code is found, commits and PRs carry no Claude attribution:
 
 - `settings.json` gets `"attribution": {"commit": "", "pr": ""}`; other settings are kept.
 - Git hooks go into the global `core.hooksPath` dir, which is set to `~/.config/git/hooks` when unset.
-  - `commit-msg` runs `git-hooks/drop-claude-attribution`, which drops
+  Git then skips each repo's own `.git/hooks`, so every hook name there gets `git-hooks/chain`. For
+  hook `<name>` it runs each executable in `<name>.d/`, then the repo's own `<name>` hook, and stops at
+  the first one that fails.
+  - `commit-msg.d/drop-claude-attribution` (from `git-hooks/commit-msg.d/`) drops
     `Co-Authored-By: Claude …@anthropic.com`, `Generated with [Claude Code]` and `Claude-Session:` lines,
     including ones an agent writes into the message itself.
-  - Git skips each repo's own `.git/hooks` once `core.hooksPath` is set, so every hook name gets
-    `git-hooks/chain`, which runs the repo's own hook as well. For `pre-push`, `post-checkout`,
-    `post-commit` and `post-merge` it also does what Git LFS's hooks do. `git lfs install` then reports
-    "Hook already exists"; that is expected, and LFS still works.
-  - Git LFS's own hooks, an older `commit-msg` and any other `commit-msg` there are backed up and replaced.
-    Other hooks of your own are kept.
+  - With git-lfs installed, `<name>.d/git-lfs` holds the hooks git-lfs itself writes. `git lfs install`
+    then reports "Hook already exists"; that is expected, and LFS still works.
+  - A hook already in that dir is moved to `<name>.d/previous` and keeps running, unless the same
+    content is already in `<name>.d/`.
+  - Not chained: `push-to-checkout` (its mere presence stops git updating a pushed-to worktree),
+    `post-index-change` (runs on every index write), and `fsmonitor-watchman` (found through
+    `core.fsmonitor`, not by name). Repo hooks with the first two names do not run.
   - A relative `core.hooksPath` is left alone, and nothing is installed when `python3` is not on `PATH`.
   - Repos that set their own `core.hooksPath` (such as husky) do not use these hooks.
 

@@ -1048,43 +1048,72 @@ def ensure_claude_attribution(claude_config_dir: Path, stamp: str) -> None:
 
 
 GIT_HOOK_MARKER = b"# managed by oma-dotfile"
-# Client hooks, plus receive hooks for repos pushed to on this machine. Left out:
-# reference-transaction and post-index-change run on nearly every git command,
-# proc-receive speaks a protocol over stdin and stdout, and push-to-checkout replaces
-# git's own worktree update for receive.denyCurrentBranch=updateInstead just by existing.
+# Every hook in githooks(5) (git 2.34) except GIT_UNCHAINED_HOOKS. Git runs only hooks
+# with these names, so a repo hook under any other name never ran anyway.
 GIT_CHAINED_HOOKS = (
     "applypatch-msg", "pre-applypatch", "post-applypatch", "pre-commit", "pre-merge-commit",
     "prepare-commit-msg", "commit-msg", "post-commit", "pre-rebase", "post-checkout",
-    "post-merge", "pre-push", "post-rewrite", "pre-auto-gc", "sendemail-validate",
-    "pre-receive", "update", "post-receive", "post-update",
+    "post-merge", "pre-push", "pre-receive", "update", "proc-receive", "post-receive",
+    "post-update", "reference-transaction", "pre-auto-gc", "post-rewrite", "sendemail-validate",
+    "p4-changelist", "p4-prepare-changelist", "p4-post-changelist", "p4-pre-submit",
 )
-# Installed by an earlier version; removed when still the managed copy.
-GIT_RETIRED_HOOKS = ("push-to-checkout",)
-GIT_LFS_HOOKS = ("pre-push", "post-checkout", "post-commit", "post-merge")
+# push-to-checkout replaces git's own worktree update for receive.denyCurrentBranch=
+# updateInstead just by existing; post-index-change runs on every index write; git finds
+# fsmonitor-watchman through core.fsmonitor, not by name.
+GIT_UNCHAINED_HOOKS = ("push-to-checkout", "post-index-change", "fsmonitor-watchman")
+# Managed copies an earlier version put at the top of the hooks dir.
+GIT_RETIRED_HOOK_FILES = ("push-to-checkout", "drop-claude-attribution")
+GIT_LFS_DROP_IN = "git-lfs"
 
 
-def is_git_lfs_hook(name: str, content: bytes) -> bool:
-    """Whether content is the hook `git lfs install` writes for name (any recent version)."""
-    lines = [line.strip() for line in content.decode("utf-8", "replace").splitlines() if line.strip()]
-    return (name in GIT_LFS_HOOKS and len(lines) == 3 and lines[0] == "#!/bin/sh"
-            and lines[1].startswith("command -v git-lfs ")
-            and lines[2] == f'git lfs {name} "$@"')
+def git_lfs_installed() -> bool:
+    return shutil.which("git-lfs") is not None
+
+
+def git_lfs_hooks() -> dict[str, bytes] | None:
+    """The hooks Git LFS installs, as git-lfs itself writes them, or None if it fails.
+
+    git-lfs writes them into core.hooksPath, so it is pointed at a scratch dir, inside a
+    scratch repo so that `--local` keeps its filter settings out of the global config.
+    """
+    with TemporaryDirectory() as tmp:
+        repo, out = Path(tmp) / "repo", Path(tmp) / "hooks"
+        out.mkdir()
+        try:
+            _ = subprocess.run(["git", "init", "-q", str(repo)], check=True, capture_output=True)
+            _ = subprocess.run(["git", "-c", f"core.hooksPath={out}", "lfs", "install", "--local"],
+                               cwd=repo, check=True, capture_output=True, timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return {path.name: path.read_bytes() for path in out.iterdir() if path.is_file()} or None
+
+
+def install_executable(dst: Path, content: bytes) -> bool:
+    """Write content to dst if it differs and make it executable; return whether it changed."""
+    changed = not (dst.is_file() and not dst.is_symlink() and dst.read_bytes() == content)
+    if changed:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        _ = dst.write_bytes(content)
+    mode = dst.stat().st_mode
+    if mode & 0o111 != 0o111:
+        dst.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    return changed
 
 
 def ensure_git_hooks(repo_path: Path, stamp: str) -> None:
-    """Install the global git hooks: commit-msg drops Claude attribution lines.
+    """Install the global git hooks; commit-msg drops Claude attribution lines.
 
     Git has no global hooks dir unless core.hooksPath is set, so it is set to
     ~/.config/git/hooks when missing; an existing value is kept and used. Git then skips
     each repo's own .git/hooks, so every hook name gets git-hooks/chain, which runs the
-    repo's hook too, and Git LFS's step for the hooks Git LFS uses.
+    executables in <name>.d/ and then the repo's own hook. <name>.d/ holds this repo's
+    git-hooks/<name>.d/ files, the hooks git-lfs writes, and any hook that was there before.
     """
+    del stamp  # Hooks found in the dir are moved, not replaced, so nothing needs a backup.
     chain_src = repo_path / "git-hooks" / "chain"
-    drop_src = repo_path / "git-hooks" / "drop-claude-attribution"
-    for src in (chain_src, drop_src):
-        if not src.is_file():
-            warn(f"Source file not found: {src}")
-            return
+    if not chain_src.is_file():
+        warn(f"Source file not found: {chain_src}")
+        return
     if shutil.which("python3") is None:
         warn("python3 not found on PATH; git hooks not installed")
         return
@@ -1105,51 +1134,72 @@ def ensure_git_hooks(repo_path: Path, stamp: str) -> None:
     except (OSError, subprocess.CalledProcessError) as exc:
         warn(f"git config failed ({type(exc).__name__}); git hooks not installed")
         return
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+
+    # Drop-ins first, so hooks already in the dir can be compared with them.
+    drop_ins: dict[str, dict[str, bytes]] = {}
+    for src in sorted((repo_path / "git-hooks").glob("*.d/*")):
+        if src.is_file():
+            drop_ins.setdefault(src.parent.name[:-2], {})[src.name] = src.read_bytes()
+    lfs_hooks = git_lfs_hooks() if git_lfs_installed() else {}
+    if lfs_hooks is None:
+        warn("         git-lfs could not write its hooks; the ones installed before are kept")
+    else:
+        for name in sorted(set(lfs_hooks) - set(GIT_CHAINED_HOOKS)):
+            warn(f"         git-lfs also wants a {name} hook, which is not chained here")
+        for name in GIT_CHAINED_HOOKS:
+            if name in lfs_hooks:
+                drop_ins.setdefault(name, {})[GIT_LFS_DROP_IN] = lfs_hooks[name]
+            elif (stale := hooks_dir / f"{name}.d" / GIT_LFS_DROP_IN).is_file():
+                stale.unlink()
+                print(f"         - removed {stale}")
+    for name, files in drop_ins.items():
+        if name not in GIT_CHAINED_HOOKS:
+            continue
+        for file_name, content in files.items():
+            if install_executable(hooks_dir / f"{name}.d" / file_name, content):
+                print(f"         - {name}.d/{file_name}")
+
+    for file_name in GIT_RETIRED_HOOK_FILES:
+        old = hooks_dir / file_name
+        if old.is_file() and not old.is_symlink() and (
+                GIT_HOOK_MARKER in old.read_bytes()
+                or old.read_bytes() in drop_ins.get("commit-msg", {}).values()):
+            old.unlink()
+            print(f"         - removed {old} (left by an earlier version)")
 
     chain = chain_src.read_bytes()
-    drop = drop_src.read_bytes()
-    hooks_dir.mkdir(parents=True, exist_ok=True)
-    install_executable(hooks_dir / "drop-claude-attribution", drop)
-    for name in GIT_RETIRED_HOOKS:
-        dst = hooks_dir / name
-        if dst.is_file() and not dst.is_symlink() and GIT_HOOK_MARKER in dst.read_bytes():
-            dst.unlink()
-            print(f"         - removed {dst}")
-    changed: list[str] = []
+    chained = 0
     kept: list[str] = []
     for name in GIT_CHAINED_HOOKS:
         dst = hooks_dir / name
         if dst.is_symlink() or (dst.exists() and not dst.is_file()):
             kept.append(name)
             continue
-        current = dst.read_bytes() if dst.exists() else None
-        if current == chain:
-            install_executable(dst, chain)
-            continue
-        if current is not None and GIT_HOOK_MARKER not in current:
-            # The old commit-msg, Git LFS's hooks and any other commit-msg are replaced, since
-            # chain covers what they did; other hooks of your own stay.
-            if not (name == "commit-msg" or is_git_lfs_hook(name, current)):
-                kept.append(name)
-                continue
-            backup_file_if_exists(dst, stamp)
-        install_executable(dst, chain)
-        changed.append(name)
-    if changed:
-        print(f"         - {hooks_dir}: {len(changed)} hooks (commit-msg drops Claude attribution lines; "
-              "each also runs the repo's own hook)")
+        if dst.exists():
+            current = dst.read_bytes()
+            sub_dir = hooks_dir / f"{name}.d"
+            if current != chain and GIT_HOOK_MARKER not in current:
+                if any(path.is_file() and path.read_bytes() == current
+                       for path in (sub_dir.iterdir() if sub_dir.is_dir() else ())):
+                    print(f"         - {name}: already in {name}.d/")
+                else:
+                    moved = sub_dir / "previous"
+                    suffix = 1
+                    while moved.exists():
+                        suffix += 1
+                        moved = sub_dir / f"previous-{suffix}"
+                    sub_dir.mkdir(exist_ok=True)
+                    _ = dst.replace(moved)
+                    print(f"         - your {name} hook moved to {name}.d/{moved.name}; it still runs")
+        if install_executable(dst, chain):
+            chained += 1
+    if chained:
+        print(f"         - {hooks_dir}: {chained} hooks run their {{name}}.d/ files and the repo's own hook")
     if kept:
-        warn(f"         Kept your own {', '.join(kept)} in {hooks_dir}; "
+        warn(f"         Left {', '.join(kept)} in {hooks_dir} as they are (not plain files); "
              "they do not run each repo's own hooks"
              + ("; Claude attribution lines are not dropped" if "commit-msg" in kept else ""))
-
-
-def install_executable(dst: Path, content: bytes) -> None:
-    if not (dst.is_file() and dst.read_bytes() == content):
-        _ = dst.write_bytes(content)
-    mode = dst.stat().st_mode
-    if mode & 0o111 != 0o111:
-        dst.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
 def backup_file_if_exists(path: Path, stamp: str) -> None:

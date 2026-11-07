@@ -25,10 +25,10 @@ pull = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(pull)
 
 CHAIN = ROOT / "git-hooks" / "chain"
-DROP = ROOT / "git-hooks" / "drop-claude-attribution"
-LFS_HOOK = ('#!/bin/sh\ncommand -v git-lfs >/dev/null 2>&1 || { echo >&2 "\\nThis repository is '
-            'configured for Git LFS but \'git-lfs\' was not found on your path.\\n"; exit 2; }\n'
-            'git lfs {name} "$@"\n')
+DROP = ROOT / "git-hooks" / "commit-msg.d" / "drop-claude-attribution"
+# Shaped like the hooks git-lfs writes; tests that need the real ones ask git-lfs.
+FAKE_LFS = {name: f'#!/bin/sh\ngit lfs {name} "$@"\n'.encode() for name in
+            ("pre-push", "post-checkout", "post-commit", "post-merge")}
 
 
 def quiet(function, *args):
@@ -86,6 +86,22 @@ class ClaudeAttributionTests(unittest.TestCase):
             self.assertIn("settings.json", output)
 
 
+def documented_git_hooks() -> list[str] | None:
+    """Hook names from this git's githooks(5) page, or None without man pages."""
+    try:
+        page = subprocess.run(["man", "-P", "cat", "githooks"], capture_output=True, text=True,
+                              env={**os.environ, "MANWIDTH": "200"}, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if page.returncode != 0 or "HOOKS" not in page.stdout:
+        return None
+    section = page.stdout.split("\nHOOKS", 1)[1].split("\nENVIRONMENT", 1)[0].split("\nGIT\n", 1)[0]
+    names = [line.strip() for line in section.splitlines()
+             if line.startswith("   ") and not line.startswith("    ")
+             and line.strip().replace("-", "").isalnum() and line.strip().islower()]
+    return names or None
+
+
 class GitHookTests(unittest.TestCase):
     def setUp(self):
         self.home = Path(self.enterContext(tempfile.TemporaryDirectory()))
@@ -94,8 +110,10 @@ class GitHookTests(unittest.TestCase):
                "GIT_CONFIG_NOSYSTEM": "1"}
         self.enterContext(patch.dict(os.environ, env))
         os.environ.pop("XDG_CONFIG_HOME", None)
-        self.enterContext(patch.object(pull, "NO_BACKUP", False))
         self.default = self.home / ".config" / "git" / "hooks"
+        # git-lfs is asked for its hooks in its own tests below.
+        self.lfs = self.enterContext(patch.object(pull, "git_lfs_hooks", return_value=dict(FAKE_LFS)))
+        self.enterContext(patch.object(pull, "git_lfs_installed", return_value=True))
 
     def install(self) -> str:
         return quiet(pull.ensure_git_hooks, ROOT, "test")
@@ -104,27 +122,34 @@ class GitHookTests(unittest.TestCase):
         return subprocess.run(["git", "config", "--global", "--get", "core.hooksPath"],
                               capture_output=True, text=True).stdout.strip()
 
-    def set_hooks_path(self, value: str) -> None:
-        subprocess.run(["git", "config", "--global", "core.hooksPath", value], check=True)
+    def use_dir(self, name: str = "hooks") -> Path:
+        hooks = self.home / name
+        hooks.mkdir()
+        subprocess.run(["git", "config", "--global", "core.hooksPath", str(hooks)], check=True)
+        return hooks
 
-    def assert_chained(self, hooks: Path, names=None) -> None:
-        for name in names or pull.GIT_CHAINED_HOOKS:
+    def assert_chained(self, hooks: Path) -> None:
+        for name in pull.GIT_CHAINED_HOOKS:
             hook = hooks / name
             self.assertEqual(hook.read_bytes(), CHAIN.read_bytes(), name)
             self.assertTrue(hook.stat().st_mode & stat.S_IXUSR, name)
-        self.assertEqual((hooks / "drop-claude-attribution").read_bytes(), DROP.read_bytes())
+        drop = hooks / "commit-msg.d" / "drop-claude-attribution"
+        self.assertEqual(drop.read_bytes(), DROP.read_bytes())
+        self.assertTrue(drop.stat().st_mode & stat.S_IXUSR)
 
-    def backups(self, hooks: Path) -> list[str]:
-        return sorted(path.name.split(".bak-")[0] for path in hooks.glob("*.bak-*"))
-
-    def test_chained_hooks_cover_commit_lfs_and_receive_hooks(self):
-        for name in ("commit-msg", "pre-commit", "prepare-commit-msg", "pre-push", "post-checkout",
-                     "post-commit", "post-merge", "post-rewrite", "pre-receive", "post-receive"):
-            self.assertIn(name, pull.GIT_CHAINED_HOOKS)
-        # These run on every ref update or speak a protocol over stdin and stdout, and
-        # push-to-checkout replaces git's own worktree update merely by existing.
-        for name in ("reference-transaction", "post-index-change", "proc-receive", "push-to-checkout"):
+    def test_every_git_hook_is_chained_but_the_ones_that_cannot_be(self):
+        # push-to-checkout replaces git's own worktree update just by existing,
+        # post-index-change runs on every index write, and git finds fsmonitor-watchman
+        # through core.fsmonitor, not by name.
+        for name in pull.GIT_UNCHAINED_HOOKS:
             self.assertNotIn(name, pull.GIT_CHAINED_HOOKS)
+        self.assertEqual(set(pull.GIT_UNCHAINED_HOOKS),
+                         {"push-to-checkout", "post-index-change", "fsmonitor-watchman"})
+        documented = documented_git_hooks()
+        if documented is None:
+            self.skipTest("githooks man page not available")
+        self.assertEqual(sorted(set(documented) - set(pull.GIT_UNCHAINED_HOOKS)),
+                         sorted(pull.GIT_CHAINED_HOOKS))
 
     def test_unset_hooks_path_is_set_to_the_default_dir(self):
         output = self.install()
@@ -133,95 +158,117 @@ class GitHookTests(unittest.TestCase):
         self.assertIn("core.hooksPath", output)
 
     def test_existing_hooks_path_is_used_and_kept(self):
-        self.set_hooks_path("~/my-hooks")
+        subprocess.run(["git", "config", "--global", "core.hooksPath", "~/my-hooks"], check=True)
         self.install()
         self.assertEqual(self.hooks_path(), "~/my-hooks")
         self.assert_chained(self.home / "my-hooks")
         self.assertFalse(self.default.exists())
 
-    def test_git_lfs_hooks_and_the_old_commit_msg_are_backed_up_then_replaced(self):
-        hooks = self.home / "hooks"
-        hooks.mkdir()
-        for name in pull.GIT_LFS_HOOKS:
-            _ = (hooks / name).write_text(LFS_HOOK.replace("{name}", name), encoding="utf-8")
+    def test_git_lfs_hooks_come_from_git_lfs(self):
+        self.install()
+        for name, content in FAKE_LFS.items():
+            self.assertEqual((self.default / f"{name}.d" / "git-lfs").read_bytes(), content)
+        self.assertFalse((self.default / "commit-msg.d" / "git-lfs").exists())
+
+    def test_hooks_git_lfs_no_longer_writes_are_removed(self):
+        self.install()
+        self.lfs.return_value = {"pre-push": FAKE_LFS["pre-push"]}
+        self.install()
+        self.assertTrue((self.default / "pre-push.d" / "git-lfs").is_file())
+        self.assertFalse((self.default / "post-merge.d" / "git-lfs").exists())
+
+    def test_without_git_lfs_its_hooks_are_removed(self):
+        self.install()
+        with patch.object(pull, "git_lfs_installed", return_value=False):
+            self.install()
+        self.assertFalse(any(self.default.glob("*.d/git-lfs")))
+
+    def test_git_lfs_that_fails_leaves_its_hooks_alone(self):
+        self.install()
+        self.lfs.return_value = None
+        output = self.install()
+        self.assertTrue((self.default / "pre-push.d" / "git-lfs").is_file())
+        self.assertIn("git-lfs", output)
+
+    def test_git_lfs_hook_this_list_does_not_chain_is_reported(self):
+        self.lfs.return_value = {**FAKE_LFS, "push-to-checkout": b"#!/bin/sh\n"}
+        output = self.install()
+        self.assertFalse((self.default / "push-to-checkout.d").exists())
+        self.assertIn("push-to-checkout", output)
+
+    def test_own_global_hooks_move_into_their_dir_and_keep_running(self):
+        hooks = self.use_dir()
+        _ = (hooks / "pre-commit").write_text("#!/bin/sh\nmy-own-check\n", encoding="utf-8")
+        (hooks / "pre-commit").chmod(0o755)
+        _ = (hooks / "commit-msg").write_text("#!/bin/sh\nmy-msg-check\n", encoding="utf-8")
+        output = self.install()
+        self.assert_chained(hooks)
+        for name, body in (("pre-commit", "my-own-check"), ("commit-msg", "my-msg-check")):
+            moved = hooks / f"{name}.d" / "previous"
+            self.assertEqual(moved.read_text(encoding="utf-8"), f"#!/bin/sh\n{body}\n")
+            self.assertIn(f"{name}.d/previous", output)
+        self.assertTrue((hooks / "pre-commit.d" / "previous").stat().st_mode & stat.S_IXUSR)
+
+    def test_global_hooks_identical_to_what_is_installed_are_not_kept_twice(self):
+        # This is how Git LFS's own hooks and the first commit-msg hook look.
+        hooks = self.use_dir()
+        for name, content in FAKE_LFS.items():
+            _ = (hooks / name).write_bytes(content)
         _ = (hooks / "commit-msg").write_bytes(DROP.read_bytes())
-        self.set_hooks_path(str(hooks))
         self.install()
         self.assert_chained(hooks)
-        self.assertEqual(self.backups(hooks), sorted(["commit-msg", *pull.GIT_LFS_HOOKS]))
+        self.assertEqual(sorted(path.name for path in hooks.glob("*.d/*")),
+                         sorted(["drop-claude-attribution", *(["git-lfs"] * len(FAKE_LFS))]))
 
-    def test_unknown_commit_msg_is_backed_up_then_replaced(self):
-        hooks = self.home / "hooks"
-        hooks.mkdir()
-        _ = (hooks / "commit-msg").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-        self.set_hooks_path(str(hooks))
+    def test_second_previous_does_not_overwrite_the_first(self):
+        hooks = self.use_dir()
+        (hooks / "pre-commit.d").mkdir()
+        _ = (hooks / "pre-commit.d" / "previous").write_text("first\n", encoding="utf-8")
+        _ = (hooks / "pre-commit").write_text("second\n", encoding="utf-8")
         self.install()
-        self.assert_chained(hooks, ["commit-msg"])
-        backup = next(hooks.glob("commit-msg.bak-*"))
-        self.assertEqual(backup.read_text(encoding="utf-8"), "#!/bin/sh\nexit 0\n")
+        kept = sorted(path.read_text(encoding="utf-8") for path in (hooks / "pre-commit.d").iterdir())
+        self.assertEqual(kept, ["first\n", "second\n"])
 
-    def test_other_unknown_hooks_are_kept(self):
-        hooks = self.home / "hooks"
-        hooks.mkdir()
-        _ = (hooks / "pre-push").write_text("#!/bin/sh\nmy-own-check\n", encoding="utf-8")
-        link = hooks / "pre-commit"
-        link.symlink_to(self.home / "elsewhere")
-        self.set_hooks_path(str(hooks))
-        output = self.install()
-        self.assertEqual((hooks / "pre-push").read_text(encoding="utf-8"), "#!/bin/sh\nmy-own-check\n")
-        self.assertTrue(link.is_symlink())
-        self.assertFalse((self.home / "elsewhere").exists())
-        self.assertEqual(self.backups(hooks), [])
-        self.assertIn("pre-commit, pre-push", output)
-        self.assert_chained(hooks, ["commit-msg", "post-merge"])
+    def test_earlier_versions_leave_nothing_behind(self):
+        hooks = self.use_dir()
+        _ = (hooks / "pre-commit").write_text("#!/bin/sh\n# managed by oma-dotfile\nold\n", encoding="utf-8")
+        _ = (hooks / "push-to-checkout").write_text("#!/bin/sh\n# managed by oma-dotfile\nold\n",
+                                                   encoding="utf-8")
+        _ = (hooks / "drop-claude-attribution").write_bytes(DROP.read_bytes())
+        self.install()
+        self.assert_chained(hooks)
+        self.assertFalse((hooks / "pre-commit.d" / "previous").exists())
+        self.assertFalse((hooks / "push-to-checkout").exists())
+        self.assertFalse((hooks / "drop-claude-attribution").exists())
 
-    def test_commit_msg_symlink_is_not_written_through(self):
-        hooks = self.home / "hooks"
-        hooks.mkdir()
+    def test_own_push_to_checkout_is_kept(self):
+        hooks = self.use_dir()
+        _ = (hooks / "push-to-checkout").write_text("#!/bin/sh\ngit read-tree -u -m HEAD \"$1\"\n",
+                                                   encoding="utf-8")
+        self.install()
+        self.assertEqual((hooks / "push-to-checkout").read_text(encoding="utf-8"),
+                         "#!/bin/sh\ngit read-tree -u -m HEAD \"$1\"\n")
+
+    def test_symlinked_hook_is_kept_and_reported(self):
+        hooks = self.use_dir()
         target = self.home / "dotfiles-commit-msg"
         _ = target.write_text("#!/bin/sh\n", encoding="utf-8")
         (hooks / "commit-msg").symlink_to(target)
-        self.set_hooks_path(str(hooks))
         output = self.install()
+        self.assertTrue((hooks / "commit-msg").is_symlink())
         self.assertEqual(target.read_text(encoding="utf-8"), "#!/bin/sh\n")
         self.assertIn("commit-msg", output)
 
-    def test_earlier_managed_version_is_replaced_without_a_backup(self):
-        hooks = self.home / "hooks"
-        hooks.mkdir()
-        _ = (hooks / "pre-commit").write_text("#!/bin/sh\n# managed by oma-dotfile\nold\n", encoding="utf-8")
-        self.set_hooks_path(str(hooks))
-        self.install()
-        self.assert_chained(hooks, ["pre-commit"])
-        self.assertEqual(self.backups(hooks), [])
-
-    def test_managed_push_to_checkout_from_an_earlier_version_is_removed(self):
-        hooks = self.home / "hooks"
-        hooks.mkdir()
-        _ = (hooks / "push-to-checkout").write_bytes(CHAIN.read_bytes())
-        self.set_hooks_path(str(hooks))
-        self.install()
-        self.assertFalse((hooks / "push-to-checkout").exists())
-
-    def test_own_push_to_checkout_is_kept(self):
-        hooks = self.home / "hooks"
-        hooks.mkdir()
-        _ = (hooks / "push-to-checkout").write_text("#!/bin/sh\ngit read-tree -u -m HEAD \"$1\"\n",
-                                                   encoding="utf-8")
-        self.set_hooks_path(str(hooks))
-        self.install()
-        self.assertTrue((hooks / "push-to-checkout").is_file())
-
     def test_second_run_changes_nothing(self):
         self.install()
-        before = {path.name: path.stat().st_mtime_ns for path in self.default.iterdir()}
+        before = {path: path.stat().st_mtime_ns for path in self.default.rglob("*")}
         output = self.install()
-        after = {path.name: path.stat().st_mtime_ns for path in self.default.iterdir()}
+        after = {path: path.stat().st_mtime_ns for path in self.default.rglob("*")}
         self.assertEqual(after, before)
-        self.assertNotIn("core.hooksPath", output)
+        self.assertEqual(output, "")
 
     def test_relative_hooks_path_is_not_touched(self):
-        self.set_hooks_path(".githooks")
+        subprocess.run(["git", "config", "--global", "core.hooksPath", ".githooks"], check=True)
         output = self.install()
         self.assertEqual(self.hooks_path(), ".githooks")
         self.assertFalse((self.home / ".githooks").exists())
@@ -239,6 +286,21 @@ class GitHookTests(unittest.TestCase):
             output = self.install()
         self.assertFalse((self.home / ".config").exists())
         self.assertIn("git", output)
+
+
+@unittest.skipUnless(shutil.which("git-lfs"), "git-lfs is not installed")
+class GitLfsHooksTests(unittest.TestCase):
+    def test_git_lfs_writes_its_hooks_without_touching_global_config(self):
+        home = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        config = home / ".gitconfig"
+        _ = config.write_text("[user]\n\tname = Test\n", encoding="utf-8")
+        with patch.dict(os.environ, {"HOME": str(home), "GIT_CONFIG_GLOBAL": str(config),
+                                     "GIT_CONFIG_NOSYSTEM": "1"}):
+            hooks = pull.git_lfs_hooks()
+        self.assertIsNotNone(hooks)
+        self.assertIn("pre-push", hooks)
+        self.assertIn(b'git lfs pre-push "$@"', hooks["pre-push"])
+        self.assertEqual(config.read_text(encoding="utf-8"), "[user]\n\tname = Test\n")
 
 
 class DropAttributionTests(unittest.TestCase):
@@ -268,6 +330,7 @@ class ChainedHookBehaviourTests(unittest.TestCase):
         self.env = {**os.environ, "HOME": str(self.home), "GIT_CONFIG_GLOBAL": str(self.home / ".gitconfig"),
                     "GIT_CONFIG_NOSYSTEM": "1"}
         self.env.pop("XDG_CONFIG_HOME", None)
+        self.hooks = self.home / ".config" / "git" / "hooks"
         with patch.dict(os.environ, self.env, clear=True):
             quiet(pull.ensure_git_hooks, ROOT, "test")
         for key, value in (("user.name", "Test"), ("user.email", "test@example.com"),
@@ -280,13 +343,22 @@ class ChainedHookBehaviourTests(unittest.TestCase):
         return subprocess.run(["git", *args], cwd=cwd, env=env or self.env, capture_output=True,
                               text=True, check=check)
 
-    def repo_hook(self, name: str, body: str, repo: Path | None = None) -> None:
-        hook = (repo or self.repo) / ".git" / "hooks" / name
-        _ = hook.write_text("#!/bin/sh\n" + body, encoding="utf-8")
-        hook.chmod(0o755)
+    def hook(self, path: Path, body: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _ = path.write_text("#!/bin/sh\n" + body, encoding="utf-8")
+        path.chmod(0o755)
+
+    def repo_hook(self, name: str, body: str) -> None:
+        self.hook(self.repo / ".git" / "hooks" / name, body)
 
     def message(self, cwd: Path | None = None) -> str:
         return self.git(cwd or self.repo, "log", "-1", "--format=%B").stdout
+
+    def bare_remote(self) -> Path:
+        remote = self.tmp / "remote.git"
+        self.git(self.tmp, "init", "-q", "--bare", str(remote))
+        self.git(self.repo, "remote", "add", "origin", str(remote))
+        return remote
 
     def test_claude_lines_are_dropped_without_repo_hooks(self):
         self.git(self.repo, "commit", "-q", "--allow-empty", "-m", f"A\n\n{self.CLAUDE}")
@@ -303,15 +375,30 @@ class ChainedHookBehaviourTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("lint failed", result.stderr)
 
-    def test_repo_pre_push_gets_its_arguments_and_stdin(self):
-        remote = self.tmp / "remote.git"
-        self.git(self.tmp, "init", "-q", "--bare", str(remote))
+    def test_failing_global_drop_in_blocks_before_the_repo_hook(self):
+        self.hook(self.hooks / "pre-commit.d" / "previous", 'echo "global check failed" >&2\nexit 3\n')
+        self.repo_hook("pre-commit", 'echo "repo hook ran" >&2\n')
+        result = self.git(self.repo, "commit", "-q", "--allow-empty", "-m", "C2", check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("global check failed", result.stderr)
+        self.assertNotIn("repo hook ran", result.stderr)
+
+    def test_every_pre_push_hook_gets_the_same_stdin(self):
+        self.bare_remote()
         self.git(self.repo, "commit", "-q", "--allow-empty", "-m", "D")
-        self.repo_hook("pre-push", 'echo "args=$*"\nsed "s/^/stdin: /"\n')
-        result = self.git(self.repo, "push", str(remote), "HEAD:refs/heads/main")
+        self.hook(self.hooks / "pre-push.d" / "previous", 'sed "s/^/global: /"\n')
+        self.repo_hook("pre-push", 'echo "args=$*"\nsed "s/^/repo: /"\n')
+        result = self.git(self.repo, "push", "origin", "HEAD:refs/heads/main")
         head = self.git(self.repo, "rev-parse", "HEAD").stdout.strip()
-        self.assertIn(f"args={remote} {remote}", result.stdout)
-        self.assertIn(f"stdin: HEAD {head} refs/heads/main", result.stdout)
+        self.assertIn(f"global: HEAD {head} refs/heads/main", result.stdout)
+        self.assertIn(f"repo: HEAD {head} refs/heads/main", result.stdout)
+        self.assertIn("args=origin ", result.stdout)
+
+    def test_repo_reference_transaction_hook_runs(self):
+        self.repo_hook("reference-transaction", 'echo "$1" >> "$(git rev-parse --git-dir)/states"\n')
+        self.git(self.repo, "commit", "-q", "--allow-empty", "-m", "R")
+        states = (self.repo / ".git" / "states").read_text(encoding="utf-8").split()
+        self.assertIn("committed", states)
 
     def test_worktree_runs_the_main_repo_hooks(self):
         self.git(self.repo, "commit", "-q", "--allow-empty", "-m", "E")
@@ -325,7 +412,8 @@ class ChainedHookBehaviourTests(unittest.TestCase):
         hooks = self.repo / ".git" / "hooks"
         _ = (hooks / "commit-msg").write_bytes(CHAIN.read_bytes())
         (hooks / "commit-msg").chmod(0o755)
-        _ = (hooks / "drop-claude-attribution").write_bytes(DROP.read_bytes())
+        self.hook(hooks / "commit-msg.d" / "drop-claude-attribution", "")
+        _ = (hooks / "commit-msg.d" / "drop-claude-attribution").write_bytes(DROP.read_bytes())
         self.git(self.repo, "config", "core.hooksPath", str(hooks))
         self.git(self.repo, "commit", "-q", "--allow-empty", "-m", f"G\n\n{self.CLAUDE}")
         self.assertEqual(self.message(), "G\n\n")
@@ -349,44 +437,20 @@ class ChainedHookBehaviourTests(unittest.TestCase):
                            ("filter.lfs.process", "git-lfs filter-process"),
                            ("filter.lfs.required", "true")):
             self.git(self.tmp, "config", "--global", key, value)
-        remote = self.tmp / "remote.git"
-        self.git(self.tmp, "init", "-q", "--bare", str(remote))
+        self.assertTrue((self.hooks / "pre-push.d" / "git-lfs").is_file())
+        remote = self.bare_remote()
         self.git(self.repo, "lfs", "track", "*.bin")
         data = os.urandom(3000)
         _ = (self.repo / "big.bin").write_bytes(data)
         self.git(self.repo, "add", ".gitattributes", "big.bin")
         self.git(self.repo, "commit", "-q", "-m", "lfs")
         self.repo_hook("pre-push", 'echo "repo pre-push saw $(cut -c1-4)"\n')
-        # Git LFS finds its endpoint from a named remote, as in normal use.
-        self.git(self.repo, "remote", "add", "origin", str(remote))
         result = self.git(self.repo, "push", "origin", "HEAD:refs/heads/main")
         self.assertIn("repo pre-push saw HEAD", result.stdout)
         self.assertTrue(any((remote / "lfs" / "objects").rglob("*")))
         clone = self.tmp / "clone"
         self.git(self.tmp, "clone", "-q", "-b", "main", str(remote), str(clone))
         self.assertEqual((clone / "big.bin").read_bytes(), data)
-
-    def test_lfs_repo_without_git_lfs_refuses_to_push(self):
-        # A PATH with git and the shell tools the hook uses, but no git-lfs.
-        bin_dir = self.tmp / "bin"
-        bin_dir.mkdir()
-        for tool in ("git", "sh", "basename", "dirname", "cat", "head", "mktemp", "rm", "sed", "grep"):
-            (bin_dir / tool).symlink_to(shutil.which(tool))
-        (bin_dir / "python3").symlink_to(sys.executable)
-        env = {**self.env, "PATH": str(bin_dir)}
-        remote = self.tmp / "remote.git"
-        self.git(self.tmp, "init", "-q", "--bare", str(remote))
-        self.git(self.repo, "commit", "-q", "--allow-empty", "-m", "H")
-        self.assertEqual(self.git(self.repo, "push", "-q", str(remote), "HEAD:refs/heads/a",
-                                  env=env).returncode, 0)
-        _ = (self.repo / ".gitattributes").write_text("*.bin filter=lfs diff=lfs merge=lfs -text\n",
-                                                     encoding="utf-8")
-        _ = (self.repo / "big.bin").write_bytes(b"data")
-        self.git(self.repo, "add", ".gitattributes", "big.bin", env=env)
-        self.git(self.repo, "commit", "-q", "-m", "I", env=env)
-        result = self.git(self.repo, "push", "-q", str(remote), "HEAD:refs/heads/b", check=False, env=env)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("git-lfs", result.stderr)
 
 
 if __name__ == "__main__":

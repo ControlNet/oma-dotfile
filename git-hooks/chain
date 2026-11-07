@@ -1,50 +1,49 @@
 #!/bin/sh
 # managed by oma-dotfile
-# Installed under each hook name in the global core.hooksPath dir. Git then skips every
-# repo's own .git/hooks, so this runs that hook too: after dropping Claude attribution
-# lines for commit-msg, and after Git LFS's step for the hooks Git LFS uses.
+# Installed under every hook name in the global core.hooksPath dir. Git then skips each
+# repo's own .git/hooks, so this runs, in order, every executable in <name>.d/ next to it
+# and then the repo's own <name> hook, stopping at the first one that fails.
 name=$(basename "$0")
-here=$(dirname "$0")
-common=$(git rev-parse --git-common-dir) || exit 1
-local_hook="$common/hooks/$name"
-# A core.hooksPath that is the repo's own hooks dir would run this again.
-if [ "$(cd "$common/hooks" 2>/dev/null && pwd -P)" = "$(cd "$here" && pwd -P)" ]; then
-    local_hook=
-fi
+here=$(cd "$(dirname "$0")" && pwd -P) || exit 1
 
-if [ "$name" = commit-msg ] && command -v python3 >/dev/null 2>&1; then
-    python3 "$here/drop-claude-attribution" "$@" || exit
-fi
-
-lfs=
-case "$name" in
-pre-push | post-checkout | post-commit | post-merge)
-    if command -v git-lfs >/dev/null 2>&1; then
-        lfs=1
-    elif [ -n "$(git ls-files -- ':(attr:filter=lfs)' 2>/dev/null | head -n 1)" ]; then
-        # Like Git LFS's own hook: do not push pointers without their objects.
-        echo >&2 "This repository uses Git LFS but 'git-lfs' was not found on your path."
-        exit 2
+local_hook=
+common=$(git rev-parse --git-common-dir 2>/dev/null)
+if [ -n "$common" ] && [ -f "$common/hooks/$name" ] && [ -x "$common/hooks/$name" ]; then
+    # A core.hooksPath that is the repo's own hooks dir would run this again.
+    if [ "$(cd "$common/hooks" && pwd -P)" != "$here" ]; then
+        local_hook="$common/hooks/$name"
     fi
-    ;;
-esac
+fi
 
-if [ "$name" = pre-push ] && [ -n "$lfs" ]; then
-    # Both Git LFS and the repo's hook read the refs being pushed from stdin.
+count=0
+for hook in "$here/$name.d"/*; do
+    if [ -f "$hook" ] && [ -x "$hook" ]; then count=$((count + 1)); fi
+done
+if [ -n "$local_hook" ]; then count=$((count + 1)); fi
+
+if [ "$count" -eq 0 ]; then
+    exit 0
+fi
+if [ "$count" -eq 1 ]; then
+    # A single hook takes this process over, so it talks to git directly.
+    for hook in "$here/$name.d"/*; do
+        if [ -f "$hook" ] && [ -x "$hook" ]; then exec "$hook" "$@"; fi
+    done
+    exec "$local_hook" "$@"
+fi
+
+# Several hooks: each one gets the same stdin (pre-push and post-rewrite read it).
+input=
+if [ ! -t 0 ]; then
     input=$(mktemp) || exit 1
     trap 'rm -f "$input"' EXIT
     cat >"$input"
-    git lfs pre-push "$@" <"$input" || exit
-    if [ -n "$local_hook" ] && [ -x "$local_hook" ]; then
-        "$local_hook" "$@" <"$input"
-        exit
-    fi
-    exit 0
 fi
-if [ -n "$lfs" ]; then
-    git lfs "$name" "$@" || exit
-fi
-if [ -n "$local_hook" ] && [ -x "$local_hook" ]; then
-    exec "$local_hook" "$@"
-fi
+run() {
+    if [ -n "$input" ]; then "$@" <"$input"; else "$@"; fi
+}
+for hook in "$here/$name.d"/*; do
+    if [ -f "$hook" ] && [ -x "$hook" ]; then run "$hook" "$@" || exit; fi
+done
+if [ -n "$local_hook" ]; then run "$local_hook" "$@" || exit; fi
 exit 0
