@@ -30,6 +30,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import sys
 import subprocess
 import tarfile
@@ -1002,6 +1003,24 @@ def install_claude_plugins(
     for src_dir in sorted(plugins_dir.iterdir()):
         if (src_dir / ".claude-plugin" / "plugin.json").is_file():
             install_claude_plugin(src_dir, claude_config_dir / "skills" / src_dir.name)
+    for name in RETIRED_CLAUDE_PLUGINS:
+        remove_retired_claude_plugin(claude_config_dir / "skills" / name)
+
+
+# Plugins that earlier versions installed and this one no longer ships.
+RETIRED_CLAUDE_PLUGINS = ("strip-attribution",)
+
+
+def remove_retired_claude_plugin(dst_dir: Path) -> None:
+    """Delete dst_dir if its manifest still names it, i.e. it is the copy pull.py installed."""
+    try:
+        manifest = json.loads((dst_dir / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    if dst_dir.is_symlink() or not isinstance(manifest, dict) or manifest.get("name") != dst_dir.name:
+        return
+    shutil.rmtree(dst_dir)
+    print(f"         - removed Claude Code plugin {dst_dir.name} (no longer shipped)")
 
 
 def install_claude_plugin(src_dir: Path, dst_dir: Path) -> None:
@@ -1050,26 +1069,22 @@ def ensure_claude_attribution(claude_config_dir: Path, stamp: str) -> None:
     print("         - settings.json (no commit or PR attribution)")
 
 
-# Earlier versions (2ada252 to b182b57) installed global git hooks to drop Claude
-# attribution lines; the strip-attribution Claude Code plugin does that now. The marker
-# was in the chain script they put under every hook name in core.hooksPath.
+# Versions 2ada252 to b182b57 put a chain script, marked with this, under every hook name
+# in the core.hooksPath dir, so each repo's own hooks kept running.
 GIT_HOOK_MARKER = b"# managed by oma-dotfile"
 # Files those versions put in <name>.d/ (drop-claude-attribution also at the top level);
 # any other file there is the user's.
 GIT_HOOK_DROP_INS = ("git-lfs", "drop-claude-attribution")
 
 
-def remove_git_hook_chain() -> None:
-    """Put back the hooks that earlier versions replaced in the global core.hooksPath dir.
+def remove_git_hook_chain(hooks_dir: Path) -> None:
+    """Put back the hooks those versions replaced in hooks_dir with their chain script.
 
     Each marked hook gets back what it replaced: <name>.d/previous*, else the newest
     <name>.bak-*, else <name>.d/git-lfs, else, for commit-msg, drop-claude-attribution.
-    Marked hooks with none of these are deleted. core.hooksPath itself is left as it is.
+    Marked hooks with none of these are deleted.
     """
-    result = subprocess.run(["git", "config", "--global", "--type=path", "--get", "core.hooksPath"],
-                            capture_output=True, text=True)
-    hooks_dir = Path(result.stdout.strip())
-    if result.returncode != 0 or not hooks_dir.is_absolute() or not hooks_dir.is_dir():
+    if not hooks_dir.is_dir():
         return
     try:
         restored: list[str] = []
@@ -1112,13 +1127,55 @@ def remove_git_hook_chain() -> None:
         return
     if not restored and not removed:
         return
-    print(f"         - {hooks_dir}: removed the git hooks of earlier versions"
+    print(f"         - {hooks_dir}: removed the chain hooks of earlier versions"
           + (f"; put back {', '.join(restored)}" if restored else ""))
     if kept:
         warn(f"         Kept {', '.join(kept)} in {hooks_dir}; git does not run them, "
              "so move the ones you need back to the hook name")
-    info(f"         core.hooksPath is still {hooks_dir}, so git skips each repo's own .git/hooks. "
-         "If you did not set it yourself: git config --global --unset core.hooksPath")
+
+
+def ensure_git_commit_msg_hook(repo_path: Path, stamp: str) -> None:
+    """Install the commit-msg hook that drops Claude attribution lines from every commit.
+
+    Git has no global hooks dir unless core.hooksPath is set, so it is set to
+    ~/.config/git/hooks when missing; an existing value is kept and used.
+    """
+    src = repo_path / "git-hooks" / "commit-msg"
+    if not src.is_file():
+        warn(f"Source file not found: {src}")
+        return
+    if shutil.which("python3") is None:
+        # The hook runs through `#!/usr/bin/env python3`; without it every commit would fail.
+        warn("python3 not found on PATH; commit-msg hook not installed")
+        return
+    try:
+        result = subprocess.run(["git", "config", "--global", "--type=path", "--get", "core.hooksPath"],
+                                capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout.strip():
+            hooks_dir = Path(result.stdout.strip())
+            if not hooks_dir.is_absolute():
+                warn(f"core.hooksPath is relative ({result.stdout.strip()}); "
+                     "each repo resolves it itself, so the commit-msg hook is not installed")
+                return
+        else:
+            hooks_dir = Path.home() / ".config" / "git" / "hooks"
+            _ = subprocess.run(["git", "config", "--global", "core.hooksPath", str(hooks_dir)],
+                               check=True, capture_output=True, text=True)
+            print(f"         - git core.hooksPath set to {hooks_dir}")
+            warn("         Hooks in each repo's .git/hooks no longer run; with git-lfs, "
+                 "run `git lfs install` to put its hooks there too")
+    except (OSError, subprocess.CalledProcessError) as exc:
+        warn(f"git config failed ({type(exc).__name__}); commit-msg hook not installed")
+        return
+    remove_git_hook_chain(hooks_dir)
+    dst = hooks_dir / "commit-msg"
+    content = src.read_bytes()
+    if not (dst.is_file() and dst.read_bytes() == content):
+        hooks_dir.mkdir(parents=True, exist_ok=True)
+        backup_file_if_exists(dst, stamp)
+        _ = dst.write_bytes(content)
+        print(f"         - {dst} (drops Claude attribution lines)")
+    dst.chmod(dst.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
 def backup_file_if_exists(path: Path, stamp: str) -> None:
@@ -2143,7 +2200,7 @@ def main(argv: list[str] | None = None):
                 )
             install_claude_plugins(repo_path, claude_config_dir, stamp)
             ensure_claude_attribution(claude_config_dir, stamp)
-            remove_git_hook_chain()
+            ensure_git_commit_msg_hook(repo_path, stamp)
 
         if begin_step("11/12", "Configuring Tokscale model aliases",
                       targets["tokscale"], "tokscale config directory not found"):

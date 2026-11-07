@@ -1,7 +1,7 @@
 """Claude Code commit attribution tests.
 
-Settings files and hook dirs are synthetic and live in temporary directories. Git runs
-for real, but against a temporary global config and HOME.
+Settings files, hook dirs and commit messages are synthetic and live in temporary
+directories. Git runs for real, but against a temporary global config and HOME.
 """
 
 import contextlib
@@ -10,7 +10,9 @@ import io
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -21,7 +23,8 @@ assert SPEC is not None and SPEC.loader is not None
 pull = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(pull)
 
-# Shaped like what earlier versions installed: the chain script under every hook name,
+HOOK = ROOT / "git-hooks" / "commit-msg"
+# Shaped like what versions 2ada252 to b182b57 installed: the chain script under every hook name,
 # the commit-msg script that dropped attribution, and the hooks git-lfs writes.
 CHAIN = b"#!/bin/sh\n# managed by oma-dotfile\nexec true\n"
 DROP = b"#!/usr/bin/env python3\n# drops Claude attribution lines\n"
@@ -86,18 +89,119 @@ class ClaudeAttributionTests(unittest.TestCase):
             self.assertIn("settings.json", output)
 
 
-class RemoveGitHookChainTests(unittest.TestCase):
+class GitHookTests(unittest.TestCase):
     def setUp(self):
         self.home = Path(self.enterContext(tempfile.TemporaryDirectory()))
-        env = {"HOME": str(self.home), "GIT_CONFIG_GLOBAL": str(self.home / ".gitconfig"),
+        self.gitconfig = self.home / ".gitconfig"
+        env = {"HOME": str(self.home), "GIT_CONFIG_GLOBAL": str(self.gitconfig),
                "GIT_CONFIG_NOSYSTEM": "1"}
         self.enterContext(patch.dict(os.environ, env))
-        self.hooks = self.home / ".config" / "git" / "hooks"
-        self.hooks.mkdir(parents=True)
-        subprocess.run(["git", "config", "--global", "core.hooksPath", str(self.hooks)], check=True)
+        os.environ.pop("XDG_CONFIG_HOME", None)
+        self.enterContext(patch.object(pull, "NO_BACKUP", False))
+
+    def install(self) -> str:
+        return quiet(pull.ensure_git_commit_msg_hook, ROOT, "test")
+
+    def hooks_path(self) -> str:
+        return subprocess.run(["git", "config", "--global", "--get", "core.hooksPath"],
+                              capture_output=True, text=True).stdout.strip()
+
+    def set_hooks_path(self, value: str) -> None:
+        subprocess.run(["git", "config", "--global", "core.hooksPath", value], check=True)
+
+    def assert_installed(self, hook: Path) -> None:
+        self.assertEqual(hook.read_bytes(), HOOK.read_bytes())
+        self.assertTrue(hook.stat().st_mode & stat.S_IXUSR)
+
+    def test_unset_hooks_path_is_set_to_the_default_dir(self):
+        default = self.home / ".config" / "git" / "hooks"
+        output = self.install()
+        self.assertEqual(self.hooks_path(), str(default))
+        self.assert_installed(default / "commit-msg")
+        self.assertIn("core.hooksPath", output)
+
+    def test_existing_hooks_path_is_used_and_kept(self):
+        self.set_hooks_path("~/my-hooks")
+        self.install()
+        self.assertEqual(self.hooks_path(), "~/my-hooks")
+        self.assert_installed(self.home / "my-hooks" / "commit-msg")
+        self.assertFalse((self.home / ".config" / "git" / "hooks").exists())
+
+    def test_different_hook_is_backed_up_then_replaced(self):
+        hooks = self.home / "hooks"
+        hooks.mkdir()
+        _ = (hooks / "commit-msg").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        _ = (hooks / "pre-push").write_text("lfs\n", encoding="utf-8")
+        self.set_hooks_path(str(hooks))
+        self.install()
+        self.assert_installed(hooks / "commit-msg")
+        backups = list(hooks.glob("commit-msg.bak-*"))
+        self.assertEqual([path.read_text(encoding="utf-8") for path in backups], ["#!/bin/sh\nexit 0\n"])
+        self.assertEqual((hooks / "pre-push").read_text(encoding="utf-8"), "lfs\n")
+
+    def test_same_hook_is_left_alone(self):
+        self.install()
+        hook = self.home / ".config" / "git" / "hooks" / "commit-msg"
+        before = hook.stat().st_mtime_ns
+        self.install()
+        self.assertEqual(hook.stat().st_mtime_ns, before)
+        self.assertEqual(list(hook.parent.glob("commit-msg.bak-*")), [])
+
+    def test_relative_hooks_path_is_not_touched(self):
+        self.set_hooks_path(".githooks")
+        output = self.install()
+        self.assertEqual(self.hooks_path(), ".githooks")
+        self.assertFalse((self.home / ".githooks").exists())
+        self.assertIn(".githooks", output)
+
+    def test_without_python3_the_hook_is_not_installed(self):
+        # The hook runs through `#!/usr/bin/env python3`; without it every commit would fail.
+        with patch.object(pull.shutil, "which", return_value=None):
+            output = self.install()
+        self.assertEqual(self.hooks_path(), "")
+        self.assertFalse((self.home / ".config").exists())
+        self.assertIn("python3", output)
+
+    def test_without_git_nothing_happens(self):
+        with patch.object(pull.subprocess, "run", side_effect=FileNotFoundError("git")):
+            output = self.install()
+        self.assertFalse((self.home / ".config").exists())
+        self.assertIn("git", output)
+
+    def test_chain_hooks_of_earlier_versions_are_replaced(self):
+        hooks = self.home / ".config" / "git" / "hooks"
+        hooks.mkdir(parents=True)
+        for name in CHAINED:
+            _ = (hooks / name).write_bytes(CHAIN)
+        (hooks / "pre-push.d").mkdir()
+        _ = (hooks / "pre-push.d" / "git-lfs").write_bytes(LFS["pre-push"])
+        self.install()
+        self.assertEqual(sorted(path.name for path in hooks.iterdir()), ["commit-msg", "pre-push"])
+        self.assert_installed(hooks / "commit-msg")
+        self.assertEqual((hooks / "pre-push").read_bytes(), LFS["pre-push"])
+
+
+@unittest.skipIf(sys.platform == "win32", "the hook runs through its python3 shebang")
+class HookBehaviourTests(unittest.TestCase):
+    def test_claude_attribution_lines_are_dropped_and_the_rest_kept(self):
+        message = Path(self.enterContext(tempfile.TemporaryDirectory())) / "COMMIT_EDITMSG"
+        _ = message.write_text(
+            "Fix the thing\n\nBody line.\nCo-Authored-By: Alice <alice@example.com>\n\n"
+            "Co-Authored-By: Claude Opus <noreply@anthropic.com>\n"
+            "🤖 Generated with [Claude Code](https://claude.com/claude-code)\n"
+            "Claude-Session: https://claude.ai/code/session_example\n\n", encoding="utf-8")
+        subprocess.run([str(HOOK), str(message)], check=True)
+        self.assertEqual(message.read_text(encoding="utf-8"),
+                         "Fix the thing\n\nBody line.\nCo-Authored-By: Alice <alice@example.com>\n")
+
+
+class RemoveGitHookChainTests(unittest.TestCase):
+    def setUp(self):
+        self.hooks = Path(self.enterContext(tempfile.TemporaryDirectory())) / "hooks"
+        self.hooks.mkdir()
 
     def remove(self) -> str:
-        return quiet(pull.remove_git_hook_chain)
+        return quiet(pull.remove_git_hook_chain, self.hooks)
 
     def write(self, name: str, content: bytes) -> Path:
         path = self.hooks / name
@@ -125,10 +229,7 @@ class RemoveGitHookChainTests(unittest.TestCase):
         self.assertEqual(self.files(), {"commit-msg": DROP, **LFS, "notes.txt": b"not a hook\n"})
         self.assertEqual([path.name for path in self.hooks.iterdir() if path.is_dir()], [])
         self.assertTrue(os.access(self.hooks / "pre-push", os.X_OK))
-        self.assertIn("git config --global --unset core.hooksPath", output)
-        hooks_path = subprocess.run(["git", "config", "--global", "core.hooksPath"],
-                                    capture_output=True, text=True).stdout.strip()
-        self.assertEqual(hooks_path, str(self.hooks))
+        self.assertIn("put back commit-msg, post-checkout, post-commit, post-merge, pre-push", output)
 
     def test_a_hook_that_was_moved_aside_wins_and_other_files_are_kept(self):
         self.chain()
@@ -174,11 +275,28 @@ class RemoveGitHookChainTests(unittest.TestCase):
         self.assertEqual(self.remove(), "")
         self.assertEqual(self.files(), after)
 
-    def test_no_global_hooks_dir_does_nothing(self):
-        subprocess.run(["git", "config", "--global", "--unset", "core.hooksPath"], check=True)
-        self.chain()
-        self.assertEqual(self.remove(), "")
-        self.assertEqual(len(self.files()), len(CHAINED))
+
+class RetiredClaudePluginTests(unittest.TestCase):
+    def setUp(self):
+        self.claude = Path(self.enterContext(tempfile.TemporaryDirectory()))
+
+    def plugin(self, dir_name: str, manifest_name: str) -> Path:
+        plugin = self.claude / "skills" / dir_name
+        (plugin / ".claude-plugin").mkdir(parents=True)
+        _ = (plugin / ".claude-plugin" / "plugin.json").write_text(
+            json.dumps({"name": manifest_name}), encoding="utf-8")
+        return plugin
+
+    def test_installed_strip_attribution_plugin_is_removed(self):
+        plugin = self.plugin("strip-attribution", "strip-attribution")
+        quiet(pull.install_claude_plugins, ROOT, self.claude, "test")
+        self.assertFalse(plugin.exists())
+        self.assertTrue((self.claude / "skills" / "gotify-notify").is_dir())
+
+    def test_other_dir_with_that_name_is_kept(self):
+        plugin = self.plugin("strip-attribution", "my-own-plugin")
+        quiet(pull.install_claude_plugins, ROOT, self.claude, "test")
+        self.assertTrue(plugin.is_dir())
 
 
 if __name__ == "__main__":

@@ -180,7 +180,7 @@ class OAuthTests(unittest.TestCase):
         # So would npx and the skills CLI.
         self.enterContext(patch.object(pull, 'ensure_agent_skills'))
         # git config would also hit the fake clone and the real ~/.gitconfig.
-        self.enterContext(patch.object(pull, 'remove_git_hook_chain'))
+        self.enterContext(patch.object(pull, 'ensure_git_commit_msg_hook'))
         # Detection belongs to the gating tests; this one routes every target.
         self.enterContext(patch.object(pull, 'detect_targets',
                                        return_value={name: True for name in pull.TARGET_LABELS}))

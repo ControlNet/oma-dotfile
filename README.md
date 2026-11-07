@@ -58,7 +58,7 @@ Rerun without `--oauth` to switch back.
 | OMO Native | `~/.omo/agent` | `AGENTS.md`, `models.json`, `settings.json` (ignores `~/.claude` rules); routing under `"[native]"` in `omo.jsonc`. With `herdr`, `node` and `npm` found: [omo-herdr-dag](https://github.com/jc01rho/omo-herdr-dag) (pinned, upstream installer, reinstalled only when changed; English by default, `npx omo-herdr-dag@<version> install --lang zh-cn` once to switch) |
 | OMP | `~/.omp/agent` | `AGENTS.md`, config, models, Gotify and WakaTime extensions |
 | Codex | `~/.codex` | `AGENTS.md`, Gotify notifier, WakaTime plugin; `config.toml` turns off the shared `skill-creator` so Codex keeps its bundled one |
-| Claude Code | `~/.claude` | Rule `rules/oma-dotfile.md`, Gotify and strip-attribution plugins, WakaTime plugin, links to shared skills; commit attribution off (see [Commit attribution](#commit-attribution)) |
+| Claude Code | `~/.claude` | Rule `rules/oma-dotfile.md`, Gotify plugin, WakaTime plugin, links to shared skills; commit attribution off (see [Commit attribution](#commit-attribution)) |
 | Tokscale | Tokscale `settings.json` | Model aliases from `tokscale_model_alias.json` |
 | Skills | `~/.agents/skills` | See [Skills](#skills) |
 
@@ -104,14 +104,16 @@ Claude Code already has.
 When Claude Code is found, commits and PRs carry no Claude attribution:
 
 - `settings.json` gets `"attribution": {"commit": "", "pr": ""}`; other settings are kept.
-- The `strip-attribution` plugin (`claude-plugins/strip-attribution`) catches what the model writes
-  itself. Before a `git commit` or `gh pr create|edit` command runs, it drops
-  `Co-Authored-By: Claude …@anthropic.com`, `Generated with [Claude Code]` and Claude Code session-link lines
-  from the command and from the message files it names (`-F`, `--file`, `--body-file`). The command is
-  rewritten, not blocked, so Claude does not retry it, and your permission rules still apply.
-- Earlier versions installed global git hooks for this. The next run puts back the hooks they
-  replaced in your `core.hooksPath` dir and deletes the rest, but leaves `core.hooksPath` set; unset it
-  with `git config --global --unset core.hooksPath` if you did not set it yourself.
+- `git-hooks/commit-msg` goes into the global `core.hooksPath` dir, which is set to
+  `~/.config/git/hooks` when unset. It drops `Co-Authored-By: Claude …@anthropic.com`,
+  `Generated with [Claude Code]` and `Claude-Session:` lines, including ones an agent writes into the
+  message itself. A different `commit-msg` there is backed up first.
+  - With `core.hooksPath` set, git skips each repo's own `.git/hooks`. With git-lfs, run
+    `git lfs install` once so its hooks go into that dir too.
+  - A relative `core.hooksPath` is left alone, and nothing is installed when `python3` is not on `PATH`.
+  - Repos that set their own `core.hooksPath` (such as husky) do not use this hook.
+- Hooks and plugins from earlier versions of this setup (chain hooks, the `strip-attribution` Claude
+  Code plugin) are removed, and the hooks they replaced are put back.
 
 ## OMP Gotify notifications
 

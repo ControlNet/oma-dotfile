@@ -8,38 +8,27 @@
   `Claude-Session: https://claude.ai/code/session_…` trailer some Claude Code sessions request. A user
   rule against agent co-author lines takes precedence over that request, but the model can still slip.
 - `pull.py` step 10 (only when Claude Code is detected) merges the attribution setting, with a backup
-  only when it changes, and installs the `strip-attribution` plugin from `claude-plugins/`.
+  only when it changes, and installs `git-hooks/commit-msg` (`ensure_git_commit_msg_hook`).
 
-## strip-attribution plugin
+## Global commit-msg hook
 
-- A PreToolUse hook on `Bash`. It rewrites `git commit` and `gh pr create|edit` commands, dropping
-  whole lines (and `-m`/`--trailer` arguments) that are `Co-Authored-By: Claude …@anthropic.com`,
-  `🤖 Generated with [Claude Code](…)` or `Claude-Session: https://claude.ai/code/session_…` (the bare
-  link too: Claude Code asks for it that way at the end of PR descriptions). A closing `"`, `'` or `)`
-  on such a line, and the command after it, is kept. Files named by `-F`/`--file`/`--body-file` are
-  cleaned in place before the command runs.
-- Limitation: once a commit command is anywhere in the Bash call, every attribution-only line in the
-  call is dropped, including one in another command's heredoc (`cat > notes.md <<EOF … && git commit`).
-- It must not block: a `deny`/exit-2 hook makes Claude retry the command, which costs a turn. Output
-  `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": {...}}}` with no
-  `permissionDecision`. Checked with `claude -p --model haiku --settings <file>`:
-  - The command runs rewritten; Claude sees no difference and does not retry (2 turns end to end).
-  - Permission rules still apply, to the rewritten command: an unallowed `touch` was refused and the
-    refusal showed the rewritten text. `updatedInput` must hold the whole `tool_input` (keep
-    `description`).
-- Testing it: `claude -p --plugin-dir claude-plugins/strip-attribution` loads it without installing.
-  Haiku refuses to run a commit with attribution when the user's own rules forbid it, unless the
-  prompt says the command tests the hook that removes those lines. An allow rule such as
-  `Bash(git commit:*)` does not match `git -c … commit`.
+- The hook drops `Co-Authored-By: Claude …@anthropic.com`, `Generated with [Claude Code]` and
+  `Claude-Session:` lines and trailing blank lines. It runs through `#!/usr/bin/env python3`, so it is
+  not installed when `python3` is missing (every commit would fail).
+- Git has no global hooks dir by default. `pull.py` uses the global `core.hooksPath`, setting it to
+  `~/.config/git/hooks` when unset; a relative value is left alone (each repo resolves it itself).
+  `git config --global --type=path --get core.hooksPath` expands `~`.
+- Cost, accepted on 2026-11-07: with a global `core.hooksPath`, every repo ignores its own `.git/hooks`
+  (pre-commit framework installs, repo-level git-lfs hooks). `git lfs install` then writes its hooks
+  into `core.hooksPath`. husky sets `core.hooksPath` per repo, which overrides the global value, so
+  the hook does not run there.
+- A different `commit-msg` already there is backed up as `commit-msg.bak-<stamp>` and replaced.
 
-## Global git hooks (tried, abandoned on 2026-11-07)
+## Chain hooks (2ada252 to b182b57, dropped on 2026-11-07)
 
-Versions `eaccad9` to `b182b57` used a global `commit-msg` hook instead. It worked, but needed too
-much machinery, and the next `pull.py` puts back what they replaced (`remove_git_hook_chain`).
+Those versions kept each repo's own hooks running under the global dir. It worked, but needed too
+much machinery. `ensure_git_commit_msg_hook` first runs `remove_git_hook_chain` on the hooks dir.
 
-- Git has no global hooks dir by default. Setting `core.hooksPath` globally makes every repo use that
-  dir and silently ignore its own `.git/hooks` (pre-commit framework installs, repo-level git-lfs
-  hooks). husky sets `core.hooksPath` per repo, which overrides the global value.
 - Keeping repo hooks running meant a chain script under every hook name in githooks(5), drop-in
   `<name>.d/` dirs, and regenerating git-lfs's hooks. A review found further gaps: include/system
   config, `proc-receive` stdin/stdout, hooks that find files relative to `$0`, `GIT_DIR` leaking into
@@ -56,16 +45,42 @@ much machinery, and the next `pull.py` puts back what they replaced (`remove_git
   - `git lfs post-commit` creates `.git/lfs` in every repo, so that dir does not show a repo uses LFS.
   - `push-to-checkout` changes git's behavior just by existing: with
     `receive.denyCurrentBranch=updateInstead`, git updates the pushed-to worktree only without it.
-- What `remove_git_hook_chain` undoes, in the global `core.hooksPath` dir: files marked
+- What `remove_git_hook_chain` undoes: files marked
   `# managed by oma-dotfile` get back `<name>.d/previous*`, else the newest `<name>.bak-*`, else
   `<name>.d/git-lfs`, else (commit-msg) `drop-claude-attribution`; unmarked hooks are never touched.
-  Our drop-ins are deleted, other `<name>.d/` files are kept with a warning, and `core.hooksPath` is
-  left set, since nothing shows who set it. The `eaccad9` state (only a Python `commit-msg`, no marker)
-  cannot be told apart from a user's own hook, so it is left for manual cleanup.
+  Our drop-ins are deleted and other `<name>.d/` files are kept with a warning. It runs after
+  `core.hooksPath` is resolved (and set), so a leftover chain dir is cleaned even if the user unset it.
+
+## strip-attribution plugin (tried in 762325f, dropped on 2026-11-07)
+
+A Claude Code plugin rewrote commit commands instead of using a git hook. It was dropped because
+parsing shell commands with regexes is fragile (`$'…'`, escaped `\n`, strings built in pieces), while a
+commit-msg hook sees the final message. `pull.py` deletes the installed copy from
+`~/.claude/skills/strip-attribution` when its manifest still names it. What was learned:
+
+- A PreToolUse hook on `Bash`. It rewrites `git commit` and `gh pr create|edit` commands, dropping
+  whole lines (and `-m`/`--trailer` arguments) that are `Co-Authored-By: Claude …@anthropic.com`,
+  `🤖 Generated with [Claude Code](…)` or `Claude-Session: https://claude.ai/code/session_…` (the bare
+  link too: Claude Code asks for it that way at the end of PR descriptions). A closing `"`, `'` or `)`
+  on such a line, and the command after it, is kept. Files named by `-F`/`--file`/`--body-file` are
+  cleaned in place before the command runs.
+- Limitation: once a commit command is anywhere in the Bash call, every attribution-only line in the
+  call is dropped, including one in another command's heredoc (`cat > notes.md <<EOF … && git commit`).
+- It must not block: a `deny`/exit-2 hook makes Claude retry the command, which costs a turn. Output
+  `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": {...}}}` with no
+  `permissionDecision`. Checked with `claude -p --model haiku --settings <file>`:
+  - The command runs rewritten; Claude sees no difference and does not retry (2 turns end to end).
+  - Permission rules still apply, to the rewritten command: an unallowed `touch` was refused and the
+    refusal showed the rewritten text. `updatedInput` must hold the whole `tool_input` (keep
+    `description`).
+- Testing it: `claude -p --plugin-dir <plugin dir>` loads a plugin without installing it.
+  Haiku refuses to run a commit with attribution when the user's own rules forbid it, unless the
+  prompt says the command tests the hook that removes those lines. An allow rule such as
+  `Bash(git commit:*)` does not match `git -c … commit`.
 
 ## Other agents (checked 2026-11-07)
 
-Nothing to change; only Claude Code needed the setting and the plugin.
+Nothing to change; only Claude Code needed the setting and the hook.
 
 - Codex 0.166:
   - The `git-attribution` extension (`codex-rs/ext/git-attribution`) tells the model to end commits
@@ -75,7 +90,7 @@ Nothing to change; only Claude Code needed the setting and the plugin.
   - There is no `config.toml` key for it. The old `features.codex_git_commit` is listed as `removed`.
   - Each rollout's `world_state` records the result as `git_attribution`. It was `false` in all 70
     sessions with a world state over 30 days, with ChatGPT login and the `codex_api` provider.
-  - The strip-attribution plugin only runs in Claude Code, so it would not strip the Codex trailer.
+  - The commit-msg hook does not strip the Codex trailer. Extend it if that setting ever turns on.
 - OMO / oh-my-openagent (omo-ai 5.1.35):
   - `git_master.commit_footer` adds "Ultraworked with [omo](…)" unless it is `false`.
     `git_master.include_co_authored_by` controls the co-author trailer. Both default to `false`.
