@@ -480,6 +480,9 @@ are positional-only, and the wired function's `__signature__` starts with `ctx: 
 stacking a second decorator fails instead of misbinding. `@inject` goes above `@warns_on`, which
 then formats its message from the original parameters.
 
+Ambiguous fields stay on `@uses`; wrapping `home`/`env` in NewTypes to make them injectable by
+type was considered and declined (more churn in Context than it saves).
+
 Pilot: the four Files-only wrappers (`claude.update_settings`, `omo_native.update_settings`,
 `omp.write_models`, `skills.save_commits`). Golden runs: identical.
 

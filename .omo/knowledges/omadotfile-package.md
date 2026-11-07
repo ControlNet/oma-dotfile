@@ -97,9 +97,10 @@ Things worth knowing when changing it:
   under `@inject` (`def f(files: Files, runner: Runner, /, dst: Path)`; callers still pass `ctx`).
   Only `Files`/`Runner`/`Options`/`RepoRef` inject by type; for `Path`/`Mapping` fields use
   `@uses(home_of, repo_of)`. Put `@inject` above `@warns_on`. A new injectable type goes in both
-  `PROVIDERS` and the `Dep1..3` constraints (a test checks they match). A TypeVar constrained to
-  `Home = NewType("Home", Path)` accepts `Home` and rejects a plain `Path` in pyright, so a NewType
-  would make `home` injectable by type if ever needed.
+  `PROVIDERS` and the `Dep1..3` constraints (a test checks they match). Ambiguous Context fields
+  (`home`/`repo`/`work`/`env`) stay on `@uses`: decided 2026-11-07 not to wrap them in NewTypes
+  just to make them type-injectable (pyright would support it: a TypeVar constrained to
+  `NewType("Home", Path)` rejects a plain `Path`).
 - `cli.main` is the composition root and the only reader of `os.environ`, `Path.home()`,
   `sys.platform` and `sys.executable`. Agents get the platform as a parameter
   (`config_dir(env, home, platform)`, `detect(env, home, platform)`); the interpreter for
