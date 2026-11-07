@@ -25,3 +25,35 @@
     fail every commit.
 - Tests: `tests/test_commit_attribution.py` runs real git against a temporary `GIT_CONFIG_GLOBAL`
   and `HOME`.
+
+## Other agents (checked 2026-11-07)
+
+Nothing to change; only Claude Code needed the setting and the hook.
+
+- Codex 0.166:
+  - The `git-attribution` extension (`codex-rs/ext/git-attribution`) tells the model to end commits
+    with `Co-authored-by: Codex <noreply@openai.com>`, but only when the login uses the Codex backend
+    (ChatGPT) and the account's server-side `commit_attribution_enabled` is true. API-key or
+    custom-provider auth is always off.
+  - There is no `config.toml` key for it. The old `features.codex_git_commit` is listed as `removed`.
+  - Each rollout's `world_state` records the result as `git_attribution`. It was `false` in all 70
+    sessions with a world state over 30 days, with ChatGPT login and the `codex_api` provider.
+  - The commit-msg hook does not strip the Codex trailer. Extend it if that setting ever turns on.
+- OMO / oh-my-openagent (omo-ai 5.1.35):
+  - `git_master.commit_footer` adds "Ultraworked with [omo](…)" unless it is `false`.
+    `git_master.include_co_authored_by` controls the co-author trailer. Both default to `false`.
+  - `omo.jsonc` already sets both to `false` under `"[opencode]"` and `"[native]"`.
+  - Older versions wrote `Ultraworked with [Sisyphus]` and
+    `Co-authored-by: Sisyphus <clio-agent@sisyphuslabs.ai>`. Those show up in upstream ComfyUI
+    history from other contributors.
+- OpenCode 1.19.5:
+  - The only `Co-authored-by` is in `opencode github`, the GitHub Actions agent. It credits the
+    GitHub user who triggered the run, not OpenCode.
+  - There is no attribution setting.
+- OMP 18.14.1:
+  - Its `attribution` fields mark who authored a message (`agent`/`user`).
+  - `allowAttribution` is a field of the bundled Windsurf team-settings protobuf.
+  - Neither touches commits.
+- Checked by searching the agent binaries and packages for co-author, attribution and footer
+  strings, then reading the upstream source.
+- `grep` on that machine is ugrep, so `/usr/bin/grep -a` was used for binaries.
