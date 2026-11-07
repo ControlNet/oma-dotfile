@@ -92,18 +92,26 @@ def report_agents(found: frozenset[str], forced: bool = False) -> None:
         info("Use --all (or INSTALL_ALL=1) to install these anyway.")
 
 
+def done_notes(ctx: Context) -> list[str]:
+    """What to do next and where the backups are, one line each."""
+    notes = []
+    if ctx.options.oauth:
+        notes.append("OAuth routing installed; model IDs and reasoning levels are unchanged.")
+        logins = [command for key, command in OAUTH_LOGINS.items() if key in ctx.found]
+        if logins:
+            notes.append(f"Log in with: {'; '.join(logins)}")
+        notes.append("Check each agent's model list. Existing profiles, explicit model choices, and resumed sessions may override defaults.")
+    notes.append(f"Timestamp: {ctx.stamp}")
+    if ctx.options.backup:
+        notes.append(f"Backups: *.bak-{ctx.stamp} (keep last {ctx.options.max_backups} per file)")
+    return notes
+
+
 def report_done(ctx: Context) -> None:
     print()
     success("Installation complete!")
-    if ctx.options.oauth:
-        info("OAuth routing installed; model IDs and reasoning levels are unchanged.")
-        logins = [command for key, command in OAUTH_LOGINS.items() if key in ctx.found]
-        if logins:
-            info(f"Log in with: {'; '.join(logins)}")
-        info("Check each agent's model list. Existing profiles, explicit model choices, and resumed sessions may override defaults.")
-    info(f"Timestamp: {ctx.stamp}")
-    if ctx.options.backup:
-        info(f"Backups: *.bak-{ctx.stamp} (keep last {ctx.options.max_backups} per file)")
+    for note in done_notes(ctx):
+        info(note)
 
 
 def run_steps(ctx: Context) -> None:

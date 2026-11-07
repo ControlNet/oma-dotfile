@@ -1,6 +1,7 @@
 """OMO Native: AGENTS.md, the gateway provider in models.json, settings.json, omo-herdr-dag."""
 
 from collections.abc import Mapping
+from enum import Enum
 from functools import partial
 import json
 from pathlib import Path
@@ -13,8 +14,9 @@ from omadotfile.console import info, item, warn
 from omadotfile.constants import OMO_HERDR_DAG_VERSION, OMO_NATIVE_FILES
 from omadotfile.context import Context
 from omadotfile.core.codec import JSONC, JsonObject
-from omadotfile.core.errors import warns_on
+from omadotfile.core.errors import Skip, skips, warns_on
 from omadotfile.core.jsonc import read_jsonc_object
+from omadotfile.step import requires
 
 # omo-ai bin/lib/agent-dir.js AGENT_DIR_ENV_NAMES, most specific first.
 OMO_AGENT_DIR_ENV_NAMES = ("OMO_CODING_AGENT_DIR", "SENPI_CODING_AGENT_DIR", "PI_CODING_AGENT_DIR")
@@ -22,6 +24,7 @@ OMO_AGENT_DIR_ENV_NAMES = ("OMO_CODING_AGENT_DIR", "SENPI_CODING_AGENT_DIR", "PI
 OMO_NATIVE_THINKING_LEVELS = ("low", "medium", "high", "xhigh", "max")
 OMO_HERDR_DAG_MARKER = "// managed by omo-herdr-dag"
 OMO_HERDR_DAG_GENERATION = re.compile(r"generation-\d+")
+HERDR_DAG_LABEL = f"omo-herdr-dag {OMO_HERDR_DAG_VERSION}"
 
 
 def build_gateway_provider(repo: Path, codex_base_url: str) -> dict:
@@ -122,8 +125,17 @@ def herdr_dag_payload(root: Path) -> dict[str, bytes] | None:
     return files
 
 
-def herdr_dag_install_state(package_dist: Path, agent_dir: Path) -> str:
-    """Classify the installed omo-herdr-dag as missing, current, stale, or unmanaged."""
+class InstallState(Enum):
+    """What ensure_herdr_dag finds of an earlier omo-herdr-dag install."""
+
+    MISSING = "missing"
+    CURRENT = "current"  # the pinned package's files, nothing to do
+    STALE = "stale"  # ours, but another version or a broken generation
+    UNMANAGED = "unmanaged"  # files omo-herdr-dag did not write; never replaced
+
+
+def herdr_dag_install_state(package_dist: Path, agent_dir: Path) -> InstallState:
+    """Classify the installed omo-herdr-dag against the pinned package's dist/."""
     container = agent_dir / "herdr-dag" / "integration"
     wrapper = agent_dir / "extensions" / "omo-herdr-dag.js"
     try:
@@ -131,30 +143,39 @@ def herdr_dag_install_state(package_dist: Path, agent_dir: Path) -> str:
         installed_by = (container / ".installed-by").read_text(encoding="utf-8") \
             if (container / ".installed-by").exists() else None
     except (OSError, UnicodeDecodeError):
-        return "unmanaged"
+        return InstallState.UNMANAGED
     # The installer refuses to replace files it did not write; report them instead.
     if wrapper_text is not None and not wrapper_text.startswith(OMO_HERDR_DAG_MARKER):
-        return "unmanaged"
+        return InstallState.UNMANAGED
     if container.exists() and installed_by != OMO_HERDR_DAG_MARKER:
-        return "unmanaged"
+        return InstallState.UNMANAGED
     if wrapper_text is None or not container.is_dir():
-        return "missing"
+        return InstallState.MISSING
     try:
         generation = json.loads((container / "current.json").read_text(encoding="utf-8"))["generation"]
     except (OSError, ValueError, KeyError, TypeError):
-        return "stale"
+        return InstallState.STALE
     if not isinstance(generation, str) or not OMO_HERDR_DAG_GENERATION.fullmatch(generation):
-        return "stale"
+        return InstallState.STALE
     if f"/{generation}/extension.mjs" not in wrapper_text:
-        return "stale"
+        return InstallState.STALE
     expected = herdr_dag_payload(package_dist)
     if expected is not None and herdr_dag_payload(container / generation) == expected:
-        return "current"
-    return "stale"
+        return InstallState.CURRENT
+    return InstallState.STALE
 
 
-def extract_npm_package(tarball: Path, dest: Path) -> Path | None:
-    """Extract an npm tarball whose members all stay under `package/`."""
+def tarball_from_pack(packed: object, work_dir: Path) -> Path:
+    """The tarball `npm pack --json` reports writing into work_dir; Skip if it reports none."""
+    match packed:
+        case [{"filename": str(filename)}, *_]:
+            return work_dir / Path(filename).name
+        case _:
+            raise Skip(f"npm pack did not report a tarball for {HERDR_DAG_LABEL}")
+
+
+def extract_npm_package(tarball: Path, dest: Path) -> Path:
+    """Extract an npm tarball whose members all stay under `package/`; Skip any other."""
     try:
         with tarfile.open(tarball, "r:gz") as archive:
             members = archive.getmembers()
@@ -162,18 +183,19 @@ def extract_npm_package(tarball: Path, dest: Path) -> Path | None:
                 parts = Path(member.name).parts
                 if (not (member.isfile() or member.isdir()) or not parts or parts[0] != "package"
                         or ".." in parts or Path(member.name).is_absolute()):
-                    warn(f"Refusing {tarball.name}: unexpected member {member.name!r}")
-                    return None
+                    raise Skip(f"Refusing {tarball.name}: unexpected member {member.name!r}")
             if hasattr(tarfile, "data_filter"):
                 archive.extractall(dest, filter="data")
             else:
                 archive.extractall(dest)
     except (OSError, tarfile.TarError) as exc:
-        warn(f"Failed to extract {tarball.name} ({type(exc).__name__})")
-        return None
+        raise Skip(f"Failed to extract {tarball.name} ({type(exc).__name__})") from exc
     return dest / "package"
 
 
+@requires("herdr", skip=f"         {HERDR_DAG_LABEL} skipped: herdr not found")
+@requires("node", "npm", skip=f"         {HERDR_DAG_LABEL} skipped: node and npm are required")
+@skips
 def ensure_herdr_dag(ctx: Context, agent_dir: Path, work_dir: Path) -> None:
     """Install the pinned omo-herdr-dag with its own installer, only when its files changed.
 
@@ -181,38 +203,23 @@ def ensure_herdr_dag(ctx: Context, agent_dir: Path, work_dir: Path) -> None:
     package is not reinstalled. No --lang is passed: the first install is English and
     later installs keep the language chosen by hand.
     """
-    label = f"omo-herdr-dag {OMO_HERDR_DAG_VERSION}"
-    if ctx.runner.which("herdr") is None:
-        warn(f"         {label} skipped: herdr not found")
-        return
-    if ctx.runner.which("node") is None or ctx.runner.which("npm") is None:
-        warn(f"         {label} skipped: node and npm are required")
-        return
     work_dir.mkdir(parents=True, exist_ok=True)
     pin = {"OMO_CODING_AGENT_DIR": str(agent_dir)}
     packed = ctx.runner.json(
         ["npm", "pack", f"omo-herdr-dag@{OMO_HERDR_DAG_VERSION}", "--pack-destination", str(work_dir), "--json"],
         pin,
     )
-    filename = packed[0].get("filename") if isinstance(packed, list) and packed and isinstance(packed[0], dict) else None
-    if not isinstance(filename, str):
-        warn(f"npm pack did not report a tarball for {label}")
-        return
-    tarball = work_dir / Path(filename).name
-    package = extract_npm_package(tarball, work_dir / "extract")
-    if package is None:
-        return
-    state = herdr_dag_install_state(package / "dist", agent_dir)
-    if state == "current":
-        item(f"{label} (already installed)")
-        return
-    if state == "unmanaged":
-        warn(f"{agent_dir / 'extensions' / 'omo-herdr-dag.js'} or herdr-dag/integration was not "
-             f"written by omo-herdr-dag; leaving {label} uninstalled")
-        return
-    item(f"{label} (Herdr DAG side pane; /reload running sessions)")
-    ctx.runner.ok(["node", str(package / "bin" / "omo-herdr-dag.mjs"), "install", "--agent-dir", str(agent_dir)],
-                  pin)
+    package = extract_npm_package(tarball_from_pack(packed, work_dir), work_dir / "extract")
+    match herdr_dag_install_state(package / "dist", agent_dir):
+        case InstallState.CURRENT:
+            item(f"{HERDR_DAG_LABEL} (already installed)")
+        case InstallState.UNMANAGED:
+            raise Skip(f"{agent_dir / 'extensions' / 'omo-herdr-dag.js'} or herdr-dag/integration was not "
+                       f"written by omo-herdr-dag; leaving {HERDR_DAG_LABEL} uninstalled")
+        case InstallState.MISSING | InstallState.STALE:
+            item(f"{HERDR_DAG_LABEL} (Herdr DAG side pane; /reload running sessions)")
+            ctx.runner.ok(["node", str(package / "bin" / "omo-herdr-dag.mjs"), "install",
+                           "--agent-dir", str(agent_dir)], pin)
 
 
 class OmoNative(Agent):

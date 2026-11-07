@@ -4,6 +4,10 @@ Pure helpers raise (ValueError for bad content, OSError from the file system). T
 that does one install action is decorated with `warns_on`, which catches the errors named
 for it, prints the warning and returns None, so the run goes on. Any other exception still
 aborts the run with a traceback.
+
+`Skip` is the error an install action raises itself to stop early ("herdr not found",
+"npm pack did not report a tarball"): its message is the warning, printed by `skips`. So an
+action reads as its happy path, and every way out of it is a `raise Skip(...)`.
 """
 
 from collections.abc import Callable
@@ -56,3 +60,12 @@ def warns_on(*errors: type[Exception], message: str) -> Callable[[Callable[P, R]
         return guarded
 
     return decorate
+
+
+class Skip(Exception):
+    """An expected early stop of one install action; the message is the warning to print."""
+
+
+def skips(function: Callable[P, R]) -> Callable[P, R | None]:
+    """Print a Skip the function raises as a [WARN] line, verbatim, and return None."""
+    return warns_on(Skip, message="{reason}")(function)

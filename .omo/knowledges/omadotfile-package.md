@@ -41,6 +41,15 @@ Things worth knowing when changing it:
   dumps, `transform` is a pure function (bind arguments with `functools.partial`). The function
   doing it is wrapped in `@warns_on(OSError, ValueError, message="...{dst}...({error})")`
   (`core/errors.py`) instead of a try/except; pure helpers just raise.
+- An action that stops early raises `Skip("message")` (`core/errors.py`) and is decorated
+  `@skips`, which prints the message verbatim as the [WARN] line; keep leading spaces in the
+  message if the old output had them. Message texts are asserted in the tests.
+- An action that needs a CLI is decorated `@requires("npx", skip="...")` (`step.py`); its
+  first parameter must be the Context. It uses `ctx.runner.which`, so tests that patch
+  `Runner.which` on the class still control it.
+- Runner methods are patched on the class in the tests (`patch.object(Runner, "json", ...)`);
+  a refactor that calls a new Runner method must update those patches, or the tests run real
+  `npm`/`node`.
 - A step that installs no files is a function decorated with `@step(title, when=found_any(...),
   skip=...)` (`omadotfile/step.py`); `Step` is a Protocol that agent classes also satisfy.
 - Types: `pixi exec --spec pyright pyright` from the repo root (config in `pyrightconfig.json`)

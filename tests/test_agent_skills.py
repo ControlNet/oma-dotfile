@@ -14,6 +14,7 @@ import unittest
 from unittest.mock import patch
 
 from omadotfile import constants
+from omadotfile.constants import REMOVED_SKILLS, RETIRED_SKILLS
 from omadotfile.context import RepoRef
 from omadotfile.core import proc
 from omadotfile.core.proc import Runner
@@ -206,7 +207,7 @@ class EnsureAgentSkillsTests(AgentSkillsHarness):
         output = self.run_install()
         self.cli.assert_not_called()
         self.assertTrue(old.is_file())
-        self.assertIn("npx", output)
+        self.assertIn("         skills skipped: npx not found (install Node.js)\n", output)
 
 
 class ClaudeCodeSkillTests(AgentSkillsHarness):
@@ -298,6 +299,22 @@ class RemovedSkillTests(AgentSkillsHarness):
         self.run_install()
         self.remove.assert_not_called()
         self.assertTrue(old.is_file())
+
+
+class PureSkillPlanTests(TestCase):
+    def test_record_keeps_the_commit_of_each_complete_run_only(self):
+        results = [skills.InstallResult("a", frozenset({"x"}), "1" * 40),
+                   skills.InstallResult("b", frozenset(), None),
+                   skills.InstallResult("c", frozenset({"y", "z"}), "2" * 40)]
+        self.assertEqual(skills.recorded_commits(results), {"a": "1" * 40, "c": "2" * 40})
+        self.assertEqual(skills.recorded_commits([]), {})
+
+    def test_legacy_copy_names_add_retired_and_removed_skills(self):
+        retired, replacement = next(iter(RETIRED_SKILLS.items()))
+        names = skills.legacy_copy_names({replacement, "mine"})
+        self.assertEqual(names, sorted(names))
+        self.assertTrue({replacement, "mine", retired, *REMOVED_SKILLS} <= set(names))
+        self.assertNotIn(retired, skills.legacy_copy_names(set()))
 
 
 class SkipUnchangedSourceTests(AgentSkillsHarness):

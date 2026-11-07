@@ -363,3 +363,33 @@ sandboxes, then diff the trees. Backup files and other timestamps are ignored. E
 - A golden run against the previous commit matched in four sandboxes (fresh, `--oauth`,
   existing config, two runs). The one output change: Tokscale now prints "Updated ...;
   preserved unrelated settings" after writing instead of "Updating ..." before it.
+
+### Third pass: Skip, preconditions and folds (2026-11-07)
+
+- `Skip` (`core/errors.py`) is the exception an install action raises to stop early; `@skips`
+  (which is `warns_on(Skip, message="{reason}")`) prints its message verbatim. So
+  `ensure_herdr_dag` reads as its happy path: `tarball_from_pack` (a `match` on the
+  `npm pack --json` document) and `extract_npm_package` raise `Skip` instead of returning None,
+  and the install state is an `InstallState` enum matched with `match`.
+- `@requires("node", "npm", skip="...")` (`step.py`) guards an action that takes the Context
+  first (`Concatenate[Context, P]`, so the signature survives); it looks executables up through
+  `ctx.runner.which`. It replaced the hand-written checks in `ensure_herdr_dag` and
+  `ensure_skills`. `ensure_plugin` keeps its own check: it takes a `PluginCli`, not a Context.
+- `ensure_skills` is plan, execute, fold: a closure `install_or_reuse(install) -> InstallResult`
+  runs once per skills CLI run, and the pure `recorded_commits(results)` is the new commit
+  record. Every run of this install has a result, so dropped runs leave the record without the
+  old "filter to active keys" step. `legacy_copy_names` is the pure half of the migration.
+- Small pure extractions: `wakatime.settings_from_env`, `omp.oauth_models` /
+  `gateway_models` / `write_models` (each with `@warns_on`; writing the OAuth catalog now warns
+  on OSError instead of aborting), `cli.done_notes`.
+- Not done, on purpose: `Runner` raising `CommandFailed` instead of returning None, and a
+  `Runner.pinned(**env)` closure. Tests patch `Runner.json`/`Runner.ok` on the class and read
+  the `extra_env` they get, and the golden run only covers the success path, so that change
+  needs its own pass with failure-path tests first.
+- Typeclasses and monads were evaluated with pyright probes. A `Result`/`Either` type was
+  rejected: on 3.10 there is no `typing.Never`, so `Err.map`/`Err.bind` need `NoReturn` or
+  `Any` parameters, lambdas in `.map(...)` chains come out partially `Unknown` under strict
+  mode, and an `Err(exc)` that is never raised has no traceback. `T | None` already is Option,
+  and closures over `ctx` already are Reader. Worth doing later: `@abstractmethod` on
+  `Component`/`Agent`/`PluginCli` (pyright then reports a missing method at instantiation),
+  and a `Codec.empty()` so `Files.update` needs no `default=`.

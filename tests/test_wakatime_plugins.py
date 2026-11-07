@@ -105,6 +105,17 @@ def run_claude_ensure(responses: dict[str, object], claude_config_dir: Path):
     return fake, installed
 
 
+class SettingsFromEnvTests(TestCase):
+    def test_set_values_become_settings_and_line_breaks_are_rejected(self):
+        settings, rejected = wakatime.settings_from_env(
+            {"WAKATIME_API_URL": " https://w.example.invalid ", "WAKATIME_API_KEY": "a\nb", "OTHER": "x"})
+        self.assertEqual(settings, {"api_url": "https://w.example.invalid"})
+        self.assertEqual(rejected, ["WAKATIME_API_KEY"])
+
+    def test_unset_and_blank_values_are_neither(self):
+        self.assertEqual(wakatime.settings_from_env({"WAKATIME_API_KEY": "  "}), ({}, []))
+
+
 class CodexWakatimePluginTests(TestCase):
     def test_first_install_adds_marketplace_then_plugin(self) -> None:
         # Given a Codex home without the WakaTime marketplace or plugin.

@@ -2,13 +2,20 @@
 
 `Step` is a Protocol: an agent class (agents.base.Component) and a decorated function
 (FunctionStep) are both steps without sharing a base class. cli.STEPS lists them in order.
+`found_any` and `requires` are the preconditions: which agents a step is for, and which
+CLIs an action inside it needs.
 """
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from functools import wraps
+from typing import Concatenate, ParamSpec, Protocol, TypeVar, runtime_checkable
 
+from omadotfile.console import warn
 from omadotfile.context import Context
+
+P = ParamSpec("P")
+R = TypeVar("R")
 
 Predicate = Callable[[Context], bool]
 Action = Callable[[Context], None]
@@ -67,3 +74,27 @@ def found_any(*keys: str) -> Predicate:
         return any(key in ctx.found for key in keys)
 
     return found
+
+
+def requires(*executables: str, skip: str) -> Callable[[Callable[Concatenate[Context, P], R]],
+                                                      Callable[Concatenate[Context, P], R | None]]:
+    """Run the decorated action only if every executable is found; else warn `skip`, return None.
+
+    The action takes the Context first; executables are looked up the way the run finds
+    them (ctx.runner.which), in order, stopping at the first one missing.
+
+        @requires("npx", skip="skills skipped: npx not found (install Node.js)")
+        def ensure_skills(ctx: Context, legacy_skill_dirs: list[Path]) -> None: ...
+    """
+
+    def decorate(action: Callable[Concatenate[Context, P], R]) -> Callable[Concatenate[Context, P], R | None]:
+        @wraps(action)
+        def checked(ctx: Context, /, *args: P.args, **kwargs: P.kwargs) -> R | None:
+            if any(ctx.runner.which(name) is None for name in executables):
+                warn(skip)
+                return None
+            return action(ctx, *args, **kwargs)
+
+        return checked
+
+    return decorate

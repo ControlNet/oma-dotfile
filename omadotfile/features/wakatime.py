@@ -48,18 +48,20 @@ def render_config(content: str, settings: dict[str, str]) -> str:
     return set_section_keys(content, "settings", settings, SETTING_ALIASES)
 
 
+def settings_from_env(env: Mapping[str, str]) -> tuple[dict[str, str], list[str]]:
+    """The [settings] keys the env sets, and the env vars refused for holding a line break."""
+    values = {name: env.get(name, "").strip() for name in ENV_SETTINGS}
+    rejected = [name for name, value in values.items() if "\n" in value or "\r" in value]
+    settings = {ENV_SETTINGS[name]: value for name, value in values.items() if value and name not in rejected}
+    return settings, rejected
+
+
 def ensure_config(ctx: Context) -> None:
     """Write WAKATIME_API_URL and WAKATIME_API_KEY into the cfg, keeping other settings."""
     path = config_path(ctx.env, ctx.home)
-    settings: dict[str, str] = {}
-    for env_name, key in ENV_SETTINGS.items():
-        value = ctx.env.get(env_name, "").strip()
-        if not value:
-            continue
-        if "\n" in value or "\r" in value:
-            warn(f"{env_name} contains a line break; not written to {path}")
-            continue
-        settings[key] = value
+    settings, rejected = settings_from_env(ctx.env)
+    for env_name in rejected:
+        warn(f"{env_name} contains a line break; not written to {path}")
 
     if not settings:
         if not path.is_file() and not ctx.env.get("WAKATIME_API_KEY", "").strip():

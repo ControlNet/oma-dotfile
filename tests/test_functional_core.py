@@ -1,4 +1,4 @@
-"""The higher-order building blocks: warns_on, Codec + Files.update, @step and found_any."""
+"""The higher-order building blocks: warns_on/Skip, Codec + Files.update, @step, found_any, requires."""
 
 import contextlib
 import io
@@ -7,9 +7,12 @@ import tempfile
 import unittest
 
 from omadotfile.core.codec import JSON, JSONC, LINES, TEXT
-from omadotfile.core.errors import warns_on
+from unittest.mock import patch
+
+from omadotfile.core.errors import Skip, skips, warns_on
 from omadotfile.core.files import Files
-from omadotfile.step import FunctionStep, Step, found_any, step
+from omadotfile.core.proc import Runner
+from omadotfile.step import FunctionStep, Step, found_any, requires, step
 from support import TestCase, make_context
 
 
@@ -53,6 +56,67 @@ class WarnsOnTests(TestCase):
             @warns_on(OSError, message="Failed to read {dst}")
             def read(path: str) -> None:
                 pass
+
+
+class SkipTests(TestCase):
+    def test_skip_message_is_printed_verbatim_and_the_call_returns_none(self):
+        @skips
+        def install(path: str) -> str:
+            raise Skip(f"         {path} skipped: herdr not found")
+
+        result, err = quietly(install, "dag")
+
+        self.assertIsNone(result)
+        self.assertIn("[WARN]\x1b[0m             dag skipped: herdr not found\n", err)
+
+    def test_result_passes_through_and_other_errors_propagate(self):
+        @skips
+        def ok() -> int:
+            return 1
+
+        @skips
+        def broken() -> None:
+            raise ValueError("x")
+
+        self.assertEqual(ok(), 1)
+        with self.assertRaises(ValueError):
+            broken()
+
+
+class RequiresTests(TestCase):
+    def setUp(self):
+        self.found = {"node"}
+        self.looked_up: list[str] = []
+
+        def which(name):
+            self.looked_up.append(name)
+            return Path("/fake/bin") / name if name in self.found else None
+
+        # Patched on the class: ctx.runner is a fresh Runner on every access.
+        self.enterContext(patch.object(Runner, "which", side_effect=which))
+        self.ctx = make_context(Path(self.enterContext(tempfile.TemporaryDirectory())))
+
+    def test_runs_when_every_executable_is_found(self):
+        @requires("node", skip="never")
+        def act(ctx, value: int, *, scale: int = 1) -> int:
+            return value * scale
+
+        self.assertEqual(act(self.ctx, 2, scale=3), 6)
+        self.assertEqual(act.__name__, "act")
+
+    def test_warns_and_stops_at_the_first_missing_executable(self):
+        calls = []
+
+        @requires("node", "npm", "herdr", skip="dag skipped: node and npm are required")
+        def act(ctx) -> None:
+            calls.append(ctx)
+
+        result, err = quietly(act, self.ctx)
+
+        self.assertIsNone(result)
+        self.assertEqual(calls, [])
+        self.assertIn("dag skipped: node and npm are required", err)
+        self.assertEqual(self.looked_up, ["node", "npm"])
 
 
 class CodecTests(TestCase):

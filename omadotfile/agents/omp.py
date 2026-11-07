@@ -12,6 +12,7 @@ from omadotfile.constants import FileSpec, OMP_FILES, OMP_MODELS, OMP_MODELS_DST
 from omadotfile.context import Context
 from omadotfile.core import yaml_merge
 from omadotfile.core.codec import TEXT
+from omadotfile.core.errors import warns_on
 
 BASE_URL_PLACEHOLDER = re.compile(r'^(\s*baseUrl:\s*)(["\']?)CODEX_BASE_URL\2(\s*(?:#.*)?)$', re.MULTILINE)
 
@@ -35,38 +36,37 @@ def install_models(ctx: Context, agent_dir: Path) -> None:
     src = ctx.repo / OMP_MODELS
     if not src.exists():
         return
-    dst = agent_dir / OMP_MODELS_DST
-    if ctx.options.oauth:
-        item(f"{OMP_MODELS_OAUTH} (native model overrides)")
-        oauth_src = ctx.repo / OMP_MODELS_OAUTH
-        try:
-            content = oauth_src.read_text(encoding="utf-8")
-        except OSError as exc:
-            warn(f"Failed to read {oauth_src}: {exc}")
-            return
-        ctx.files.write_text(dst, content)
-        return
+    content = oauth_models(ctx, ctx.repo / OMP_MODELS_OAUTH) if ctx.options.oauth else gateway_models(ctx, src)
+    if content is not None:
+        write_models(ctx, agent_dir / OMP_MODELS_DST, content)
+
+
+@warns_on(OSError, message="Failed to read {src}: {reason}")
+def oauth_models(ctx: Context, src: Path) -> str:
+    item(f"{OMP_MODELS_OAUTH} (native model overrides)")
+    return src.read_text(encoding="utf-8")
+
+
+@warns_on(OSError, message="Failed to read {src}: {reason}")
+def gateway_models(ctx: Context, src: Path) -> str:
+    """The gateway catalog with CODEX_BASE_URL inlined, or with the placeholder left in."""
     item(f"{OMP_MODELS} (render CODEX_BASE_URL)")
-    try:
-        content = src.read_text(encoding="utf-8")
-    except OSError as exc:
-        warn(f"Failed to read {src}: {exc}")
-        return
-
+    content = src.read_text(encoding="utf-8")
     codex_base_url = ctx.env.get("CODEX_BASE_URL", "").strip()
-    if codex_base_url:
-        content, replaced = render_models(content, codex_base_url)
-        if replaced:
-            info("Injected CODEX_BASE_URL into omp models.yml")
-        else:
-            warn("No `baseUrl: CODEX_BASE_URL` placeholder found in omp_models.yaml")
-    else:
+    if not codex_base_url:
         warn("CODEX_BASE_URL is not set; leaving `baseUrl: CODEX_BASE_URL` in omp models.yml. oh-my-pi will not auto-expand it.")
+        return content
+    content, replaced = render_models(content, codex_base_url)
+    if replaced:
+        info("Injected CODEX_BASE_URL into omp models.yml")
+    else:
+        warn("No `baseUrl: CODEX_BASE_URL` placeholder found in omp_models.yaml")
+    return content
 
-    try:
-        ctx.files.write_text(dst, content)
-    except OSError as exc:
-        warn(f"Failed to write {dst}: {exc}")
+
+@warns_on(OSError, message="Failed to write {dst}: {reason}")
+def write_models(ctx: Context, dst: Path, content: str) -> bool:
+    return ctx.files.write_text(dst, content)
 
 
 class Omp(Agent):

@@ -4,7 +4,9 @@ OpenCode, Codex, OMP and OMO Native read ~/.agents/skills. Claude Code does not,
 skills CLI also links each skill into its skills dir when Claude Code is installed for.
 """
 
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 import json
 from pathlib import Path
 import re
@@ -24,7 +26,7 @@ from omadotfile.constants import (
 from omadotfile.context import Context, RepoRef
 from omadotfile.core.errors import warns_on
 from omadotfile.migration import migration
-from omadotfile.step import found_any, step
+from omadotfile.step import found_any, requires, step
 
 SKILLS_CLI_ENV = {"DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1"}
 SKILL_COMMITS_FILE = ".oma-dotfile-skill-commits.json"
@@ -190,6 +192,13 @@ def current_skill_names(ctx: Context, source: str, names: tuple[str, ...], agent
     return set()
 
 
+def legacy_copy_names(installed: set[str]) -> list[str]:
+    """Names whose per-agent copies go: the installed skills, the ones they retire, and
+    the skills this repo dropped."""
+    retired = {old for old, new in RETIRED_SKILLS.items() if new in installed}
+    return sorted(installed | retired | set(REMOVED_SKILLS))
+
+
 @migration(since="2026-11", reason="per-agent skill copies from before ~/.agents/skills",
            remove_by="2027-11")
 def remove_legacy_skill_copies(skill_dirs: list[Path], installed: set[str]) -> None:
@@ -198,28 +207,48 @@ def remove_legacy_skill_copies(skill_dirs: list[Path], installed: set[str]) -> N
     Agents read both places, so a leftover copy would load twice. Only names that were
     just installed (or retired in favour of one) and skills this repo dropped are touched.
     """
-    names = (installed | {old for old, new in RETIRED_SKILLS.items() if new in installed}
-             | set(REMOVED_SKILLS))
-    for skill_dir in skill_dirs:
-        for name in sorted(names):
-            path = skill_dir / name
-            if path.is_symlink() or path.is_file():
-                path.unlink()
-            elif path.is_dir():
-                shutil.rmtree(path)
-            else:
-                continue
-            item(f"removed old copy {path}")
+    for path in (skill_dir / name for skill_dir in skill_dirs for name in legacy_copy_names(installed)):
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+        elif path.is_dir():
+            shutil.rmtree(path)
+        else:
+            continue
+        item(f"removed old copy {path}")
 
 
+@dataclass(frozen=True)
+class InstallResult:
+    """One skills CLI run's outcome: the skills now in place, and the commit to record."""
+
+    key: str  # install_key of the run
+    done: frozenset[str]
+    commit: str | None  # None: the run is forgotten, so the next install makes it again
+
+
+def recorded_commits(results: Iterable[InstallResult]) -> dict[str, str]:
+    """The commit record after this install: one entry per run that is complete at a known commit.
+
+    Every run of this install has a result, so runs no longer made (a source dropped,
+    Claude Code gone) drop out of the record with no extra step.
+    """
+    return {result.key: result.commit for result in results if result.commit is not None}
+
+
+def incomplete(source: str, names: tuple[str, ...], done: frozenset[str]) -> str | None:
+    """Why a run left skills out, or None when it installed all it was asked for."""
+    if names == (ALL_SKILLS,):
+        return None if done else f"Nothing installed from {source}"
+    missing = [name for name in names if name not in done]
+    return f"Not installed from {source}: {', '.join(missing)}" if missing else None
+
+
+@requires("npx", skip="         skills skipped: npx not found (install Node.js)")
 def ensure_skills(ctx: Context, legacy_skill_dirs: list[Path], claude_dir: Path | None = None) -> None:
     """Install the shared skills with the skills CLI, then drop the old per-agent copies.
 
     With claude_dir (Claude Code installed for), skills are also linked into its skills dir.
     """
-    if ctx.runner.which("npx") is None:
-        warn("         skills skipped: npx not found (install Node.js)")
-        return
     env = dict(SKILLS_CLI_ENV)
     if claude_dir is not None:
         env["CLAUDE_CONFIG_DIR"] = str(claude_dir)
@@ -233,38 +262,28 @@ def ensure_skills(ctx: Context, legacy_skill_dirs: list[Path], claude_dir: Path 
     commits = remote_commits(ctx, {source for source, _, _ in installs})
     recorded = read_commits(ctx)
     claude_skills_dir = claude_dir / "skills" if claude_dir is not None else None
-    installed: set[str] = set()
-    for source, names, agents in installs:
-        key = install_key(source, names, agents)
+
+    def install_or_reuse(install: Install) -> InstallResult:
+        source, names, agents = install
+        key = install_key(*install)
         commit = commits.get(source)
         if commit is not None and recorded.get(key) == commit:
             current = current_skill_names(ctx, source, names, agents, claude_skills_dir)
             if current:
                 item(f"{', '.join(sorted(current))} ({source}, unchanged)")
-                installed |= current
-                continue
-        done = installed_skill_names(ctx.runner.json(add_command(source, names, agents), env))
+                return InstallResult(key, frozenset(current), commit)
+        done = frozenset(installed_skill_names(ctx.runner.json(add_command(source, names, agents), env)))
         if done:
             also = ", also in Claude Code" if "claude-code" in agents else ""
             item(f"{', '.join(sorted(done))} ({source}{also})")
-        if names == (ALL_SKILLS,):
-            complete = bool(done)
-            if not done:
-                warn(f"Nothing installed from {source}")
-        elif missing := [name for name in names if name not in done]:
-            complete = False
-            warn(f"Not installed from {source}: {', '.join(missing)}")
-        else:
-            complete = True
-        if complete and commit is not None:
-            recorded[key] = commit
-        else:
-            recorded.pop(key, None)
-        installed |= done
-    # Runs no longer made (a source dropped, Claude Code gone) are forgotten.
-    active = {install_key(*install) for install in installs}
-    write_commits(ctx, {key: value for key, value in recorded.items() if key in active})
-    remove_legacy_skill_copies(legacy_skill_dirs, installed)
+        if (reason := incomplete(source, names, done)) is not None:
+            warn(reason)
+            return InstallResult(key, done, None)
+        return InstallResult(key, done, commit)
+
+    results = [install_or_reuse(install) for install in installs]
+    write_commits(ctx, recorded_commits(results))
+    remove_legacy_skill_copies(legacy_skill_dirs, set[str]().union(*(result.done for result in results)))
 
 
 @step("Installing shared skills to ~/.agents/skills", when=found_any("claude", *SKILL_READERS),

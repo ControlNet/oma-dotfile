@@ -172,6 +172,31 @@ class OAuthTests(TestCase):
             omp.install_models(self.context('api'), self.tmp)
         self.assertIn('codex_api:', dst.read_text())
 
+    def test_unreadable_omp_models_warn_and_leave_models_yml_alone(self):
+        repo = self.tmp / 'repo'
+        repo.mkdir()
+        (repo / 'omp_models.yaml').write_text('providers: {}\n')
+        dst = self.tmp / 'agent' / 'models.yml'
+        for oauth, missing in ((True, 'omp_models_oauth.yaml'), (False, None)):
+            with self.subTest(oauth=oauth):
+                if missing is None:
+                    (repo / 'omp_models.yaml').unlink()
+                    (repo / 'omp_models.yaml').mkdir()  # exists, but reading it fails
+                    missing = 'omp_models.yaml'
+                ctx = make_context(self.tmp, repo=repo, oauth=oauth)
+                with contextlib.redirect_stderr(io.StringIO()) as stderr, contextlib.redirect_stdout(io.StringIO()):
+                    omp.install_models(ctx, dst.parent)
+                self.assertIn(f'Failed to read {repo / missing}: ', stderr.getvalue())
+                self.assertFalse(dst.exists())
+
+    def test_done_notes_name_logins_only_for_found_agents(self):
+        ctx = make_context(self.tmp, oauth=True, found=('codex', 'claude'), stamp='20261107-120000')
+        notes = cli.done_notes(ctx)
+        self.assertIn('Log in with: codex login', notes)
+        self.assertEqual(notes[-2:], ['Timestamp: 20261107-120000',
+                                      'Backups: *.bak-20261107-120000 (keep last 1 per file)'])
+        self.assertEqual(cli.done_notes(make_context(self.tmp, backup=False, stamp='s')), ['Timestamp: s'])
+
     def test_oauth_environment_warnings_exclude_gateway(self):
         with contextlib.redirect_stdout(io.StringIO()) as output:
             cli.warn_missing_required_env_vars({}, oauth=True)

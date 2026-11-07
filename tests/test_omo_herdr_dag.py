@@ -14,7 +14,9 @@ import unittest
 from unittest.mock import patch
 
 from omadotfile.agents import omo_native
+from omadotfile.agents.omo_native import InstallState
 from omadotfile.constants import OMO_HERDR_DAG_VERSION
+from omadotfile.core.errors import Skip
 from omadotfile.core.proc import Runner
 from support import TestCase, make_context
 
@@ -69,25 +71,25 @@ class InstallStateTests(TestCase):
         write_tree(self.dist, FAKE_DIST)
         self.agent = self.tmp / "agent"
 
-    def state(self) -> str:
+    def state(self) -> InstallState:
         return omo_native.herdr_dag_install_state(self.dist, self.agent)
 
     def test_fresh_agent_dir_is_missing(self):
-        self.assertEqual(self.state(), "missing")
+        self.assertIs(self.state(), InstallState.MISSING)
 
     def test_identical_generation_is_current(self):
         install_generation(self.agent, self.dist)
-        self.assertEqual(self.state(), "current")
+        self.assertIs(self.state(), InstallState.CURRENT)
 
     def test_changed_module_is_stale(self):
         target = install_generation(self.agent, self.dist)
         (target / "src" / "model.mjs").write_text("export const fake = 0;\n", encoding="utf-8")
-        self.assertEqual(self.state(), "stale")
+        self.assertIs(self.state(), InstallState.STALE)
 
     def test_new_module_in_package_is_stale(self):
         install_generation(self.agent, self.dist)
         write_tree(self.dist, {"src/added.mjs": "export {};\n"})
-        self.assertEqual(self.state(), "stale")
+        self.assertIs(self.state(), InstallState.STALE)
 
     def test_wrapper_pointing_at_older_generation_is_stale(self):
         install_generation(self.agent, self.dist, "generation-000001")
@@ -96,17 +98,17 @@ class InstallStateTests(TestCase):
             f"{MARKER}\nexport {{ default }} from '../herdr-dag/integration/generation-000001/extension.mjs';\n",
             encoding="utf-8",
         )
-        self.assertEqual(self.state(), "stale")
+        self.assertIs(self.state(), InstallState.STALE)
 
     def test_hand_written_wrapper_is_unmanaged(self):
         wrapper = self.agent / "extensions" / "omo-herdr-dag.js"
         wrapper.parent.mkdir(parents=True)
         wrapper.write_text("export default function mine() {}\n", encoding="utf-8")
-        self.assertEqual(self.state(), "unmanaged")
+        self.assertIs(self.state(), InstallState.UNMANAGED)
 
     def test_integration_dir_without_marker_is_unmanaged(self):
         (self.agent / "herdr-dag" / "integration").mkdir(parents=True)
-        self.assertEqual(self.state(), "unmanaged")
+        self.assertIs(self.state(), InstallState.UNMANAGED)
 
 
 class ExtractTests(TestCase):
@@ -124,10 +126,27 @@ class ExtractTests(TestCase):
 
     def test_rejects_member_escaping_the_package(self):
         tgz = self.tarball({"package/bin/omo-herdr-dag.mjs": "// fake\n", "package/../evil.txt": "x\n"})
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            self.assertIsNone(omo_native.extract_npm_package(tgz, self.tmp / "out"))
+        with self.assertRaisesRegex(Skip, r"^Refusing pkg\.tgz: unexpected member 'package/\.\./evil\.txt'$"):
+            omo_native.extract_npm_package(tgz, self.tmp / "out")
         self.assertFalse((self.tmp / "out" / "evil.txt").exists())
         self.assertFalse((self.tmp / "evil.txt").exists())
+
+
+class PackedTarballTests(TestCase):
+    def test_filename_is_read_from_the_first_entry(self):
+        work = Path("/work")
+        for packed, expected in (
+            ([{"filename": "omo-herdr-dag-1.0.0.tgz", "size": 1}], work / "omo-herdr-dag-1.0.0.tgz"),
+            ([{"filename": "nested/x.tgz"}, {}], work / "x.tgz"),
+        ):
+            with self.subTest(packed=packed):
+                self.assertEqual(omo_native.tarball_from_pack(packed, work), expected)
+
+    def test_anything_else_is_a_skip(self):
+        for packed in (None, [], {}, "x.tgz", [{}], [{"filename": 1}], ["x.tgz"]):
+            with self.subTest(packed=packed), self.assertRaisesRegex(
+                    Skip, f"^npm pack did not report a tarball for omo-herdr-dag {OMO_HERDR_DAG_VERSION}$"):
+                omo_native.tarball_from_pack(packed, Path("/work"))
 
 
 class EnsureTests(TestCase):
@@ -156,9 +175,10 @@ class EnsureTests(TestCase):
         self.commands.append(command)
         return True
 
-    def ensure(self):
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+    def ensure(self) -> str:
+        with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err:
             omo_native.ensure_herdr_dag(make_context(self.tmp), self.agent, self.work)
+        return out.getvalue() + err.getvalue()
 
     def installs(self):
         return [command for command in self.commands if "install" in command]
@@ -189,13 +209,36 @@ class EnsureTests(TestCase):
 
     def test_skipped_without_herdr(self):
         self.found.discard("herdr")
-        self.ensure()
+        output = self.ensure()
         self.assertEqual(self.commands, [])
+        self.assertIn(f"         omo-herdr-dag {OMO_HERDR_DAG_VERSION} skipped: herdr not found\n", output)
 
     def test_skipped_without_npm(self):
         self.found.discard("npm")
-        self.ensure()
+        output = self.ensure()
         self.assertEqual(self.commands, [])
+        self.assertIn(f"         omo-herdr-dag {OMO_HERDR_DAG_VERSION} skipped: node and npm are required\n",
+                      output)
+
+    def test_unreported_tarball_warns_and_installs_nothing(self):
+        self.enterContext(patch.object(Runner, "json", return_value=None))
+        output = self.ensure()
+        self.assertEqual(self.installs(), [])
+        self.assertIn(f"npm pack did not report a tarball for omo-herdr-dag {OMO_HERDR_DAG_VERSION}\n", output)
+
+    def test_messages_for_each_install_state(self):
+        output = self.ensure()
+        self.assertIn(f"omo-herdr-dag {OMO_HERDR_DAG_VERSION} (Herdr DAG side pane; /reload running sessions)",
+                      output)
+        dist = self.tmp / "dist"
+        write_tree(dist, FAKE_DIST)
+        install_generation(self.agent, dist)
+        self.assertIn(f"omo-herdr-dag {OMO_HERDR_DAG_VERSION} (already installed)", self.ensure())
+
+    def test_unmanaged_install_is_reported(self):
+        (self.agent / "herdr-dag" / "integration").mkdir(parents=True)
+        self.assertIn(f"was not written by omo-herdr-dag; leaving omo-herdr-dag {OMO_HERDR_DAG_VERSION} "
+                      "uninstalled", self.ensure())
 
 
 if __name__ == "__main__":
