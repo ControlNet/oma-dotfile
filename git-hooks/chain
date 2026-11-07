@@ -1,0 +1,50 @@
+#!/bin/sh
+# managed by oma-dotfile
+# Installed under each hook name in the global core.hooksPath dir. Git then skips every
+# repo's own .git/hooks, so this runs that hook too: after dropping Claude attribution
+# lines for commit-msg, and after Git LFS's step for the hooks Git LFS uses.
+name=$(basename "$0")
+here=$(dirname "$0")
+common=$(git rev-parse --git-common-dir) || exit 1
+local_hook="$common/hooks/$name"
+# A core.hooksPath that is the repo's own hooks dir would run this again.
+if [ "$(cd "$common/hooks" 2>/dev/null && pwd -P)" = "$(cd "$here" && pwd -P)" ]; then
+    local_hook=
+fi
+
+if [ "$name" = commit-msg ] && command -v python3 >/dev/null 2>&1; then
+    python3 "$here/drop-claude-attribution" "$@" || exit
+fi
+
+lfs=
+case "$name" in
+pre-push | post-checkout | post-commit | post-merge)
+    if command -v git-lfs >/dev/null 2>&1; then
+        lfs=1
+    elif [ -n "$(git ls-files -- ':(attr:filter=lfs)' 2>/dev/null | head -n 1)" ]; then
+        # Like Git LFS's own hook: do not push pointers without their objects.
+        echo >&2 "This repository uses Git LFS but 'git-lfs' was not found on your path."
+        exit 2
+    fi
+    ;;
+esac
+
+if [ "$name" = pre-push ] && [ -n "$lfs" ]; then
+    # Both Git LFS and the repo's hook read the refs being pushed from stdin.
+    input=$(mktemp) || exit 1
+    trap 'rm -f "$input"' EXIT
+    cat >"$input"
+    git lfs pre-push "$@" <"$input" || exit
+    if [ -n "$local_hook" ] && [ -x "$local_hook" ]; then
+        "$local_hook" "$@" <"$input"
+        exit
+    fi
+    exit 0
+fi
+if [ -n "$lfs" ]; then
+    git lfs "$name" "$@" || exit
+fi
+if [ -n "$local_hook" ] && [ -x "$local_hook" ]; then
+    exec "$local_hook" "$@"
+fi
+exit 0

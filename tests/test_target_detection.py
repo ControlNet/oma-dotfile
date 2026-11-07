@@ -164,7 +164,7 @@ class InstallGatingTests(unittest.TestCase):
         # npx and the skills CLI would hit the same fake clone.
         self.agent_skills = self.enterContext(patch.object(pull, "ensure_agent_skills"))
         # git config would hit the same fake clone, and must not reach the real ~/.gitconfig.
-        self.git_hook = self.enterContext(patch.object(pull, "ensure_git_commit_msg_hook"))
+        self.git_hook = self.enterContext(patch.object(pull, "ensure_git_hooks"))
         # Never reach the developer's real ~/.wakatime.cfg.
         self.wakatime_config = self.enterContext(patch.object(pull, "ensure_wakatime_config"))
         self.tokscale = self.enterContext(patch.object(pull, "install_tokscale_model_aliases"))

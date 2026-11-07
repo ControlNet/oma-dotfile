@@ -1047,19 +1047,43 @@ def ensure_claude_attribution(claude_config_dir: Path, stamp: str) -> None:
     print("         - settings.json (no commit or PR attribution)")
 
 
-def ensure_git_commit_msg_hook(repo_path: Path, stamp: str) -> None:
-    """Install the commit-msg hook that drops Claude attribution lines from every commit.
+GIT_HOOK_MARKER = b"# managed by oma-dotfile"
+# Client hooks, plus receive hooks for repos pushed to on this machine. Left out:
+# reference-transaction and post-index-change run on nearly every git command, and
+# proc-receive speaks a protocol over stdin and stdout.
+GIT_CHAINED_HOOKS = (
+    "applypatch-msg", "pre-applypatch", "post-applypatch", "pre-commit", "pre-merge-commit",
+    "prepare-commit-msg", "commit-msg", "post-commit", "pre-rebase", "post-checkout",
+    "post-merge", "pre-push", "post-rewrite", "pre-auto-gc", "sendemail-validate",
+    "push-to-checkout", "pre-receive", "update", "post-receive", "post-update",
+)
+GIT_LFS_HOOKS = ("pre-push", "post-checkout", "post-commit", "post-merge")
+
+
+def is_git_lfs_hook(name: str, content: bytes) -> bool:
+    """Whether content is the hook `git lfs install` writes for name (any recent version)."""
+    lines = [line.strip() for line in content.decode("utf-8", "replace").splitlines() if line.strip()]
+    return (name in GIT_LFS_HOOKS and len(lines) == 3 and lines[0] == "#!/bin/sh"
+            and lines[1].startswith("command -v git-lfs ")
+            and lines[2] == f'git lfs {name} "$@"')
+
+
+def ensure_git_hooks(repo_path: Path, stamp: str) -> None:
+    """Install the global git hooks: commit-msg drops Claude attribution lines.
 
     Git has no global hooks dir unless core.hooksPath is set, so it is set to
-    ~/.config/git/hooks when missing; an existing value is kept and used.
+    ~/.config/git/hooks when missing; an existing value is kept and used. Git then skips
+    each repo's own .git/hooks, so every hook name gets git-hooks/chain, which runs the
+    repo's hook too, and Git LFS's step for the hooks Git LFS uses.
     """
-    src = repo_path / "git-hooks" / "commit-msg"
-    if not src.is_file():
-        warn(f"Source file not found: {src}")
-        return
+    chain_src = repo_path / "git-hooks" / "chain"
+    drop_src = repo_path / "git-hooks" / "drop-claude-attribution"
+    for src in (chain_src, drop_src):
+        if not src.is_file():
+            warn(f"Source file not found: {src}")
+            return
     if shutil.which("python3") is None:
-        # The hook runs through `#!/usr/bin/env python3`; without it every commit would fail.
-        warn("python3 not found on PATH; commit-msg hook not installed")
+        warn("python3 not found on PATH; git hooks not installed")
         return
     try:
         result = subprocess.run(["git", "config", "--global", "--type=path", "--get", "core.hooksPath"],
@@ -1068,26 +1092,56 @@ def ensure_git_commit_msg_hook(repo_path: Path, stamp: str) -> None:
             hooks_dir = Path(result.stdout.strip())
             if not hooks_dir.is_absolute():
                 warn(f"core.hooksPath is relative ({result.stdout.strip()}); "
-                     "each repo resolves it itself, so the commit-msg hook is not installed")
+                     "each repo resolves it itself, so git hooks are not installed")
                 return
         else:
             hooks_dir = Path.home() / ".config" / "git" / "hooks"
             _ = subprocess.run(["git", "config", "--global", "core.hooksPath", str(hooks_dir)],
                                check=True, capture_output=True, text=True)
             print(f"         - git core.hooksPath set to {hooks_dir}")
-            warn("         Hooks in each repo's .git/hooks no longer run; with git-lfs, "
-                 "run `git lfs install` to put its hooks there too")
     except (OSError, subprocess.CalledProcessError) as exc:
-        warn(f"git config failed ({type(exc).__name__}); commit-msg hook not installed")
+        warn(f"git config failed ({type(exc).__name__}); git hooks not installed")
         return
-    dst = hooks_dir / "commit-msg"
-    content = src.read_bytes()
+
+    chain = chain_src.read_bytes()
+    drop = drop_src.read_bytes()
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    install_executable(hooks_dir / "drop-claude-attribution", drop)
+    changed: list[str] = []
+    kept: list[str] = []
+    for name in GIT_CHAINED_HOOKS:
+        dst = hooks_dir / name
+        if dst.is_symlink() or (dst.exists() and not dst.is_file()):
+            kept.append(name)
+            continue
+        current = dst.read_bytes() if dst.exists() else None
+        if current == chain:
+            install_executable(dst, chain)
+            continue
+        if current is not None and GIT_HOOK_MARKER not in current:
+            # The old commit-msg, Git LFS's hooks and any other commit-msg are replaced, since
+            # chain covers what they did; other hooks of your own stay.
+            if not (name == "commit-msg" or is_git_lfs_hook(name, current)):
+                kept.append(name)
+                continue
+            backup_file_if_exists(dst, stamp)
+        install_executable(dst, chain)
+        changed.append(name)
+    if changed:
+        print(f"         - {hooks_dir}: {len(changed)} hooks (commit-msg drops Claude attribution lines; "
+              "each also runs the repo's own hook)")
+    if kept:
+        warn(f"         Kept your own {', '.join(kept)} in {hooks_dir}; "
+             "they do not run each repo's own hooks"
+             + ("; Claude attribution lines are not dropped" if "commit-msg" in kept else ""))
+
+
+def install_executable(dst: Path, content: bytes) -> None:
     if not (dst.is_file() and dst.read_bytes() == content):
-        hooks_dir.mkdir(parents=True, exist_ok=True)
-        backup_file_if_exists(dst, stamp)
         _ = dst.write_bytes(content)
-        print(f"         - {dst} (drops Claude attribution lines)")
-    dst.chmod(dst.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    mode = dst.stat().st_mode
+    if mode & 0o111 != 0o111:
+        dst.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
 def backup_file_if_exists(path: Path, stamp: str) -> None:
@@ -2112,7 +2166,7 @@ def main(argv: list[str] | None = None):
                 )
             install_claude_plugin(repo_path, claude_config_dir, stamp)
             ensure_claude_attribution(claude_config_dir, stamp)
-            ensure_git_commit_msg_hook(repo_path, stamp)
+            ensure_git_hooks(repo_path, stamp)
 
         if begin_step("11/12", "Configuring Tokscale model aliases",
                       targets["tokscale"], "tokscale config directory not found"):

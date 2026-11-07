@@ -6,7 +6,7 @@
   legacy form.
 - The setting does not cover lines the model is told to write by its system prompt, such as the
   `Claude-Session: https://claude.ai/code/session_…` trailer some Claude Code sessions request. Those
-  were removed by the global `commit-msg` hook (`git-hooks/commit-msg`), and a user rule against
+  were removed by the global `commit-msg` hook (now `git-hooks/drop-claude-attribution`), and a user rule against
   agent co-author lines takes precedence over that system-prompt request.
 - Git has no global hooks dir by default: without `core.hooksPath` it only runs `.git/hooks` of
   each repo. Setting `core.hooksPath` globally makes every repo use that dir and silently ignore its
@@ -17,12 +17,28 @@
   resolved per repo, so a global install cannot target it.
 - `pull.py` step 10 (only when Claude Code is detected):
   - merges the attribution setting, with a backup only when it changes;
-  - installs `git-hooks/commit-msg` into the global `core.hooksPath` dir, after setting it to
-    `~/.config/git/hooks` when unset;
-  - backs up a different existing `commit-msg` before replacing it;
-  - leaves a relative `core.hooksPath` alone;
-  - skips the hook when `python3` is missing, because the `#!/usr/bin/env python3` hook would then
-    fail every commit.
+  - sets `core.hooksPath` to `~/.config/git/hooks` when unset, and leaves a relative value alone;
+  - installs `git-hooks/chain` under every name in `GIT_CHAINED_HOOKS`, plus the helper
+    `drop-claude-attribution`, which is the original Python hook, renamed;
+  - backs up and replaces Git LFS's own hooks and any `commit-msg`;
+  - keeps other foreign hooks and symlinks;
+  - replaces files marked `# managed by oma-dotfile` without a backup;
+  - installs nothing when `python3` is missing.
+- Chaining (since 2026-11-07), so that a global `core.hooksPath` does not silently disable repo hooks:
+  - `git rev-parse --git-path hooks/<name>` resolves to `core.hooksPath` itself, so a chain using it
+    would call itself forever. Use `$(git rev-parse --git-common-dir)/hooks/<name>`; this also works
+    from linked worktrees and bare repos.
+  - With a foreign `pre-push` already in `core.hooksPath`, `git lfs install` prints
+    "Hook already exists" and skips its hooks, though it still writes the `filter.lfs.*` config.
+    So chain runs `git lfs <hook> "$@"` itself for `pre-push`, `post-checkout`, `post-commit` and
+    `post-merge` when git-lfs is on `PATH`. `pre-push` stdin is saved to a temp file and fed to both.
+  - `git lfs post-commit` creates `.git/lfs` in every repo, so that dir does not show a repo uses LFS.
+    Without git-lfs, chain refuses those hooks only when `git ls-files ':(attr:filter=lfs)'` lists
+    something, as Git LFS's own hook would.
+  - `git lfs pre-push` needs a named remote to find its endpoint. Pushing to a bare path fails with
+    "missing protocol".
+  - Left out of `GIT_CHAINED_HOOKS`: `reference-transaction` and `post-index-change` (run on nearly
+    every command) and `proc-receive` (a stdin/stdout protocol).
 - Tests: `tests/test_commit_attribution.py` runs real git against a temporary `GIT_CONFIG_GLOBAL`
   and `HOME`.
 
