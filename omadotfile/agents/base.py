@@ -2,14 +2,16 @@
 
 `run` is a template method: it creates the target dir, installs the component's `files`
 (see constants.FileSpec), then calls `configure` for whatever else the component does.
+An Agent subclass is declared with `@agent(key, label=..., executable=...)`, which records
+those on the class and registers it in AGENT_CLASSES; cli.AGENTS puts them in order.
 """
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, TypeVar
 
 from omadotfile.console import item
-from omadotfile.constants import AGENT_EXECUTABLES, AGENT_LABELS, FileSpec
+from omadotfile.constants import FileSpec
 from omadotfile.context import Context
 from omadotfile.core.proc import find_executable
 
@@ -76,15 +78,11 @@ class Component:
 
 
 class Agent(Component):
-    key: ClassVar[str]  # a key of constants.AGENT_LABELS
+    """One agent; its subclasses are declared with @agent, which sets these three."""
 
-    @property
-    def label(self) -> str:
-        return AGENT_LABELS[self.key]
-
-    @property
-    def executable(self) -> str | None:
-        return AGENT_EXECUTABLES[self.key]
+    key: ClassVar[str]  # "codex": the key of cli.AGENTS, ctx.found and ctx.dirs
+    label: ClassVar[str]  # "Codex": the name in reports
+    executable: ClassVar[str | None]  # the CLI whose presence detects the agent, if it has one
 
     @staticmethod
     def config_dir(env: Mapping[str, str], home: Path) -> Path:
@@ -101,3 +99,27 @@ class Agent(Component):
 
     def target_dir(self, ctx: Context) -> Path:
         return ctx.dirs[self.key]
+
+
+AgentClass = TypeVar("AgentClass", bound=type[Agent])
+
+# Every @agent class by key, in import order; cli.AGENTS gives the report order.
+AGENT_CLASSES: dict[str, type[Agent]] = {}
+
+
+def agent(key: str, *, label: str, executable: str | None) -> Callable[[AgentClass], AgentClass]:
+    """Declare an Agent subclass: record key, label and executable on it and register it.
+
+        @agent("codex", label="Codex", executable="codex")
+        class Codex(Agent): ...
+    """
+
+    def register(cls: AgentClass) -> AgentClass:
+        if key in AGENT_CLASSES:
+            raise ValueError(f"agent {key!r} is registered twice: by {AGENT_CLASSES[key].__qualname__} "
+                             f"and {cls.__qualname__}")
+        cls.key, cls.label, cls.executable = key, label, executable
+        AGENT_CLASSES[key] = cls
+        return cls
+
+    return register

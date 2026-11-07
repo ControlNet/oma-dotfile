@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import sys
 
-from omadotfile.agents.base import Agent
+from omadotfile.agents.base import Agent, agent
 from omadotfile.console import info, success
 from omadotfile.constants import TOKSCALE_MODEL_ALIASES
 from omadotfile.context import Context
@@ -51,8 +51,9 @@ def install_model_aliases(ctx: Context, config_dir: Path) -> None:
     success(f"Configured Tokscale model aliases: {dst}")
 
 
+# Tokscale ships no CLI; it is detected from its configuration directory.
+@agent("tokscale", label="Tokscale", executable=None)
 class Tokscale(Agent):
-    key = "tokscale"
     creates_dir = False  # only once there are aliases to write
 
     @staticmethod

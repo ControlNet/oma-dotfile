@@ -144,6 +144,9 @@ class FileSpec:                      # pure data, declared in constants.py
     managed: bool = False            # repo-owned code: no backup, else user config with backup
     oauth: bool = False              # under --oauth the agent's install_oauth_file writes it
 
+@agent("codex", label="Codex", executable="codex")   # sets the three ClassVars, registers the class
+class Codex(Agent): ...
+
 class Agent(Component):
     key: ClassVar[str]               # "codex"
     label: ClassVar[str]             # "Codex"
@@ -226,7 +229,6 @@ def retire_legacy_openagent_files(ctx: Context, config_dir: Path) -> None: ...
 `omadotfile/constants.py` holds what gets installed, as plain data with comments:
 
 - repo defaults (`REPO_OWNER`, `REPO_NAME`, `REPO_REV`) and required environment variables;
-- the agents: key, label, executable;
 - each agent's `FileSpec` list;
 - skill sources, skills excluded from Claude Code or disabled in Codex, retired and removed skills;
 - pinned versions (skills CLI, omo-herdr-dag);
@@ -393,3 +395,8 @@ sandboxes, then diff the trees. Backup files and other timestamps are ignored. E
   and closures over `ctx` already are Reader. Worth doing later: `@abstractmethod` on
   `Component`/`Agent`/`PluginCli` (pyright then reports a missing method at instantiation),
   and a `Codec.empty()` so `Files.update` needs no `default=`.
+- `@agent(key, label=..., executable=...)` (`agents/base.py`) declares each agent class: it sets
+  the three ClassVars and registers the class in `AGENT_CLASSES`. `constants.AGENT_LABELS` and
+  `AGENT_EXECUTABLES` are gone, and so are the per-class `key = ...` lines. `cli.AGENTS`
+  instantiates the registered classes in an explicit report order and asserts it lists all
+  of them, so import order decides nothing.

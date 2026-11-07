@@ -12,7 +12,8 @@ Older notes in this directory name `pull.py` functions. Where they live now:
 |---|---|
 | `main`, `parse_args`, `detect_targets`, `report_targets`, `warn_missing_required_env_vars` | `cli.py` (`main`, `parse_args`, `detect_agents`, `report_agents`, ...) |
 | `NO_BACKUP`, `INSTALL_ALL`, `MAX_BACKUPS`, `REPO_*`, `*_DIR_ENV` globals | `context.py`: `Options`, `RepoRef`, `Context` (env snapshot, home, agent dirs) |
-| `TARGET_LABELS`, `AGENT_EXECUTABLES`, file lists, `UPSTREAM_SKILLS`, pins, plugin ids | `constants.py` |
+| `TARGET_LABELS`, `AGENT_EXECUTABLES` | `@agent(key, label=..., executable=...)` on each agent class (`agents/base.py`); order in `cli.AGENTS` |
+| file lists, `UPSTREAM_SKILLS`, pins, plugin ids | `constants.py` |
 | `backup_and_install`, `install_managed_file`, `install_rendered_text`, `rename_path_if_exists`, `copy_directory*`, `cleanup_old_backups` | `core/files.py`: `Files.copy`, `write_text`, `retire`, `replace_tree`, `copy_items`, `prune` |
 | `find_agent_executable`, `extra_bin_search_path`, `run_plugin_process`, `read_plugin_json` | `core/proc.py`: `find_executable`, `Runner.run`, `.ok`, `.json` |
 | TOML helpers (`toml_*`, `replace_toml_section`, tomllib fallback) | `core/toml_edit.py` (`parses`, `loads` wrap tomllib) |
@@ -63,6 +64,9 @@ Things worth knowing when changing it:
 - A file the agent also writes to is `FileSpec(..., merge=True)`; the agent's
   `install_merged_file` merges it (OMP `config.yml`, see `omp-config-merge.md`).
 - The steps are the literal `STEPS` tuple in `cli.py`; their numbers come from its order.
+- A new agent is a class decorated `@agent("key", label="Name", executable="cli")`; add its
+  module to the agents import in `cli.py` and its key to the `AGENTS` order there (an assert
+  fails at import if a registered agent is left out).
 - One-off cleanups are `@migration(since=, reason=, remove_by=)`. They run on every install
   until deleted; `tests/test_migrations.py` fails from the `remove_by` month on.
 - PATH lookups (`shutil.which`) still read the process environment, not `ctx.env`; tests

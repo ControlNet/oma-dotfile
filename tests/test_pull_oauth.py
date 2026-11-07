@@ -12,7 +12,6 @@ from unittest.mock import patch
 from omadotfile import cli
 from omadotfile.agents import claude, codex, omo, omo_native, omp, opencode, tokscale
 from omadotfile.agents.base import Component
-from omadotfile.constants import AGENT_LABELS
 from omadotfile.core.jsonc import read_jsonc_object
 from omadotfile.features import skills, wakatime
 from support import ROOT, TestCase, make_context, requires_tomllib, tomllib
@@ -225,7 +224,7 @@ class OAuthTests(TestCase):
         # nor git config, which would reach the real ~/.gitconfig.
         self.enterContext(patch.object(claude, 'ensure_commit_msg_hook'))
         # Detection belongs to the gating tests; this one routes every target.
-        self.enterContext(patch.object(cli, 'detect_agents', return_value=frozenset(AGENT_LABELS)))
+        self.enterContext(patch.object(cli, 'detect_agents', return_value=frozenset(cli.AGENTS)))
 
         # A checkout holding only the files these routes read.
         repo = self.tmp / 'repo'

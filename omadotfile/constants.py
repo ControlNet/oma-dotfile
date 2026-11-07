@@ -19,25 +19,6 @@ GATEWAY_ENV_VARS = ("CODEX_BASE_URL", "CODEX_API_TOKEN")
 # A checkout without these is not this repo.
 REQUIRED_REPO_FILES = ("opencode.jsonc", "omo.jsonc")
 
-# Agents, in the order they are reported. The OMO OpenCode plugin has no executable of its
-# own, so the OpenCode target gates its config; OMO Native ships the `omo` CLI.
-AGENT_LABELS = {
-    "opencode": "OpenCode/OMO",
-    "omo": "OMO Native",
-    "omp": "oh-my-pi",
-    "codex": "Codex",
-    "claude": "Claude Code",
-    "tokscale": "Tokscale",
-}
-AGENT_EXECUTABLES = {
-    "opencode": "opencode",
-    "omo": "omo",
-    "omp": "omp",
-    "codex": "codex",
-    "claude": "claude",
-    "tokscale": None,  # Ships no CLI; detected from its configuration directory.
-}
-
 
 @dataclass(frozen=True)
 class FileSpec:

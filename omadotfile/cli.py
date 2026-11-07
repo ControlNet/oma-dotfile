@@ -7,26 +7,22 @@ from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
 
-from omadotfile.agents.base import Agent
-from omadotfile.agents.claude import Claude
-from omadotfile.agents.codex import Codex
+# Importing an agent module registers its @agent class in AGENT_CLASSES.
+from omadotfile.agents import claude, codex, omo_native, omp, opencode, tokscale  # noqa: F401
+from omadotfile.agents.base import AGENT_CLASSES, Agent
 from omadotfile.agents.omo import OmoConfig
-from omadotfile.agents.omo_native import OmoNative
-from omadotfile.agents.omp import Omp
-from omadotfile.agents.opencode import OpenCode
-from omadotfile.agents.tokscale import Tokscale
 from omadotfile.console import BANNER, error, info, step, success, warn
-from omadotfile.constants import AGENT_LABELS, GATEWAY_ENV_VARS, REQUIRED_ENV_VARS, REQUIRED_REPO_FILES
+from omadotfile.constants import GATEWAY_ENV_VARS, REQUIRED_ENV_VARS, REQUIRED_REPO_FILES
 from omadotfile.context import Context, Options, RepoRef
 from omadotfile.features.skills import install_shared_skills
 from omadotfile.features.wakatime import configure_wakatime
 from omadotfile.step import Step
 
-# One instance per agent, in the order of constants.AGENT_LABELS.
-AGENTS: dict[str, Agent] = {agent.key: agent for agent in (
-    OpenCode(), OmoNative(), Omp(), Codex(), Claude(), Tokscale(),
+# One instance per @agent class, in the order agents are detected and reported.
+AGENTS: dict[str, Agent] = {key: AGENT_CLASSES[key]() for key in (
+    "opencode", "omo", "omp", "codex", "claude", "tokscale",
 )}
-assert list(AGENTS) == list(AGENT_LABELS), "AGENTS must follow AGENT_LABELS"
+assert set(AGENTS) == set(AGENT_CLASSES), "AGENTS must list every @agent class"
 
 # The install steps, run in this order and numbered from 1.
 STEPS: tuple[Step, ...] = (
@@ -84,8 +80,8 @@ def report_agents(found: frozenset[str], forced: bool = False) -> None:
     if forced:
         info("Installing every target without detection (--all)")
         return
-    detected = [label for key, label in AGENT_LABELS.items() if key in found]
-    missing = [label for key, label in AGENT_LABELS.items() if key not in found]
+    detected = [agent.label for key, agent in AGENTS.items() if key in found]
+    missing = [agent.label for key, agent in AGENTS.items() if key not in found]
     info(f"Detected: {', '.join(detected)}" if detected else "Detected: nothing")
     if missing:
         warn(f"Not installed, skipping: {', '.join(missing)}")

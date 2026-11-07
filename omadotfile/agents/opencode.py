@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import sys
 
-from omadotfile.agents.base import Agent
+from omadotfile.agents.base import Agent, agent
 from omadotfile.console import item
 from omadotfile.constants import (LEGACY_OPENAGENT_CONFIG_NAMES, LEGACY_OPENCODE_JSON,
                                   OPENCODE_FILES, OPENCODE_PLUGINS_DIR)
@@ -53,8 +53,9 @@ def retire_legacy_openagent_files(ctx: Context, config_dir: Path) -> None:
         ctx.files.retire(config_dir / name)
 
 
+# The OMO OpenCode plugin has no executable of its own, so the OpenCode target gates its config.
+@agent("opencode", label="OpenCode/OMO", executable="opencode")
 class OpenCode(Agent):
-    key = "opencode"
     files = OPENCODE_FILES
 
     @staticmethod

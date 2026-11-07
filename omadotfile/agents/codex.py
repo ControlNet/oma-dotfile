@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 import sys
 
-from omadotfile.agents.base import Agent
+from omadotfile.agents.base import Agent, agent
 from omadotfile.console import info, success, warn
 from omadotfile.constants import CODEX_DISABLED_SHARED_SKILLS, CODEX_FILES
 from omadotfile.context import Context
@@ -237,8 +237,8 @@ def update_config(ctx: Context, dst: Path, transform: Callable[[list[str]], list
     return ctx.files.update(dst, LINES, transform, default=[])
 
 
+@agent("codex", label="Codex", executable="codex")
 class Codex(Agent):
-    key = "codex"
     files = CODEX_FILES
 
     @staticmethod

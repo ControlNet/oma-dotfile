@@ -12,7 +12,8 @@ from unittest.mock import patch
 
 from omadotfile import cli
 from omadotfile.agents import claude, omo_native, tokscale
-from omadotfile.constants import AGENT_LABELS, LEGACY_OMO_CONFIG_NAMES, LEGACY_OPENAGENT_CONFIG_NAMES
+from omadotfile.agents.base import AGENT_CLASSES, Agent, agent
+from omadotfile.constants import LEGACY_OMO_CONFIG_NAMES, LEGACY_OPENAGENT_CONFIG_NAMES
 from omadotfile.core import proc
 from omadotfile.features import skills, wakatime
 from support import ROOT, TestCase
@@ -116,7 +117,31 @@ class AgentDetectionTests(TestCase):
             # When detection is forced.
             found = cli.detect_agents({}, Path(tmp), force=True)
         # Then every known target is enabled.
-        self.assertEqual(found, frozenset(AGENT_LABELS))
+        self.assertEqual(found, frozenset(cli.AGENTS))
+
+    def test_agents_are_registered_by_their_decorator_in_report_order(self) -> None:
+        self.assertEqual(list(cli.AGENTS), ["opencode", "omo", "omp", "codex", "claude", "tokscale"])
+        self.assertEqual(set(cli.AGENTS), set(AGENT_CLASSES))
+        codex = cli.AGENTS["codex"]
+        self.assertIsInstance(codex, AGENT_CLASSES["codex"])
+        self.assertEqual((codex.key, codex.label, codex.executable), ("codex", "Codex", "codex"))
+        self.assertIsNone(cli.AGENTS["tokscale"].executable)
+
+    def test_agent_decorator_returns_the_class_and_refuses_a_second_key(self) -> None:
+        before = dict(AGENT_CLASSES)
+        try:
+            @agent("test-agent", label="Test Agent", executable=None)
+            class TestAgent(Agent):
+                pass
+
+            self.assertIs(AGENT_CLASSES["test-agent"], TestAgent)
+            self.assertEqual((TestAgent.key, TestAgent.label, TestAgent.executable),
+                             ("test-agent", "Test Agent", None))
+            with self.assertRaisesRegex(ValueError, "registered twice"):
+                agent("test-agent", label="Again", executable=None)(type("Again", (Agent,), {}))
+        finally:
+            AGENT_CLASSES.clear()
+            AGENT_CLASSES.update(before)
 
     def test_report_names_detected_and_skipped_targets(self) -> None:
         # Given a machine with Codex but no Claude Code.
@@ -132,7 +157,7 @@ class AgentDetectionTests(TestCase):
         # Given a machine with every agent installed.
         with contextlib.redirect_stdout(io.StringIO()) as out, \
                 contextlib.redirect_stderr(io.StringIO()) as err:
-            cli.report_agents(frozenset(AGENT_LABELS))
+            cli.report_agents(frozenset(cli.AGENTS))
         # Then nothing is reported as skipped.
         self.assertEqual(err.getvalue(), "")
         self.assertNotIn("--all", out.getvalue())
@@ -184,7 +209,7 @@ class InstallGatingTests(TestCase):
 
     def run_main(self, argv=None, env=None, **detected):
         """Run the installer with a fixed detection result."""
-        found = frozenset(name for name in AGENT_LABELS if detected.get(name, False))
+        found = frozenset(name for name in cli.AGENTS if detected.get(name, False))
         with patch.object(cli, "detect_agents", return_value=found):
             self.main(argv if argv is not None else [], env)
         return found
@@ -361,7 +386,7 @@ class InstallGatingTests(TestCase):
 
     def test_wakatime_config_follows_any_tracked_agent(self) -> None:
         # Given each agent alone; OMO Native and Tokscale have no WakaTime integration.
-        for name in AGENT_LABELS:
+        for name in cli.AGENTS:
             with self.subTest(target=name):
                 self.wakatime_config.reset_mock()
                 self.wakatime.reset_mock()

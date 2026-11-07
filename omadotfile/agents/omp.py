@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import re
 
-from omadotfile.agents.base import Agent
+from omadotfile.agents.base import Agent, agent
 from omadotfile.console import info, item, warn
 from omadotfile.constants import FileSpec, OMP_FILES, OMP_MODELS, OMP_MODELS_DST, OMP_MODELS_OAUTH
 from omadotfile.context import Context
@@ -69,8 +69,8 @@ def write_models(ctx: Context, dst: Path, content: str) -> bool:
     return ctx.files.write_text(dst, content)
 
 
+@agent("omp", label="oh-my-pi", executable="omp")
 class Omp(Agent):
-    key = "omp"
     files = OMP_FILES
 
     @staticmethod
