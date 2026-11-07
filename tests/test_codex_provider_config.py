@@ -107,7 +107,7 @@ class TomlStructureTests(TestCase):
         # Given instructions whose text contains config-looking lines.
         text = 'notify = ["x"]\n[model_providers.codex_api]\nmodel_provider = "codex_api"'
         content = f'developer_instructions = """\n{text}\n"""\n'
-        lines = codex.ensure_notify(content.splitlines(), Path("/codex"))
+        lines = codex.ensure_notify(content.splitlines(), Path("/codex"), "python3")
         lines = codex.ensure_api_provider(lines, "https://example.test/v1")
         lines = codex.ensure_oauth_provider(lines)
         document = tomllib.loads("\n".join(lines))
@@ -128,9 +128,8 @@ class TomlStructureTests(TestCase):
 @requires_tomllib
 class CodexNotifyPathTests(TestCase):
     def render_notify(self, python_bin: str, codex_dir: str) -> list:
-        with patch.object(codex.sys, "executable", python_bin):
-            lines = codex.ensure_notify([], PureWindowsPath(codex_dir)
-                                                     if "\\" in codex_dir else Path(codex_dir))
+        lines = codex.ensure_notify([], PureWindowsPath(codex_dir) if "\\" in codex_dir else Path(codex_dir),
+                                    python_bin)
         return tomllib.loads("\n".join(lines))["notify"]
 
     def test_windows_paths_round_trip(self) -> None:

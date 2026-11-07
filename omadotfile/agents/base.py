@@ -104,11 +104,11 @@ class Agent(Component):
 
     @staticmethod
     @abstractmethod
-    def config_dir(env: Mapping[str, str], home: Path) -> Path:
-        """The agent's config dir, found from the env the way the agent itself finds it."""
+    def config_dir(env: Mapping[str, str], home: Path, platform: str) -> Path:
+        """The agent's config dir, found from the env the way the agent itself finds it on `platform` (a sys.platform value)."""
         ...
 
-    def detect(self, env: Mapping[str, str], home: Path) -> bool:
+    def detect(self, env: Mapping[str, str], home: Path, platform: str) -> bool:
         return find_executable(self.executable, env, home) is not None
 
     def enabled(self, ctx: Context) -> bool:

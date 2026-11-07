@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
 
 from omadotfile.agents import tokscale
 from omadotfile.agents.tokscale import Tokscale
@@ -79,16 +78,13 @@ class TokscaleAliasesTests(TestCase):
     def test_platform_paths_and_override(self):
         home = self.directory
 
-        def config_dir(**env):
-            return Tokscale.config_dir(env, home)
+        def config_dir(platform: str = "linux", **env: str) -> Path:
+            return Tokscale.config_dir(env, home, platform)
 
         self.assertEqual(config_dir(), home / ".config/tokscale")
-        with patch.object(tokscale.sys, "platform", "linux"):
-            self.assertEqual(config_dir(XDG_CONFIG_HOME=str(home / "xdg")), home / "xdg/tokscale")
-        with patch.object(tokscale.sys, "platform", "darwin"):
-            self.assertEqual(config_dir(XDG_CONFIG_HOME=str(home / "xdg")), home / ".config/tokscale")
-        with patch.object(tokscale.sys, "platform", "win32"):
-            self.assertEqual(config_dir(APPDATA=str(home / "appdata")), home / "appdata/tokscale")
+        self.assertEqual(config_dir("linux", XDG_CONFIG_HOME=str(home / "xdg")), home / "xdg/tokscale")
+        self.assertEqual(config_dir("darwin", XDG_CONFIG_HOME=str(home / "xdg")), home / ".config/tokscale")
+        self.assertEqual(config_dir("win32", APPDATA=str(home / "appdata")), home / "appdata/tokscale")
         self.assertEqual(config_dir(TOKSCALE_CONFIG_DIR=str(self.config)), self.config)
 
     def test_repository_model_coverage(self):

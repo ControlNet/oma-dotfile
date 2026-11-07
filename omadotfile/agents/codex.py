@@ -5,7 +5,6 @@ from functools import partial
 import json
 from pathlib import Path
 import re
-import sys
 
 from omadotfile.agents.base import Agent
 from omadotfile.console import Note, info, success, warn
@@ -73,9 +72,8 @@ def ensure_api_provider(lines: list[str], codex_base_url: str) -> list[str]:
     )
 
 
-def ensure_notify(lines: list[str], codex_dir: Path) -> list[str]:
-    """Point Codex's top-level `notify` at the Gotify notifier, run by this Python."""
-    python_bin = sys.executable or "python3"
+def ensure_notify(lines: list[str], codex_dir: Path, python_bin: str) -> list[str]:
+    """Point Codex's top-level `notify` at the Gotify notifier, run by python_bin."""
     script_path = codex_dir / "codex-gotify-notify.py"
     desired_line = f"notify = [{toml_basic_string(python_bin)}, {toml_basic_string(str(script_path))}]"
     first_section_idx = find_first_toml_section_idx(lines)
@@ -226,7 +224,7 @@ def config_transform(ctx: Context, codex_dir: Path, note: Note = warn) -> Callab
     set_provider = provider_edit(ctx)
 
     def configure(lines: list[str]) -> list[str]:
-        lines = ensure_notify(lines, codex_dir)
+        lines = ensure_notify(lines, codex_dir, ctx.python)
         lines = ensure_shared_skills_disabled(lines, ctx.shared_skills_dir, note)
         return set_provider(lines)
 
@@ -253,7 +251,7 @@ class Codex(Agent, key="codex", label="Codex", executable="codex"):
     files = CODEX_FILES
 
     @staticmethod
-    def config_dir(env: Mapping[str, str], home: Path) -> Path:
+    def config_dir(env: Mapping[str, str], home: Path, platform: str) -> Path:
         if env.get("CODEX_DIR", ""):
             return Path(env["CODEX_DIR"])
         codex_home = env.get("CODEX_HOME", "").strip()

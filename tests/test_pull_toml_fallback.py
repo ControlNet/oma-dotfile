@@ -29,7 +29,7 @@ class TomlFallbackTests(TestCase):
             'model = "gpt"',
         ]
         # When the notify config is rewritten.
-        result = codex.ensure_notify(lines, Path("/codex"))
+        result = codex.ensure_notify(lines, Path("/codex"), "python3")
         # Then only the whole old array is replaced.
         self.assertEqual(result[0], 'model = "gpt"')
         self.assertTrue(result[1].startswith("notify = ["))
@@ -66,7 +66,7 @@ class TomlFallbackTests(TestCase):
             with self.subTest(ending=ending):
                 lines = [f"developer_instructions = {quote * 3}Say {quote}done{ending}",
                          "[profiles.work]", 'model = "gpt"']
-                result = codex.ensure_notify(lines, Path("/codex"))
+                result = codex.ensure_notify(lines, Path("/codex"), "python3")
                 # Then notify is top-level and the later table is untouched.
                 self.assertTrue(result[1].startswith("notify = ["), result)
                 self.assertEqual(result[2:], lines[1:])

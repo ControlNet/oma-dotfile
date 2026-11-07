@@ -76,7 +76,7 @@ class Omp(Agent, key="omp", label="oh-my-pi", executable="omp"):
     files = OMP_FILES
 
     @staticmethod
-    def config_dir(env: Mapping[str, str], home: Path) -> Path:
+    def config_dir(env: Mapping[str, str], home: Path, platform: str) -> Path:
         configured = env.get("OMP_AGENT_DIR", "").strip()
         if configured:
             return Path(configured)

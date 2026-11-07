@@ -116,7 +116,8 @@ class InstallRunTests(TestCase):
             "GITHUB_PERSONAL_ACCESS_TOKEN": "test-pat",
             "WAKATIME_API_KEY": "test-wakatime-key",
         }
-        # The process env is what PATH lookups (shutil.which) and Path.home() see.
+        # The installer reads only the env passed to main; the process env is the sandbox too,
+        # so anything that read os.environ instead would still not reach the real machine.
         self.enterContext(patch.dict(os.environ, self.env, clear=True))
         self.enterContext(patch.object(skills, "ls_remote_commit", lambda ctx, source: COMMIT))
 

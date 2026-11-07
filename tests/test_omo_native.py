@@ -219,12 +219,12 @@ class NativeAgentDirTests(TestCase):
     def test_agent_dir_follows_omo_override_order(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            self.assertEqual(OmoNative.config_dir({}, home), home / ".omo" / "agent")
+            self.assertEqual(OmoNative.config_dir({}, home, "linux"), home / ".omo" / "agent")
             self.assertEqual(OmoNative.config_dir({"PI_CODING_AGENT_DIR": "/pi",
-                                                   "SENPI_CODING_AGENT_DIR": "/senpi"}, home),
+                                                   "SENPI_CODING_AGENT_DIR": "/senpi"}, home, "linux"),
                              Path("/senpi"))
             self.assertEqual(OmoNative.config_dir({"OMO_CODING_AGENT_DIR": "/omo",
-                                                   "SENPI_CODING_AGENT_DIR": "/senpi"}, home),
+                                                   "SENPI_CODING_AGENT_DIR": "/senpi"}, home, "linux"),
                              Path("/omo"))
 
 

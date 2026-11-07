@@ -4,7 +4,6 @@ from collections.abc import Mapping
 from pathlib import Path
 import shutil
 import stat
-import sys
 
 from omadotfile.agents.base import Agent
 from omadotfile.console import item, success, warn
@@ -55,7 +54,7 @@ def stage_plugin(ctx: Context, src_dir: Path) -> Path:
     _ = shutil.copytree(src_dir, staged, ignore=shutil.ignore_patterns(*IGNORED_NAMES))
     hooks = staged / "hooks" / "hooks.json"
     # The plugin's scripts import from this Python's standard library only; run them with it.
-    document = with_hook_command(JSON.load(hooks.read_text(encoding="utf-8")), sys.executable or "python3")
+    document = with_hook_command(JSON.load(hooks.read_text(encoding="utf-8")), ctx.python)
     _ = hooks.write_text(JSON.dump(document), encoding="utf-8")
     return staged
 
@@ -128,7 +127,7 @@ class Claude(Agent, key="claude", label="Claude Code", executable="claude"):
     files = CLAUDE_FILES
 
     @staticmethod
-    def config_dir(env: Mapping[str, str], home: Path) -> Path:
+    def config_dir(env: Mapping[str, str], home: Path, platform: str) -> Path:
         configured = env.get("CLAUDE_CONFIG_DIR", "").strip()
         if configured:
             return Path(configured).expanduser()

@@ -3,7 +3,6 @@
 from collections.abc import Mapping
 import json
 from pathlib import Path
-import sys
 
 from omadotfile.agents.base import Agent
 from omadotfile.console import item
@@ -58,10 +57,10 @@ class OpenCode(Agent, key="opencode", label="OpenCode/OMO", executable="opencode
     files = OPENCODE_FILES
 
     @staticmethod
-    def config_dir(env: Mapping[str, str], home: Path) -> Path:
+    def config_dir(env: Mapping[str, str], home: Path, platform: str) -> Path:
         if env.get("CONFIG_DIR", ""):
             return Path(env["CONFIG_DIR"])
-        if sys.platform == "win32":
+        if platform == "win32":
             return home / ".config" / "opencode"
         xdg_config = env.get("XDG_CONFIG_HOME", "")
         if xdg_config:

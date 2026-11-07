@@ -73,9 +73,9 @@ def warn_missing_required_env_vars(env: Mapping[str, str], oauth: bool = False) 
     info("Script will continue, but related features may not work as expected.")
 
 
-def detect_agents(env: Mapping[str, str], home: Path, force: bool = False) -> frozenset[str]:
+def detect_agents(env: Mapping[str, str], home: Path, platform: str, force: bool = False) -> frozenset[str]:
     """Keys of the agents whose software is present, so only their config gets installed."""
-    return frozenset(key for key, agent in AGENTS.items() if force or agent.detect(env, home))
+    return frozenset(key for key, agent in AGENTS.items() if force or agent.detect(env, home, platform))
 
 
 def report_agents(found: frozenset[str], forced: bool = False) -> None:
@@ -133,7 +133,7 @@ def main(argv: Sequence[str] | None = None, repo: Path | None = None,
 
     print(BANNER)
     warn_missing_required_env_vars(env, oauth=options.oauth)
-    found = detect_agents(env, home, force=options.install_all)
+    found = detect_agents(env, home, sys.platform, force=options.install_all)
     report_agents(found, forced=options.install_all)
 
     info(f"Using repository: {repo}")
@@ -149,9 +149,10 @@ def main(argv: Sequence[str] | None = None, repo: Path | None = None,
             options=options,
             env=env,
             home=home,
+            python=sys.executable or "python3",
             source=RepoRef.from_env(env),
             found=found,
-            dirs={key: agent.config_dir(env, home) for key, agent in AGENTS.items()},
+            dirs={key: agent.config_dir(env, home, sys.platform) for key, agent in AGENTS.items()},
         )
         run_steps(ctx)
     report_done(ctx)

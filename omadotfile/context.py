@@ -60,9 +60,10 @@ class RepoRef:
 class Context:
     repo: Path  # the checkout installed from
     work: Path  # scratch dir for downloads, removed after the run
+    home: Path
+    python: str  # the interpreter that runs installed hooks and the Codex notifier
     options: Options = Options()
     env: Mapping[str, str] = field(default_factory=dict)  # snapshot of os.environ
-    home: Path = field(default_factory=Path.home)
     stamp: str = field(default_factory=timestamp)  # suffix of this run's backups
     source: RepoRef = RepoRef()
     found: frozenset[str] = frozenset()  # keys of the agents to install for

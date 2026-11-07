@@ -4,7 +4,6 @@ from collections.abc import Mapping
 from functools import partial
 import json
 from pathlib import Path
-import sys
 
 from omadotfile.agents.base import Agent
 from omadotfile.console import info, success
@@ -56,19 +55,19 @@ class Tokscale(Agent, key="tokscale", label="Tokscale", executable=None):
     creates_dir = False  # only once there are aliases to write
 
     @staticmethod
-    def config_dir(env: Mapping[str, str], home: Path) -> Path:
+    def config_dir(env: Mapping[str, str], home: Path, platform: str) -> Path:
         """Follow Tokscale's platform defaults and native directory override."""
         override = env.get("TOKSCALE_CONFIG_DIR", "")
         if override:
             return Path(override)
-        if sys.platform == "win32" and env.get("APPDATA"):
+        if platform == "win32" and env.get("APPDATA"):
             return Path(env["APPDATA"]) / "tokscale"
-        if sys.platform != "darwin" and env.get("XDG_CONFIG_HOME"):
+        if platform != "darwin" and env.get("XDG_CONFIG_HOME"):
             return Path(env["XDG_CONFIG_HOME"]) / "tokscale"
         return home / ".config" / "tokscale"
 
-    def detect(self, env: Mapping[str, str], home: Path) -> bool:
-        return self.config_dir(env, home).is_dir()
+    def detect(self, env: Mapping[str, str], home: Path, platform: str) -> bool:
+        return self.config_dir(env, home, platform).is_dir()
 
     def title(self, ctx: Context) -> str:
         return "Configuring Tokscale model aliases"

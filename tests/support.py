@@ -36,7 +36,8 @@ class TestCase(unittest.TestCase):
 def make_context(home: Path, *, repo: Path = ROOT, work: Path | None = None, oauth: bool = False,
                  backup: bool = True, max_backups: int = 1, env: Mapping[str, str] | None = None,
                  found: Iterable[str] = (), dirs: Mapping[str, Path] | None = None,
-                 stamp: str = STAMP, source: RepoRef = RepoRef()) -> Context:
+                 stamp: str = STAMP, source: RepoRef = RepoRef(), platform: str = sys.platform,
+                 python: str = sys.executable) -> Context:
     """A Context whose home, scratch dir and agent dirs all live under `home`.
 
     Agent dirs default to the ones each agent finds from `env` and `home`, as cli.main does.
@@ -45,13 +46,14 @@ def make_context(home: Path, *, repo: Path = ROOT, work: Path | None = None, oau
 
     env = dict(env or {})
     if dirs is None:
-        dirs = {key: agent.config_dir(env, home) for key, agent in AGENTS.items()}
+        dirs = {key: agent.config_dir(env, home, platform) for key, agent in AGENTS.items()}
     return Context(
         repo=repo,
         work=work if work is not None else home / ".work",
         options=Options(oauth=oauth, backup=backup, max_backups=max_backups),
         env=env,
         home=home,
+        python=python,
         stamp=stamp,
         source=source,
         found=frozenset(found),

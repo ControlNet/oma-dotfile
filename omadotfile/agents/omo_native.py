@@ -226,7 +226,7 @@ class OmoNative(Agent, key="omo", label="OMO Native", executable="omo"):
     files = OMO_NATIVE_FILES
 
     @staticmethod
-    def config_dir(env: Mapping[str, str], home: Path) -> Path:
+    def config_dir(env: Mapping[str, str], home: Path, platform: str) -> Path:
         """The OMO Native engine state directory, found the way omo itself finds it."""
         for name in OMO_AGENT_DIR_ENV_NAMES:
             configured = env.get(name, "").strip()

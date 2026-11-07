@@ -100,7 +100,7 @@ class AgentDetectionTests(TestCase):
         # Given a machine with only opencode and omp installed.
         for name in ("opencode", "omp"):
             make_executable(self.bin / name)
-        found = cli.detect_agents(self.env, self.home)
+        found = cli.detect_agents(self.env, self.home, "linux")
         # Then exactly those targets are enabled.
         self.assertEqual(found, frozenset({"opencode", "omp"}))
 
@@ -111,13 +111,13 @@ class AgentDetectionTests(TestCase):
         for config_dir, expected in ((present, True), (self.tmp / "absent", False)):
             with self.subTest(config_dir=config_dir.name):
                 # When targets are detected.
-                found = cli.detect_agents({**self.env, "TOKSCALE_CONFIG_DIR": str(config_dir)}, self.home)
+                found = cli.detect_agents({**self.env, "TOKSCALE_CONFIG_DIR": str(config_dir)}, self.home, "linux")
                 # Then its configuration directory decides.
                 self.assertEqual("tokscale" in found, expected)
 
     def test_force_enables_every_target_without_any_agent(self) -> None:
         # Given a machine with nothing installed; when detection is forced.
-        found = cli.detect_agents(self.env, self.home, force=True)
+        found = cli.detect_agents(self.env, self.home, "linux", force=True)
         # Then every known target is enabled.
         self.assertEqual(found, frozenset(cli.AGENTS))
 

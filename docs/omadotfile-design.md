@@ -482,3 +482,25 @@ then formats its message from the original parameters.
 
 Pilot: the four Files-only wrappers (`claude.update_settings`, `omo_native.update_settings`,
 `omp.write_models`, `skills.save_commits`). Golden runs: identical.
+
+### Ambient state through the composition root (2026-11-07)
+
+After the DI pass, `cli.main` is the only reader of process state; everything below it gets
+what it needs from the Context or as a parameter:
+
+- PATH lookups use the run's env: `find_executable(name, env, home)` (PATH, then per-user bin
+  dirs) to find an agent CLI, `on_path(name, env)` (PATH only) for what a hook's shebang will
+  find (`python3` for the commit-msg hook, `node` for the WakaTime hooks). An env without PATH
+  gets `os.defpath`; `shutil.which(path=None)` would have fallen back to `os.environ`.
+- git runs through `ctx.runner`: `Runner.run` gained `check=False` (`git config --get` exits 1
+  for an unset key) and a per-call `timeout` (`git ls-remote` keeps 30 s). A missing git now
+  warns "Failed to run git config ...: [Errno 2] ...; commit-msg hook not installed" instead of
+  "git config failed (FileNotFoundError); ...".
+- `sys.platform` is a parameter of `Agent.config_dir`/`detect`; `sys.executable` is
+  `ctx.python`, passed to `codex.ensure_notify` as `python_bin`. Context's `home` and `python`
+  are required fields (no `Path.home()` default).
+
+Tests now pass a fake PATH, platform or interpreter as arguments instead of patching
+`shutil.which`, `tokscale.sys` or `codex.sys`. Golden runs: identical JSON in all five scenarios.
+Left as is: `pull.py` (the bootstrap reads its own env before the package is importable),
+`Context.stamp` (the clock), and `PATHEXT`, which `shutil.which` reads from `os.environ` on Windows.
