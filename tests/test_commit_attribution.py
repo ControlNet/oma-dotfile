@@ -5,7 +5,6 @@ directories. Git runs for real, but against a temporary global config and HOME.
 """
 
 import contextlib
-import importlib.util
 import io
 import json
 import os
@@ -17,14 +16,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("pull_commit_attribution", ROOT / "omadotfile" / "legacy.py")
-assert SPEC is not None and SPEC.loader is not None
-pull = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(pull)
+from omadotfile.agents import claude
+from support import ROOT, make_context
 
 HOOK = ROOT / "git-hooks" / "commit-msg"
-
 
 
 def quiet(function, *args):
@@ -38,10 +33,10 @@ class ClaudeAttributionTests(unittest.TestCase):
     def setUp(self):
         self.claude = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.settings = self.claude / "settings.json"
-        self.enterContext(patch.object(pull, "NO_BACKUP", False))
+        self.ctx = make_context(self.claude / "home", backup=True)
 
     def install(self) -> str:
-        return quiet(pull.ensure_claude_attribution, self.claude, "test")
+        return quiet(claude.ensure_attribution, self.ctx, self.claude)
 
     def read(self) -> dict:
         return json.loads(self.settings.read_text(encoding="utf-8"))
@@ -90,10 +85,11 @@ class GitHookTests(unittest.TestCase):
                "GIT_CONFIG_NOSYSTEM": "1"}
         self.enterContext(patch.dict(os.environ, env))
         os.environ.pop("XDG_CONFIG_HOME", None)
-        self.enterContext(patch.object(pull, "NO_BACKUP", False))
 
     def install(self) -> str:
-        return quiet(pull.ensure_git_commit_msg_hook, ROOT, "test")
+        # A fresh context per run, like each install run, with the env it would snapshot.
+        ctx = make_context(self.home, env=dict(os.environ), backup=True, stamp="test")
+        return quiet(claude.ensure_commit_msg_hook, ctx)
 
     def hooks_path(self) -> str:
         return subprocess.run(["git", "config", "--global", "--get", "core.hooksPath"],
@@ -149,14 +145,14 @@ class GitHookTests(unittest.TestCase):
 
     def test_without_python3_the_hook_is_not_installed(self):
         # The hook runs through `#!/usr/bin/env python3`; without it every commit would fail.
-        with patch.object(pull.shutil, "which", return_value=None):
+        with patch.object(claude.shutil, "which", return_value=None):
             output = self.install()
         self.assertEqual(self.hooks_path(), "")
         self.assertFalse((self.home / ".config").exists())
         self.assertIn("python3", output)
 
     def test_without_git_nothing_happens(self):
-        with patch.object(pull.subprocess, "run", side_effect=FileNotFoundError("git")):
+        with patch.object(claude.subprocess, "run", side_effect=FileNotFoundError("git")):
             output = self.install()
         self.assertFalse((self.home / ".config").exists())
         self.assertIn("git", output)

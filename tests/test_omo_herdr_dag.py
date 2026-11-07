@@ -5,7 +5,6 @@ contents are fake stand-ins, not upstream code. npm, node and herdr are never ru
 """
 
 import contextlib
-import importlib.util
 import io
 import json
 from pathlib import Path
@@ -14,11 +13,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("pull_omo_herdr_dag", ROOT / "omadotfile" / "legacy.py")
-assert SPEC is not None and SPEC.loader is not None
-pull = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(pull)
+from omadotfile.agents import omo_native
+from omadotfile.constants import OMO_HERDR_DAG_VERSION
+from omadotfile.core.proc import Runner
+from support import make_context
 
 MARKER = "// managed by omo-herdr-dag"
 FAKE_DIST = {
@@ -72,7 +70,7 @@ class InstallStateTests(unittest.TestCase):
         self.agent = self.tmp / "agent"
 
     def state(self) -> str:
-        return pull.herdr_dag_install_state(self.dist, self.agent)
+        return omo_native.herdr_dag_install_state(self.dist, self.agent)
 
     def test_fresh_agent_dir_is_missing(self):
         self.assertEqual(self.state(), "missing")
@@ -120,14 +118,14 @@ class ExtractTests(unittest.TestCase):
 
     def test_extracts_package_root(self):
         tgz = self.tarball({"package/bin/omo-herdr-dag.mjs": "// fake\n", "package/dist/LICENSE": "x\n"})
-        package = pull.extract_npm_package(tgz, self.tmp / "out")
+        package = omo_native.extract_npm_package(tgz, self.tmp / "out")
         self.assertEqual(package, self.tmp / "out" / "package")
         self.assertTrue((package / "dist" / "LICENSE").is_file())
 
     def test_rejects_member_escaping_the_package(self):
         tgz = self.tarball({"package/bin/omo-herdr-dag.mjs": "// fake\n", "package/../evil.txt": "x\n"})
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            self.assertIsNone(pull.extract_npm_package(tgz, self.tmp / "out"))
+            self.assertIsNone(omo_native.extract_npm_package(tgz, self.tmp / "out"))
         self.assertFalse((self.tmp / "out" / "evil.txt").exists())
         self.assertFalse((self.tmp / "evil.txt").exists())
 
@@ -141,12 +139,12 @@ class EnsureTests(unittest.TestCase):
         self.commands = []
         self.found = {"herdr", "node", "npm"}
         self.enterContext(patch.object(
-            pull, "find_agent_executable",
+            Runner, "which",
             side_effect=lambda name: Path("/fake/bin") / name if name in self.found else None))
-        self.enterContext(patch.object(pull, "read_plugin_json", side_effect=self.fake_npm_pack))
-        self.enterContext(patch.object(pull, "run_plugin_command", side_effect=self.fake_run))
+        self.enterContext(patch.object(Runner, "json", side_effect=self.fake_npm_pack))
+        self.enterContext(patch.object(Runner, "ok", side_effect=self.fake_run))
 
-    def fake_npm_pack(self, command, env_var, config_dir):
+    def fake_npm_pack(self, command, extra_env=None):
         self.commands.append(command)
         destination = Path(command[command.index("--pack-destination") + 1])
         members = {f"package/dist/{name}": text for name, text in FAKE_DIST.items()}
@@ -154,13 +152,13 @@ class EnsureTests(unittest.TestCase):
         tgz = write_tgz(destination / "omo-herdr-dag-fake.tgz", members)
         return [{"filename": tgz.name}]
 
-    def fake_run(self, command, env_var, config_dir):
+    def fake_run(self, command, extra_env=None):
         self.commands.append(command)
         return True
 
     def ensure(self):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            pull.ensure_omo_herdr_dag(self.agent, self.work)
+            omo_native.ensure_herdr_dag(make_context(self.tmp), self.agent, self.work)
 
     def installs(self):
         return [command for command in self.commands if "install" in command]
@@ -168,7 +166,7 @@ class EnsureTests(unittest.TestCase):
     def test_missing_install_runs_upstream_installer_with_agent_dir(self):
         self.ensure()
         pack = self.commands[0]
-        self.assertEqual(pack[:3], ["npm", "pack", f"omo-herdr-dag@{pull.OMO_HERDR_DAG_VERSION}"])
+        self.assertEqual(pack[:3], ["npm", "pack", f"omo-herdr-dag@{OMO_HERDR_DAG_VERSION}"])
         (install,) = self.installs()
         self.assertEqual(install[0], "node")
         self.assertTrue(install[1].endswith("package/bin/omo-herdr-dag.mjs"))

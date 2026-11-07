@@ -48,8 +48,8 @@ def run(repo_dir, argv):
     if not (repo_dir / "omadotfile" / "__init__.py").is_file():
         fail("{} has no omadotfile package; it is older than this pull.py".format(repo_dir))
     sys.path.insert(0, str(repo_dir))
-    from omadotfile.legacy import main
-    main(argv, repo_path=repo_dir)
+    from omadotfile.cli import main
+    main(argv, repo=repo_dir)
 
 
 def main(argv):

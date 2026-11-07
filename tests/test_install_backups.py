@@ -1,27 +1,24 @@
 """Backup policy: back up user-editable config only when it changes; never back up plugin code."""
 
-import importlib.util
+import contextlib
+import io
 import os
 from pathlib import Path
-import sys
 import tempfile
 import unittest
-from unittest.mock import patch
 
+from omadotfile.agents import omp
+from omadotfile.core.files import Files
+from support import ROOT, make_context
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-SPEC = importlib.util.spec_from_file_location("pull_backup_policy", ROOT / "omadotfile" / "legacy.py")
-pull = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(pull)
-
+# Later than the older backup a test plants, so pruning has a newest backup to keep.
 STAMP = "20261007-120000"
 
 
 class BackupPolicyTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
-        self.enterContext(patch.object(pull, "NO_BACKUP", False))
+        self.files = Files(STAMP, backup=True, keep=1)
         self.src = self.tmp / "src.txt"
         self.dst = self.tmp / "out" / "dst.txt"
         self.dst.parent.mkdir()
@@ -34,7 +31,7 @@ class BackupPolicyTests(unittest.TestCase):
         _ = self.dst.write_text("same\n", encoding="utf-8")
         os.utime(self.dst, ns=(1_000_000_000, 1_000_000_000))
 
-        pull.backup_and_install(self.src, self.dst, STAMP)
+        self.files.copy(self.src, self.dst)
 
         self.assertEqual(self.backups(self.dst), [])
         self.assertEqual(self.dst.stat().st_mtime_ns, 1_000_000_000)
@@ -43,7 +40,7 @@ class BackupPolicyTests(unittest.TestCase):
         _ = self.src.write_text("new\n", encoding="utf-8")
         _ = self.dst.write_text("local edit\n", encoding="utf-8")
 
-        pull.backup_and_install(self.src, self.dst, STAMP)
+        self.files.copy(self.src, self.dst)
 
         self.assertEqual(self.dst.read_text(encoding="utf-8"), "new\n")
         self.assertEqual([p.read_text(encoding="utf-8") for p in self.backups(self.dst)],
@@ -58,8 +55,7 @@ class BackupPolicyTests(unittest.TestCase):
         _ = self.dst.write_text("restored config\n", encoding="utf-8")
         os.utime(self.dst, ns=(1_000_000_000, 1_000_000_000))
 
-        with patch.object(pull, "MAX_BACKUPS", 1):
-            pull.backup_and_install(self.src, self.dst, STAMP)
+        self.files.copy(self.src, self.dst)
 
         # Then the kept backup is the config this run replaced, not the older one.
         self.assertEqual([p.read_text(encoding="utf-8") for p in self.backups(self.dst)],
@@ -69,7 +65,7 @@ class BackupPolicyTests(unittest.TestCase):
         _ = self.src.write_text("plugin v2\n", encoding="utf-8")
         _ = self.dst.write_text("plugin v1\n", encoding="utf-8")
 
-        pull.install_managed_file(self.src, self.dst)
+        self.files.copy(self.src, self.dst, backup=False)
 
         self.assertEqual(self.dst.read_text(encoding="utf-8"), "plugin v2\n")
         self.assertEqual(self.backups(self.dst), [])
@@ -78,18 +74,20 @@ class BackupPolicyTests(unittest.TestCase):
         _ = self.src.write_text("plugin\n", encoding="utf-8")
         dst = self.tmp / "new" / "extensions" / "plugin.js"
 
-        pull.install_managed_file(self.src, dst)
+        self.files.copy(self.src, dst, backup=False)
         self.assertEqual(dst.read_text(encoding="utf-8"), "plugin\n")
 
         os.utime(dst, ns=(1_000_000_000, 1_000_000_000))
-        pull.install_managed_file(self.src, dst)
+        self.files.copy(self.src, dst, backup=False)
         self.assertEqual(dst.stat().st_mtime_ns, 1_000_000_000)
 
     def test_rerendered_omp_models_are_not_backed_up_again(self):
-        dst = self.tmp / "omp" / "models.yml"
-        with patch.dict(os.environ, {"CODEX_BASE_URL": "https://example.invalid/v1"}):
-            pull.backup_and_install_omp_models(ROOT / "omp_models.yaml", dst, STAMP)
-            pull.backup_and_install_omp_models(ROOT / "omp_models.yaml", dst, "20261007-120001")
+        agent_dir = self.tmp / "omp"
+        dst = agent_dir / "models.yml"
+        env = {"CODEX_BASE_URL": "https://example.invalid/v1"}
+        with contextlib.redirect_stdout(io.StringIO()):
+            for stamp in (STAMP, "20261007-120001"):
+                omp.install_models(make_context(self.tmp, repo=ROOT, env=env, stamp=stamp), agent_dir)
 
         self.assertTrue(dst.is_file())
         self.assertEqual(self.backups(dst), [])

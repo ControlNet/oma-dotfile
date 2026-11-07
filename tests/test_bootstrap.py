@@ -1,6 +1,6 @@
 """Tests for pull.py, the bootstrap that runs omadotfile.
 
-Nothing is cloned or installed: omadotfile.legacy.main is replaced by a mock.
+Nothing is cloned or installed: omadotfile.cli.main is replaced by a mock.
 """
 
 import ast
@@ -19,7 +19,7 @@ assert SPEC is not None and SPEC.loader is not None
 bootstrap = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(bootstrap)
 sys.path.insert(0, str(ROOT))
-import omadotfile.legacy  # noqa: E402  (the module run() imports)
+import omadotfile.cli  # noqa: E402  (the module run() imports)
 
 
 def errors_of(function, *args) -> str:
@@ -39,9 +39,9 @@ class BootstrapTests(unittest.TestCase):
         self.assertIn("--repo needs a path", errors_of(bootstrap.split_repo_arg, ["--repo"]))
 
     def test_local_checkout_runs_its_own_package(self):
-        with patch.object(omadotfile.legacy, "main") as main:
+        with patch.object(omadotfile.cli, "main") as main:
             bootstrap.main(["--repo", str(ROOT), "--oauth"])
-        main.assert_called_once_with(["--oauth"], repo_path=ROOT)
+        main.assert_called_once_with(["--oauth"], repo=ROOT)
 
     def test_checkout_without_the_package_is_refused_in_one_line(self):
         with tempfile.TemporaryDirectory() as directory:

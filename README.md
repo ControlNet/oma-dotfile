@@ -94,7 +94,7 @@ Claude Code already has.
   is installed, so no skill loads twice. The old `frontend-claude` goes too once `frontend-design`
   is in. Other skills in those folders are left alone.
 - Skills are skipped with a warning when `npx` is missing or offline; old copies then stay.
-- To add a third-party skill, add its source to `UPSTREAM_SKILLS` in `omadotfile/legacy.py` (`ALL_SKILLS` takes
+- To add a third-party skill, add its source to `UPSTREAM_SKILLS` in `omadotfile/constants.py` (`ALL_SKILLS` takes
   every skill in that source). To add your own,
   put it in `skills/` and push.
 - To drop one of your own, delete it from `skills/` and add its name to `REMOVED_SKILLS`. The next

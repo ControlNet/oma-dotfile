@@ -5,7 +5,6 @@ temporary directories. npx and the skills CLI are never run.
 """
 
 import contextlib
-import importlib.util
 import io
 import json
 from pathlib import Path
@@ -14,13 +13,15 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("pull_agent_skills", ROOT / "omadotfile" / "legacy.py")
-assert SPEC is not None and SPEC.loader is not None
-pull = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(pull)
+from omadotfile import constants
+from omadotfile.context import RepoRef
+from omadotfile.core import proc
+from omadotfile.core.proc import Runner
+from omadotfile.features import skills
+from support import ROOT, make_context
 
-REPO_SOURCE = f"{pull.REPO_OWNER}/{pull.REPO_NAME}#{pull.REPO_REV}"
+THIS_REPO = RepoRef()
+REPO_SOURCE = THIS_REPO.skills_source
 
 
 def write_skill(root: Path, name: str, text: str = "kept\n") -> Path:
@@ -50,37 +51,37 @@ class SourceTests(unittest.TestCase):
         (self.repo / "skills" / "notes").mkdir()
         _ = (self.repo / "skills" / "README.md").write_text("not a skill\n", encoding="utf-8")
         # Then only real skills are installed, from GitHub at the cloned branch.
-        sources = pull.agent_skill_sources(self.repo)
+        sources = skills.skill_sources(self.repo, THIS_REPO)
         self.assertEqual(sources[REPO_SOURCE], ("github-cli", "secret-guard"))
         # And the upstream skills come from their own repos.
-        for source, names in pull.UPSTREAM_SKILLS.items():
+        for source, names in constants.UPSTREAM_SKILLS.items():
             self.assertEqual(sources[source], names)
 
     def test_repo_without_skills_installs_only_upstream(self):
-        self.assertEqual(pull.agent_skill_sources(self.repo), pull.UPSTREAM_SKILLS)
+        self.assertEqual(skills.skill_sources(self.repo, THIS_REPO), constants.UPSTREAM_SKILLS)
 
     def test_upstream_replaces_the_retired_vendored_copies(self):
-        upstream = {name for names in pull.UPSTREAM_SKILLS.values() for name in names} - {pull.ALL_SKILLS}
+        upstream = {name for names in constants.UPSTREAM_SKILLS.values() for name in names} - {constants.ALL_SKILLS}
         self.assertEqual(upstream, {"find-skills", "web-design-guidelines", "frontend-design",
                                     "skill-creator", "ui-ux-pro-max", "herdr"})
-        self.assertEqual(pull.RETIRED_SKILLS, {"frontend-claude": "frontend-design"})
+        self.assertEqual(constants.RETIRED_SKILLS, {"frontend-claude": "frontend-design"})
         for name in (*upstream, "frontend-claude"):
             self.assertFalse((ROOT / "skills" / name).exists(), name)
 
     def test_every_ccfa_skill_is_installed(self):
-        self.assertEqual(pull.UPSTREAM_SKILLS["mikubaka88/CCFA-Skills"], (pull.ALL_SKILLS,))
-        command = pull.skills_cli_add_command("mikubaka88/CCFA-Skills", (pull.ALL_SKILLS,))
+        self.assertEqual(constants.UPSTREAM_SKILLS["mikubaka88/CCFA-Skills"], (constants.ALL_SKILLS,))
+        command = skills.add_command("mikubaka88/CCFA-Skills", (constants.ALL_SKILLS,))
         self.assertEqual(command[command.index("-s") + 1:command.index("-s") + 3], ["*", "-y"])
 
     def test_add_command_can_also_link_into_claude_code(self):
-        command = pull.skills_cli_add_command("o/r", ("a", "b"), ("universal", "claude-code"))
+        command = skills.add_command("o/r", ("a", "b"), ("universal", "claude-code"))
         self.assertEqual(command[command.index("-a"):command.index("-s") + 3],
                          ["-a", "universal", "claude-code", "-s", "a", "b"])
 
     def test_add_command_installs_globally_into_the_shared_dir_only(self):
-        command = pull.skills_cli_add_command("vercel-labs/skills", ("find-skills",))
+        command = skills.add_command("vercel-labs/skills", ("find-skills",))
         self.assertEqual(command, [
-            "npx", "-y", f"skills@{pull.SKILLS_CLI_VERSION}", "add", "vercel-labs/skills",
+            "npx", "-y", f"skills@{constants.SKILLS_CLI_VERSION}", "add", "vercel-labs/skills",
             "-g", "-a", "universal", "-s", "find-skills", "-y", "--json",
         ])
 
@@ -88,11 +89,11 @@ class SourceTests(unittest.TestCase):
 class InstalledNamesTests(unittest.TestCase):
     def test_only_installed_entries_count(self):
         reply = cli_reply(installed=("skill-creator",), skipped=("frontend-design",))
-        self.assertEqual(pull.installed_skill_names(reply), {"skill-creator"})
+        self.assertEqual(skills.installed_skill_names(reply), {"skill-creator"})
 
     def test_unexpected_replies_install_nothing(self):
         for reply in (None, {}, "installed", [None, {"status": "installed"}, {"name": 1, "status": "installed"}]):
-            self.assertEqual(pull.installed_skill_names(reply), set(), reply)
+            self.assertEqual(skills.installed_skill_names(reply), set(), reply)
 
 
 class AgentSkillsHarness(unittest.TestCase):
@@ -103,19 +104,19 @@ class AgentSkillsHarness(unittest.TestCase):
         self.repo = self.tmp / "repo"
         write_skill(self.repo / "skills", "github-cli")
         self.legacy = [self.tmp / "opencode" / "skills", self.tmp / "codex" / "skills"]
-        self.npx = self.enterContext(patch.object(pull, "find_agent_executable",
-                                                  return_value=Path("/fake/bin/npx")))
+        self.ctx = make_context(self.tmp / "home", repo=self.repo)
+        # Runner methods are patched on the class: ctx.runner calls them without self.
+        self.npx = self.enterContext(patch.object(Runner, "which", return_value=Path("/fake/bin/npx")))
         self.replies: dict[str, object] = {}
-        self.cli = self.enterContext(patch.object(pull, "read_plugin_json", side_effect=self.reply))
+        self.cli = self.enterContext(patch.object(Runner, "json", side_effect=self.reply))
         self.lock = self.tmp / "state" / ".skill-lock.json"
-        self.enterContext(patch.object(pull, "skills_lock_path", return_value=self.lock))
-        self.remove = self.enterContext(patch.object(pull, "run_plugin_command", return_value=True))
+        self.enterContext(patch.object(skills, "lock_path", return_value=self.lock))
+        self.remove = self.enterContext(patch.object(Runner, "ok", return_value=True))
         # No source commit is known unless a test sets one, so every source installs.
         self.commits: dict[str, str] = {}
-        self.enterContext(patch.object(pull, "remote_skill_commits", side_effect=lambda sources: {
+        self.enterContext(patch.object(skills, "remote_commits", side_effect=lambda ctx, sources: {
             source: commit for source, commit in self.commits.items() if source in sources}))
-        self.shared = self.tmp / "agents" / "skills"
-        self.enterContext(patch.object(pull, "shared_skills_dir", return_value=self.shared))
+        self.shared = self.ctx.shared_skills_dir
 
     def write_lock(self, sources: dict[str, str]) -> None:
         self.lock.parent.mkdir(parents=True, exist_ok=True)
@@ -128,7 +129,7 @@ class AgentSkillsHarness(unittest.TestCase):
     def run_install(self) -> str:
         with contextlib.redirect_stdout(io.StringIO()) as out, \
                 contextlib.redirect_stderr(io.StringIO()) as err:
-            pull.ensure_agent_skills(self.repo, self.legacy)
+            skills.ensure_skills(self.ctx, self.legacy)
         return out.getvalue() + err.getvalue()
 
 
@@ -136,9 +137,9 @@ class EnsureAgentSkillsTests(AgentSkillsHarness):
     def test_each_source_runs_with_telemetry_off(self):
         self.run_install()
         sources = [call.args[0][4] for call in self.cli.call_args_list]
-        self.assertEqual(sources, [*pull.UPSTREAM_SKILLS, REPO_SOURCE])
+        self.assertEqual(sources, [*constants.UPSTREAM_SKILLS, REPO_SOURCE])
         for call in self.cli.call_args_list:
-            self.assertEqual(call.kwargs["extra_env"], {"DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1"})
+            self.assertEqual(call.args[1], {"DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1"})
 
     def test_installed_skills_leave_the_agent_dirs_and_others_stay(self):
         # Given old copies in two agent dirs, next to the user's own skill.
@@ -213,7 +214,7 @@ class ClaudeCodeSkillTests(AgentSkillsHarness):
 
     def run_with_claude(self) -> None:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            pull.ensure_agent_skills(self.repo, self.legacy, self.tmp / "claude")
+            skills.ensure_skills(self.ctx, self.legacy, self.tmp / "claude")
 
     def installs(self) -> list[tuple[str, tuple[str, ...], tuple[str, ...]]]:
         result = []
@@ -233,7 +234,7 @@ class ClaudeCodeSkillTests(AgentSkillsHarness):
             ("anthropics/skills", ("frontend-design",), both),
             ("anthropics/skills", ("skill-creator",), shared),
             ("nextlevelbuilder/ui-ux-pro-max-skill", ("ui-ux-pro-max",), both),
-            ("mikubaka88/CCFA-Skills", (pull.ALL_SKILLS,), both),
+            ("mikubaka88/CCFA-Skills", (constants.ALL_SKILLS,), both),
             ("herdrdev/herdr", ("herdr",), both),
             (REPO_SOURCE, ("github-cli",), both),
         ])
@@ -241,31 +242,31 @@ class ClaudeCodeSkillTests(AgentSkillsHarness):
     def test_claude_config_dir_is_passed_to_the_cli(self):
         self.run_with_claude()
         for call in self.cli.call_args_list:
-            self.assertEqual(call.kwargs["extra_env"]["CLAUDE_CONFIG_DIR"], str(self.tmp / "claude"))
+            self.assertEqual(call.args[1]["CLAUDE_CONFIG_DIR"], str(self.tmp / "claude"))
 
     def test_without_claude_code_nothing_links_into_it(self):
         self.run_install()
         for source, names, agents in self.installs():
             self.assertEqual(agents, ("universal",), source)
         for call in self.cli.call_args_list:
-            self.assertNotIn("CLAUDE_CONFIG_DIR", call.kwargs["extra_env"])
+            self.assertNotIn("CLAUDE_CONFIG_DIR", call.args[1])
 
 
 class RemovedSkillTests(AgentSkillsHarness):
     """Skills dropped from this repo are uninstalled from ~/.agents/skills."""
 
     def test_frontend_codex_is_no_longer_shipped(self):
-        self.assertIn("frontend-codex", pull.REMOVED_SKILLS)
+        self.assertIn("frontend-codex", constants.REMOVED_SKILLS)
         self.assertFalse((ROOT / "skills" / "frontend-codex").exists())
-        self.assertNotIn("frontend-codex", pull.agent_skill_sources(ROOT).get(REPO_SOURCE, ()))
+        self.assertNotIn("frontend-codex", skills.skill_sources(ROOT, THIS_REPO).get(REPO_SOURCE, ()))
 
     def test_skill_installed_from_this_repo_is_removed_with_the_cli(self):
-        self.write_lock({"frontend-codex": f"{pull.REPO_OWNER}/{pull.REPO_NAME}", "ccf-common": "someone/else"})
+        self.write_lock({"frontend-codex": THIS_REPO.slug, "ccf-common": "someone/else"})
         output = self.run_install()
         command = self.remove.call_args.args[0]
-        self.assertEqual(command, ["npx", "-y", f"skills@{pull.SKILLS_CLI_VERSION}", "remove",
+        self.assertEqual(command, ["npx", "-y", f"skills@{constants.SKILLS_CLI_VERSION}", "remove",
                                    "frontend-codex", "-g", "-y"])
-        self.assertEqual(self.remove.call_args.kwargs["extra_env"], pull.SKILLS_CLI_ENV)
+        self.assertEqual(self.remove.call_args.args[1], skills.SKILLS_CLI_ENV)
         self.assertIn("frontend-codex", output)
 
     def test_same_name_from_another_source_is_kept(self):
@@ -291,7 +292,7 @@ class RemovedSkillTests(AgentSkillsHarness):
         self.assertTrue(own.is_file())
 
     def test_without_npx_nothing_is_removed(self):
-        self.write_lock({"frontend-codex": f"{pull.REPO_OWNER}/{pull.REPO_NAME}"})
+        self.write_lock({"frontend-codex": THIS_REPO.slug})
         old = write_skill(self.legacy[0], "frontend-codex")
         self.npx.return_value = None
         self.run_install()
@@ -311,10 +312,10 @@ class SkipUnchangedSourceTests(AgentSkillsHarness):
         self.claude = self.tmp / "claude"
 
     def record(self, source=SOURCE, names=NAMES, agents=AGENTS, commit="a" * 40) -> None:
-        path = pull.skill_commits_path()
+        path = skills.commits_path(self.ctx)
         path.parent.mkdir(parents=True, exist_ok=True)
         recorded = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
-        recorded[pull.skill_install_key(source, names, agents)] = commit
+        recorded[skills.install_key(source, names, agents)] = commit
         _ = path.write_text(json.dumps(recorded), encoding="utf-8")
 
     def installed_on_disk(self, *names: str) -> None:
@@ -327,7 +328,7 @@ class SkipUnchangedSourceTests(AgentSkillsHarness):
     def run_with_claude(self) -> str:
         with contextlib.redirect_stdout(io.StringIO()) as out, \
                 contextlib.redirect_stderr(io.StringIO()) as err:
-            pull.ensure_agent_skills(self.repo, self.legacy, self.claude)
+            skills.ensure_skills(self.ctx, self.legacy, self.claude)
         return out.getvalue() + err.getvalue()
 
     def test_unchanged_source_with_its_skills_on_disk_is_skipped(self):
@@ -345,8 +346,8 @@ class SkipUnchangedSourceTests(AgentSkillsHarness):
         self.commits = {self.SOURCE: "b" * 40}
         self.replies = {self.SOURCE: cli_reply(installed=self.NAMES)}
         self.run_install()
-        recorded = json.loads(pull.skill_commits_path().read_text(encoding="utf-8"))
-        self.assertEqual(recorded[pull.skill_install_key(self.SOURCE, self.NAMES, self.AGENTS)], "b" * 40)
+        recorded = json.loads(skills.commits_path(self.ctx).read_text(encoding="utf-8"))
+        self.assertEqual(recorded[skills.install_key(self.SOURCE, self.NAMES, self.AGENTS)], "b" * 40)
 
     def test_new_commit_reinstalls(self):
         self.commits = {self.SOURCE: "b" * 40}
@@ -367,29 +368,29 @@ class SkipUnchangedSourceTests(AgentSkillsHarness):
         self.replies = {self.SOURCE: cli_reply(installed=self.NAMES)}
         self.run_install()
         self.assertIn(self.SOURCE, self.ran())
-        recorded = json.loads(pull.skill_commits_path().read_text(encoding="utf-8"))
-        self.assertNotIn(pull.skill_install_key(self.SOURCE, self.NAMES, self.AGENTS), recorded)
+        recorded = json.loads(skills.commits_path(self.ctx).read_text(encoding="utf-8"))
+        self.assertNotIn(skills.install_key(self.SOURCE, self.NAMES, self.AGENTS), recorded)
 
     def test_incomplete_install_forgets_the_commit(self):
         self.commits = {"anthropics/skills": "c" * 40}
         names = ("frontend-design", "skill-creator")
         self.replies = {"anthropics/skills": cli_reply(installed=("skill-creator",), skipped=("frontend-design",))}
         self.run_install()
-        recorded = json.loads(pull.skill_commits_path().read_text(encoding="utf-8"))
-        self.assertNotIn(pull.skill_install_key("anthropics/skills", names, self.AGENTS), recorded)
+        recorded = json.loads(skills.commits_path(self.ctx).read_text(encoding="utf-8"))
+        self.assertNotIn(skills.install_key("anthropics/skills", names, self.AGENTS), recorded)
 
     def test_unreadable_record_reinstalls(self):
         self.commits = {self.SOURCE: "a" * 40}
         self.installed_on_disk("find-skills")
-        pull.skill_commits_path().parent.mkdir(parents=True, exist_ok=True)
-        _ = pull.skill_commits_path().write_text("{not json", encoding="utf-8")
+        skills.commits_path(self.ctx).parent.mkdir(parents=True, exist_ok=True)
+        _ = skills.commits_path(self.ctx).write_text("{not json", encoding="utf-8")
         self.run_install()
         self.assertIn(self.SOURCE, self.ran())
 
     def test_whole_repo_source_is_skipped_by_its_lock_entries(self):
         source = "mikubaka88/CCFA-Skills"
         self.commits = {source: "d" * 40}
-        self.record(source, (pull.ALL_SKILLS,), commit="d" * 40)
+        self.record(source, (constants.ALL_SKILLS,), commit="d" * 40)
         self.write_lock({"ccf-common": "mikubaka88/ccfa-skills", "ccf-paper-writer": source, "other": "x/y"})
         self.installed_on_disk("ccf-common", "ccf-paper-writer")
         output = self.run_install()
@@ -399,7 +400,7 @@ class SkipUnchangedSourceTests(AgentSkillsHarness):
     def test_whole_repo_source_without_lock_entries_reinstalls(self):
         source = "mikubaka88/CCFA-Skills"
         self.commits = {source: "d" * 40}
-        self.record(source, (pull.ALL_SKILLS,), commit="d" * 40)
+        self.record(source, (constants.ALL_SKILLS,), commit="d" * 40)
         self.run_install()
         self.assertIn(source, self.ran())
 
@@ -437,12 +438,12 @@ class SkipUnchangedSourceTests(AgentSkillsHarness):
         self.assertIn("herdrdev/herdr", self.ran())
 
     def test_new_cli_version_reinstalls(self):
-        key = pull.skill_install_key(self.SOURCE, self.NAMES, self.AGENTS)
-        with patch.object(pull, "SKILLS_CLI_VERSION", "0.0.0-other"):
-            self.assertNotEqual(pull.skill_install_key(self.SOURCE, self.NAMES, self.AGENTS), key)
+        key = skills.install_key(self.SOURCE, self.NAMES, self.AGENTS)
+        with patch.object(skills, "SKILLS_CLI_VERSION", "0.0.0-other"):
+            self.assertNotEqual(skills.install_key(self.SOURCE, self.NAMES, self.AGENTS), key)
 
     def test_record_sits_next_to_the_cli_lock(self):
-        self.assertEqual(pull.skill_commits_path().parent, self.lock.parent)
+        self.assertEqual(skills.commits_path(self.ctx).parent, self.lock.parent)
 
 
 class RemoteCommitTests(unittest.TestCase):
@@ -450,11 +451,14 @@ class RemoteCommitTests(unittest.TestCase):
 
     def ls_remote(self, stdout: str = "", returncode: int = 0, error: Exception | None = None):
         done = subprocess.CompletedProcess(["git"], returncode, stdout=stdout, stderr="")
-        return patch.object(pull.subprocess, "run", side_effect=error, return_value=done)
+        return patch.object(skills.subprocess, "run", side_effect=error, return_value=done)
+
+    def setUp(self):
+        self.ctx = make_context(Path("/h"))
 
     def test_default_branch_is_read_from_head(self):
         with self.ls_remote(f"{'1' * 40}\tHEAD\n") as run:
-            self.assertEqual(pull.ls_remote_commit("o/r"), "1" * 40)
+            self.assertEqual(skills.ls_remote_commit(self.ctx, "o/r"), "1" * 40)
         command = run.call_args.args[0]
         self.assertEqual(command[-2:], ["https://github.com/o/r.git", "HEAD"])
         self.assertEqual(run.call_args.kwargs["env"]["GIT_TERMINAL_PROMPT"], "0")
@@ -462,38 +466,37 @@ class RemoteCommitTests(unittest.TestCase):
     def test_ref_prefers_the_branch_then_the_peeled_tag(self):
         reply = f"{'2' * 40}\trefs/tags/v1\n{'3' * 40}\trefs/tags/v1^{{}}\n{'4' * 40}\trefs/heads/v1\n"
         with self.ls_remote(reply) as run:
-            self.assertEqual(pull.ls_remote_commit("o/r#v1"), "4" * 40)
+            self.assertEqual(skills.ls_remote_commit(self.ctx, "o/r#v1"), "4" * 40)
         self.assertEqual(run.call_args.args[0][-2:], ["https://github.com/o/r.git", "v1"])
         with self.ls_remote(reply.rsplit("\n", 2)[0] + "\n"):
-            self.assertEqual(pull.ls_remote_commit("o/r#v1"), "3" * 40)
+            self.assertEqual(skills.ls_remote_commit(self.ctx, "o/r#v1"), "3" * 40)
 
     def test_failures_give_no_commit(self):
         for context in (self.ls_remote(returncode=2), self.ls_remote("garbage\n"),
                         self.ls_remote(error=OSError("no git")),
                         self.ls_remote(error=subprocess.TimeoutExpired(["git"], 1))):
             with context:
-                self.assertIsNone(pull.ls_remote_commit("o/r"))
+                self.assertIsNone(skills.ls_remote_commit(self.ctx, "o/r"))
 
     def test_sources_are_looked_up_together(self):
-        with patch.object(pull, "ls_remote_commit", side_effect=lambda s: None if s == "x/y" else s[0] * 40):
-            self.assertEqual(pull.remote_skill_commits({"a/b", "x/y"}), {"a/b": "a" * 40})
+        with patch.object(skills, "ls_remote_commit",
+                          side_effect=lambda ctx, s: None if s == "x/y" else s[0] * 40):
+            self.assertEqual(skills.remote_commits(self.ctx, {"a/b", "x/y"}), {"a/b": "a" * 40})
 
 
 class LockPathTests(unittest.TestCase):
     def test_lock_follows_xdg_state_home_like_the_cli(self):
-        with patch.dict(pull.os.environ, {"XDG_STATE_HOME": "/state"}):
-            self.assertEqual(pull.skills_lock_path(), Path("/state/skills/.skill-lock.json"))
-        with patch.dict(pull.os.environ, {}, clear=True), patch.object(Path, "home", return_value=Path("/h")):
-            self.assertEqual(pull.skills_lock_path(), Path("/h/.agents/.skill-lock.json"))
+        state = make_context(Path("/h"), env={"XDG_STATE_HOME": "/state"})
+        self.assertEqual(skills.lock_path(state), Path("/state/skills/.skill-lock.json"))
+        self.assertEqual(skills.lock_path(make_context(Path("/h"))), Path("/h/.agents/.skill-lock.json"))
 
 
 class ExtraEnvTests(unittest.TestCase):
     def test_extra_env_reaches_the_command(self):
         done = subprocess.CompletedProcess(["npx"], 0, stdout=json.dumps(cli_reply()), stderr="")
-        with patch.object(pull, "find_agent_executable", return_value=Path("/fake/bin/npx")), \
-                patch.object(pull.subprocess, "run", return_value=done) as run:
-            document = pull.read_plugin_json(["npx", "--version"], None, None,
-                                             extra_env={"DISABLE_TELEMETRY": "1"})
+        with patch.object(proc, "find_executable", return_value=Path("/fake/bin/npx")), \
+                patch.object(proc.subprocess, "run", return_value=done) as run:
+            document = Runner({}, Path("/h")).json(["npx", "--version"], {"DISABLE_TELEMETRY": "1"})
         self.assertEqual(document, [])
         env = run.call_args.kwargs["env"]
         self.assertEqual(env["DISABLE_TELEMETRY"], "1")

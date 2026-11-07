@@ -1,85 +1,99 @@
 """OAuth routing tests use synthetic configs in temporary directories only."""
 
 import contextlib
-import importlib.util
 import io
 import json
-import os
 import shutil
-import subprocess
 from pathlib import Path
 import tempfile
 import tomllib
 import unittest
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("pull_oauth", ROOT / "omadotfile" / "legacy.py")
-pull = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(pull)
+from omadotfile import cli
+from omadotfile.agents import claude, codex, omo, omo_native, omp, opencode, tokscale
+from omadotfile.agents.base import Component
+from omadotfile.constants import AGENT_LABELS
+from omadotfile.core.jsonc import read_jsonc_object
+from omadotfile.features import skills, wakatime
+from support import ROOT, make_context
+
+GATEWAY_URL = 'https://example.invalid/v1'
+
+
+def install_files(component: Component, ctx, target: Path) -> None:
+    """Install a component's `files` into target, as its step does before `configure`."""
+    target.mkdir(parents=True, exist_ok=True)
+    with contextlib.redirect_stdout(io.StringIO()):
+        for spec in component.files:
+            component.install_file(ctx, spec, target)
 
 
 class OAuthTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
-        self.enterContext(patch.object(pull, "NO_BACKUP", False))
+
+    def context(self, stamp, oauth=False, env=None):
+        return make_context(self.tmp, stamp=stamp, oauth=oauth,
+                            env={'CODEX_BASE_URL': GATEWAY_URL} if env is None else env)
+
+    def codex_config(self, stamp, oauth=False):
+        with contextlib.redirect_stdout(io.StringIO()):
+            codex.ensure_config(self.context(stamp, oauth=oauth), self.tmp)
 
     def test_codex_comments_only_top_level_gateway_assignment(self):
         lines = ['model_provider = "codex_api" # gateway', '[profiles.work]',
                  'model_provider = "codex_api"']
-        result = pull.ensure_codex_oauth_provider_config(lines)
+        result = codex.ensure_oauth_provider(lines)
         self.assertEqual(result, ['# ' + lines[0], *lines[1:]])
-        self.assertEqual(pull.ensure_codex_oauth_provider_config(result), result)
+        self.assertEqual(codex.ensure_oauth_provider(result), result)
         for original in ([], ['model = "gpt-5.5"'], ['model_provider = "openai"'],
                          ['model_provider = "local"']):
-            self.assertEqual(pull.ensure_codex_oauth_provider_config(original), original)
-        self.assertEqual(pull.ensure_codex_oauth_provider_config(
+            self.assertEqual(codex.ensure_oauth_provider(original), original)
+        self.assertEqual(codex.ensure_oauth_provider(
             ["  model_provider = 'codex_api'"]), ["#   model_provider = 'codex_api'"])
 
     def test_codex_install_round_trip_preserves_provider_and_auth(self):
         config = self.tmp / 'config.toml'
         auth = self.tmp / 'auth.json'
         auth.write_text('{}')
-        with patch.dict(os.environ, {'CODEX_BASE_URL': 'https://example.invalid/v1'}):
-            pull.ensure_codex_config(self.tmp, 'api')
-            original = config.read_text()
-            pull.ensure_codex_config(self.tmp, 'oauth', oauth=True)
-            parsed = tomllib.loads(config.read_text())
-            self.assertNotIn('model_provider', parsed)
-            self.assertIn('codex_api', parsed['model_providers'])
-            self.assertEqual(config.with_suffix('.toml.bak-oauth').read_text(), original)
-            before = config.read_text()
-            pull.ensure_codex_config(self.tmp, 'again', oauth=True)
-            self.assertEqual(config.read_text(), before)
-            pull.ensure_codex_config(self.tmp, 'api-again')
-            self.assertEqual(tomllib.loads(config.read_text())['model_provider'], 'codex_api')
+        self.codex_config('api')
+        original = config.read_text()
+        self.codex_config('oauth', oauth=True)
+        parsed = tomllib.loads(config.read_text())
+        self.assertNotIn('model_provider', parsed)
+        self.assertIn('codex_api', parsed['model_providers'])
+        self.assertEqual(config.with_suffix('.toml.bak-oauth').read_text(), original)
+        before = config.read_text()
+        self.codex_config('again', oauth=True)
+        self.assertEqual(config.read_text(), before)
+        self.codex_config('api-again')
+        self.assertEqual(tomllib.loads(config.read_text())['model_provider'], 'codex_api')
         self.assertEqual(auth.read_text(), '{}')
 
     def test_codex_repeated_switches_do_not_accumulate_comments(self):
         lines = ['model_provider = "codex_api" # gateway', '[profiles.work]',
                  '# model_provider = "codex_api"']
-        with patch.dict(os.environ, {'CODEX_BASE_URL': 'https://example.invalid/v1'}):
-            for _ in range(3):
-                lines = pull.ensure_codex_oauth_provider_config(lines)
-                lines = pull.ensure_codex_api_provider_config(lines)
-                self.assertEqual(tomllib.loads('\n'.join(lines))['model_provider'], 'codex_api')
-                self.assertEqual(lines.count('model_provider = "codex_api"'), 1)
-                self.assertEqual(lines.count('# model_provider = "codex_api"'), 1)
+        for _ in range(3):
+            lines = codex.ensure_oauth_provider(lines)
+            lines = codex.ensure_api_provider(lines, GATEWAY_URL)
+            self.assertEqual(tomllib.loads('\n'.join(lines))['model_provider'], 'codex_api')
+            self.assertEqual(lines.count('model_provider = "codex_api"'), 1)
+            self.assertEqual(lines.count('# model_provider = "codex_api"'), 1)
 
     def test_codex_oauth_disables_quoted_and_multiline_selectors(self):
         for selector in (['"model_provider" = "codex_api"'],
                          ['model_provider = """', 'codex_api"""']):
             with self.subTest(selector=selector):
                 lines = [*selector, '[profiles.work]', 'model = "gpt"']
-                result = pull.ensure_codex_oauth_provider_config(lines)
+                result = codex.ensure_oauth_provider(lines)
                 # The gateway is no longer selected and later tables survive.
                 parsed = tomllib.loads('\n'.join(result))
                 self.assertNotIn('model_provider', parsed)
                 self.assertEqual(parsed['profiles'], {'work': {'model': 'gpt'}})
-                self.assertEqual(pull.ensure_codex_oauth_provider_config(result), result)
+                self.assertEqual(codex.ensure_oauth_provider(result), result)
                 # Switching back restores one selector instead of adding a second.
-                with patch.dict(os.environ, {'CODEX_BASE_URL': 'https://example.invalid/v1'}):
-                    restored = pull.ensure_codex_api_provider_config(result)
+                restored = codex.ensure_api_provider(result, GATEWAY_URL)
                 self.assertEqual(tomllib.loads('\n'.join(restored))['model_provider'], 'codex_api')
                 self.assertFalse(any(line.lstrip('# ').startswith(('model_provider', '"model_provider"'))
                                      for line in restored[1:]), restored)
@@ -91,7 +105,7 @@ class OAuthTests(unittest.TestCase):
           "provider": {"codex": {"options": {"baseURL": "https://example.invalid/v1",},},},
         }''')
         original = dst.read_text()
-        pull.install_opencode_config_files(ROOT, self.tmp, 'oauth', oauth=True)
+        install_files(opencode.OpenCode(), self.context('oauth', oauth=True), self.tmp)
         parsed = json.loads(dst.read_text())
         self.assertEqual(parsed['provider']['codex'],
                          {'options': {'baseURL': 'https://example.invalid/v1'}})
@@ -108,10 +122,10 @@ class OAuthTests(unittest.TestCase):
                 directory.mkdir()
                 if existing is not None:
                     (directory / 'opencode.jsonc').write_text(existing)
-                pull.install_opencode_config_files(ROOT, directory, 'oauth', oauth=True)
+                install_files(opencode.OpenCode(), self.context('oauth', oauth=True), directory)
                 parsed = json.loads((directory / 'opencode.jsonc').read_text())
                 self.assertNotIn('codex', parsed['provider'])
-                pull.install_opencode_config_files(ROOT, directory, 'api')
+                install_files(opencode.OpenCode(), self.context('api'), directory)
                 installed = json.loads((directory / 'opencode.jsonc').read_text())['provider']
                 for model in ('gpt-6.1-sol', 'gpt-6-luna'):
                     self.assertEqual(installed['codex']['models'][model]['limit'],
@@ -119,7 +133,7 @@ class OAuthTests(unittest.TestCase):
 
     def test_opencode_legacy_json_provider_is_preserved(self):
         (self.tmp / 'opencode.json').write_text('{"provider":{"codex":{"name":"Retained"}}}')
-        pull.install_opencode_config_files(ROOT, self.tmp, 'oauth', oauth=True)
+        install_files(opencode.OpenCode(), self.context('oauth', oauth=True), self.tmp)
         self.assertEqual(json.loads((self.tmp / 'opencode.jsonc').read_text())['provider']['codex'],
                          {'name': 'Retained'})
 
@@ -127,97 +141,100 @@ class OAuthTests(unittest.TestCase):
         dst = self.tmp / 'opencode.jsonc'
         dst.write_text('{ invalid')
         with self.assertRaises(ValueError):
-            pull.install_opencode_config_files(ROOT, self.tmp, 'oauth', oauth=True)
+            install_files(opencode.OpenCode(), self.context('oauth', oauth=True), self.tmp)
         self.assertEqual(dst.read_text(), '{ invalid')
 
     def test_omo_rewrites_model_prefix_preserving_ids(self):
-        pull.install_omo_config(ROOT, self.tmp, 'oauth', oauth=True)
+        install_files(omo.OmoConfig(), self.context('oauth', oauth=True), self.tmp)
         actual = (self.tmp / 'omo.jsonc').read_text()
         # Native routing lives in its own block; see tests/test_omo_native.py.
-        opencode = pull.read_jsonc_object(self.tmp / 'omo.jsonc')['[opencode]']
+        opencode = read_jsonc_object(self.tmp / 'omo.jsonc')['[opencode]']
         self.assertNotIn('"codex/', json.dumps(opencode))
         self.assertIn('"openai/gpt-6.1-sol"', actual)
-        pull.install_omo_config(ROOT, self.tmp, 'api')
+        install_files(omo.OmoConfig(), self.context('api'), self.tmp)
         self.assertEqual((self.tmp / 'omo.jsonc').read_text(), (ROOT / 'omo.jsonc').read_text())
 
     def test_omp_native_roles_and_model_overrides(self):
-        pull.install_omp_config(ROOT / 'omp_config.yml', self.tmp / 'config.yml', 'oauth', oauth=True)
+        omp.Omp().install_oauth_file(self.context('oauth', oauth=True), ROOT / 'omp_config.yml',
+                                     self.tmp / 'config.yml')
         content = (self.tmp / 'config.yml').read_text()
         self.assertEqual(content, (ROOT / 'omp_config.yml').read_text().replace('codex_api/', 'openai-codex/'))
         dst = self.tmp / 'models.yml'
         dst.write_text('providers: {}\n')
-        with patch.dict(os.environ, {}, clear=True), contextlib.redirect_stderr(io.StringIO()) as stderr:
-            pull.backup_and_install_omp_models(ROOT / 'omp_models.yaml', dst, 'oauth', oauth=True)
+        with contextlib.redirect_stderr(io.StringIO()) as stderr, contextlib.redirect_stdout(io.StringIO()):
+            omp.install_models(self.context('oauth', oauth=True, env={}), self.tmp)
         self.assertEqual(dst.read_text(), (ROOT / 'omp_models_oauth.yaml').read_text())
         for model in ('gpt-6.1-sol', 'gpt-6-luna', 'gpt-6.1-sol-fast', 'gpt-6-luna-fast'):
             self.assertIn(f'      {model}:\n        contextWindow: 272000\n        maxTokens: 128000', dst.read_text())
         self.assertEqual(stderr.getvalue(), '')
-        with patch.dict(os.environ, {'CODEX_BASE_URL': 'https://example.invalid/v1'}):
-            pull.backup_and_install_omp_models(ROOT / 'omp_models.yaml', dst, 'api')
+        with contextlib.redirect_stdout(io.StringIO()):
+            omp.install_models(self.context('api'), self.tmp)
         self.assertIn('codex_api:', dst.read_text())
 
     def test_oauth_environment_warnings_exclude_gateway(self):
-        with patch.dict(os.environ, {}, clear=True), contextlib.redirect_stdout(io.StringIO()) as output:
-            pull.warn_missing_required_env_vars(oauth=True)
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            cli.warn_missing_required_env_vars({}, oauth=True)
         self.assertNotIn('CODEX_BASE_URL', output.getvalue())
         self.assertNotIn('CODEX_API_TOKEN', output.getvalue())
         self.assertIn('GITHUB_PERSONAL_ACCESS_TOKEN', output.getvalue())
 
     def test_main_routes_all_outputs_without_touching_auth(self):
-        for name in ('get_config_dir', 'get_codex_dir', 'get_claude_config_dir',
-                     'get_omp_agent_dir', 'get_tokscale_config_dir'):
-            if hasattr(pull, name):
-                self.enterContext(patch.object(pull, name, return_value=self.tmp / name))
-        self.enterContext(patch.object(Path, 'home', return_value=self.tmp))
-        for name in ('install_claude_plugins', 'install_tokscale_model_aliases'):
-            if hasattr(pull, name):
-                self.enterContext(patch.object(pull, name))
-        # The Codex CLI is never invoked here; the fake clone below answers every
-        # subprocess call and would misread the plugin command arguments.
-        wakatime = self.enterContext(patch.object(pull, 'ensure_wakatime_plugins'))
-        # npm and the omo-herdr-dag installer would hit the fake clone below.
-        self.enterContext(patch.object(pull, 'ensure_omo_herdr_dag'))
-        # So would npx and the skills CLI.
-        self.enterContext(patch.object(pull, 'ensure_agent_skills'))
-        # git config would also hit the fake clone and the real ~/.gitconfig.
-        self.enterContext(patch.object(pull, 'ensure_git_commit_msg_hook'))
+        env = {
+            'CODEX_BASE_URL': GATEWAY_URL,
+            'CONFIG_DIR': str(self.tmp / 'config_dir'),
+            'CODEX_DIR': str(self.tmp / 'codex_dir'),
+            'CLAUDE_CONFIG_DIR': str(self.tmp / 'claude_config_dir'),
+            'OMP_AGENT_DIR': str(self.tmp / 'omp_agent_dir'),
+            'TOKSCALE_CONFIG_DIR': str(self.tmp / 'tokscale_config_dir'),
+        }
+        self.enterContext(patch.object(claude, 'install_plugins'))
+        self.enterContext(patch.object(tokscale, 'install_model_aliases'))
+        # The agent CLIs are never invoked here.
+        plugins = self.enterContext(patch.object(wakatime, 'ensure_plugins'))
+        # Nor npm and the omo-herdr-dag installer,
+        self.enterContext(patch.object(omo_native, 'ensure_herdr_dag'))
+        # nor npx and the skills CLI,
+        self.enterContext(patch.object(skills, 'ensure_skills'))
+        # nor git config, which would reach the real ~/.gitconfig.
+        self.enterContext(patch.object(claude, 'ensure_commit_msg_hook'))
         # Detection belongs to the gating tests; this one routes every target.
-        self.enterContext(patch.object(pull, 'detect_targets',
-                                       return_value={name: True for name in pull.TARGET_LABELS}))
+        self.enterContext(patch.object(cli, 'detect_agents', return_value=frozenset(AGENT_LABELS)))
 
-        def clone(command, **kwargs):
-            destination = Path(command[-1])
-            destination.mkdir()
-            for name in ('opencode.jsonc', 'omo.jsonc', 'omp_config.yml', 'omp_models.yaml', 'omp_models_oauth.yaml'):
-                shutil.copy2(ROOT / name, destination / name)
-            return subprocess.CompletedProcess(command, 0)
+        # A checkout holding only the files these routes read.
+        repo = self.tmp / 'repo'
+        repo.mkdir()
+        for name in ('opencode.jsonc', 'omo.jsonc', 'omp_config.yml', 'omp_models.yaml', 'omp_models_oauth.yaml'):
+            shutil.copy2(ROOT / name, repo / name)
 
-        self.enterContext(patch.object(pull.subprocess, 'run', side_effect=clone))
-        with patch.dict(os.environ, {'CODEX_BASE_URL': 'https://example.invalid/v1'}):
-            pull.main([])
-            pull.main(['--oauth'])
-            codex = tomllib.loads((self.tmp / 'get_codex_dir/config.toml').read_text())
-            self.assertNotIn('model_provider', codex)
-            self.assertIn('codex', json.loads((self.tmp / 'get_config_dir/opencode.jsonc').read_text())['provider'])
-            self.assertNotIn('"codex/', (self.tmp / '.omo/omo.jsonc').read_text())
-            self.assertNotIn('codex_api/', (self.tmp / 'get_omp_agent_dir/config.yml').read_text())
-            self.assertEqual((self.tmp / 'get_omp_agent_dir/models.yml').read_text(),
-                             (ROOT / 'omp_models_oauth.yaml').read_text())
-            wakatime.assert_called_with(self.tmp / 'get_codex_dir',
-                                        self.tmp / 'get_claude_config_dir')
-            pull.main([])
-            codex = tomllib.loads((self.tmp / 'get_codex_dir/config.toml').read_text())
-            self.assertEqual(codex['model_provider'], 'codex_api')
-            self.assertIn('"codex/', (self.tmp / '.omo/omo.jsonc').read_text())
-            self.assertIn('codex_api/', (self.tmp / 'get_omp_agent_dir/config.yml').read_text())
+        def main(argv):
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                cli.main(argv, repo=repo, env=env, home=self.tmp)
+
+        main([])
+        main(['--oauth'])
+        codex_config = tomllib.loads((self.tmp / 'codex_dir/config.toml').read_text())
+        self.assertNotIn('model_provider', codex_config)
+        self.assertIn('codex', json.loads((self.tmp / 'config_dir/opencode.jsonc').read_text())['provider'])
+        self.assertNotIn('"codex/', (self.tmp / '.omo/omo.jsonc').read_text())
+        self.assertNotIn('codex_api/', (self.tmp / 'omp_agent_dir/config.yml').read_text())
+        self.assertEqual((self.tmp / 'omp_agent_dir/models.yml').read_text(),
+                         (ROOT / 'omp_models_oauth.yaml').read_text())
+        ctx = plugins.call_args.args[0]
+        self.assertEqual((ctx.dirs['codex'], ctx.dirs['claude']),
+                         (self.tmp / 'codex_dir', self.tmp / 'claude_config_dir'))
+        main([])
+        codex_config = tomllib.loads((self.tmp / 'codex_dir/config.toml').read_text())
+        self.assertEqual(codex_config['model_provider'], 'codex_api')
+        self.assertIn('"codex/', (self.tmp / '.omo/omo.jsonc').read_text())
+        self.assertIn('codex_api/', (self.tmp / 'omp_agent_dir/config.yml').read_text())
 
     def test_argument_parser(self):
-        self.assertFalse(pull.parse_args([]).oauth)
-        self.assertTrue(pull.parse_args(['--oauth']).oauth)
-        self.assertFalse(pull.parse_args([]).install_all)
-        self.assertTrue(pull.parse_args(['--all']).install_all)
+        self.assertFalse(cli.parse_args([]).oauth)
+        self.assertTrue(cli.parse_args(['--oauth']).oauth)
+        self.assertFalse(cli.parse_args([]).install_all)
+        self.assertTrue(cli.parse_args(['--all']).install_all)
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-            pull.parse_args(['--unknown'])
+            cli.parse_args(['--unknown'])
 
 
 if __name__ == '__main__':

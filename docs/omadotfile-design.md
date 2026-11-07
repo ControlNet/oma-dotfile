@@ -1,9 +1,11 @@
 # omadotfile: design for splitting pull.py into a package
 
-Status: phase 1 (mechanical move) done; phases 2 to 5 to do. `pull.py` is about 2240 lines in one file. Each function is small; the
-problem is that everything about one agent is spread over several places, global state is read
-at import time, and generic helpers sit between agent-specific code. This document describes the
-target layout and the order in which to get there without breaking installs.
+Status: done (2026-11-07). `omadotfile/legacy.py` is gone; see [How it went](#how-it-went).
+
+Before the split, `pull.py` was about 2240 lines in one file. Each function was small; the
+problem was that everything about one agent was spread over several places, global state was read
+at import time, and generic helpers sat between agent-specific code. This document describes the
+layout and how the installer got there without breaking installs.
 
 ## Invariants
 
@@ -22,8 +24,8 @@ These hold after every commit on `master`, since every machine installs from raw
 pull.py                    bootstrap only (~60 lines), see below
 omadotfile/
   __init__.py
-  __main__.py              `python3 -m omadotfile --repo .` for local runs
-  cli.py                   parse_args, main(argv, repo, source): banner, detection, steps, summary
+  __main__.py              `python3 -m omadotfile` from a checkout's root
+  cli.py                   parse_args, main(argv, repo, env, home): banner, detection, steps, summary
   constants.py             what gets installed: agents, file lists, skills, pins, plugin ids
   context.py               Options, RepoRef, Context
   console.py               info / success / warn / error, banner, step header
@@ -33,9 +35,9 @@ omadotfile/
     jsonc.py               read_jsonc_object, top-level object spans, model prefix rewrite
     toml_edit.py           facade over the line-based TOML editing helpers
     ini.py                 set keys in an INI section (WakaTime cfg)
-    proc.py                find_executable, Cli (run a command, read its JSON)
+    proc.py                find_executable, Runner (run a command, read its JSON)
   agents/
-    base.py                Component, Agent, FileSpec
+    base.py                Component, Agent (FileSpec is in constants.py)
     opencode.py            config files, oauth provider merge, plugins/, legacy renames
     omo.py                 omo.jsonc shared by the OpenCode plugin and OMO Native
     omo_native.py          AGENTS.md, models.json, settings.json, omo-herdr-dag
@@ -78,7 +80,8 @@ class Context:
     home: Path
     found: frozenset[str]   # detected agent keys
     dirs: Mapping[str, Path]  # each agent's config dir, resolved once
-    files: Files            # writes with this run's backup policy
+    files: Files            # cached property: writes with this run's backup policy
+    runner: Runner          # cached property: runs agent CLIs with this env and home
 ```
 
 Everything a function needs comes from its arguments. Module-level `NO_BACKUP`, `INSTALL_ALL`,
@@ -124,6 +127,7 @@ class FileSpec:                      # pure data, declared in constants.py
     src: str                         # path in the repo
     dst: str                         # path under the agent's dir
     managed: bool = False            # repo-owned code: no backup, else user config with backup
+    oauth: bool = False              # under --oauth the agent's install_oauth_file writes it
 
 class Agent(Component):
     key: ClassVar[str]               # "codex"
@@ -140,9 +144,10 @@ class Agent(Component):
 ```
 
 `run` is a template method: it installs `files` the same way for every agent and then calls
-`configure`, which only Codex, Claude, OMO Native and a few others override. Files whose content is
-rewritten (the `--oauth` variants of `opencode.jsonc`, `omo.jsonc`, `omp_config.yml`, …) are left
-out of `files` and written by `configure`, so `constants.py` holds no code. There is one
+`configure`, which only Codex, Claude, OMO Native and a few others override. Files with an
+`--oauth` variant (`opencode.jsonc`, `omo.jsonc`, `omp_config.yml`) are marked `oauth=True`; under
+`--oauth` the agent's `install_oauth_file` writes the rewritten copy, so `constants.py` holds no
+code. There is one
 level of inheritance and no factories: the steps are a literal, ordered list in `cli.py`:
 
 ```python
@@ -161,13 +166,15 @@ and config.toml). The order is otherwise unchanged.
 `features/wakatime.py` gets a small adapter per CLI:
 
 ```python
-class PluginCli(Protocol):
-    agent: str                                         # "codex" / "claude"
-    def plugin_state(self) -> PluginState              # missing / enabled / disabled
-    def marketplace_source(self) -> str | None | Missing
-    def add_marketplace(self) -> bool
-    def install_plugin(self) -> bool
-    after_install_hint: str
+class PluginCli:                     # CodexPlugins, ClaudePlugins
+    label: str                       # "Codex" / "Claude Code"
+    executable: str
+    dir_env: str                     # CODEX_HOME / CLAUDE_CONFIG_DIR, pinned to the installer's
+    plugin_id: str
+    after_install: str
+    def is_installed(self) -> bool   # warns when installed but disabled
+    def ensure_marketplace(self) -> bool
+    def install(self) -> bool
 ```
 
 and one `ensure_plugin(cli)` that holds the flow and the messages once.
@@ -215,7 +222,8 @@ An external data file was ruled out: reading TOML needs `tomllib` (Python 3.11, 
   cannot find a local checkout. It clones `REPO_OWNER/REPO_NAME@REPO_REV` into a temp dir unless
   `--repo PATH` is given.
 - It handles only `--repo` and the `REPO_*` variables. All other arguments go unchanged to
-  `omadotfile.cli.main(argv, repo=…, source=…)`, which owns `--oauth` / `--all` parsing.
+  `omadotfile.cli.main(argv, repo=…)`, which owns `--oauth` / `--all` parsing and reads
+  `REPO_*` again for the skills source.
 - The temp clone lives until `main` returns. The clone dir is put first on `sys.path`, so an
   unrelated installed `omadotfile` cannot shadow it.
 - It checks the Python version first and exits with one line on anything below 3.10.
@@ -227,8 +235,12 @@ An external data file was ruled out: reading TOML needs `tomllib` (Python 3.11, 
 Everything else must be identical:
 
 1. Step numbering: 12 steps become 9 (merged OpenCode and Codex steps), numbered from the step
-   list, and the clone message from the bootstrap has no number.
-2. Message text stays the same except where a merged step needs one heading.
+   list. The clone message from the bootstrap and `Using repository: …` have no number.
+2. Message text stays the same except where a merged step needs one heading, and file lines,
+   which now print `src -> dst` whenever the names differ (`_AGENTS.md -> AGENTS.md`).
+3. An unchanged file is no longer rewritten or backed up; only files whose content changes get a
+   `.bak-<stamp>`.
+4. `__pycache__` in a local checkout is no longer copied into the Claude Code plugin dir.
 
 Error handling stays as it is: expected failures (unreadable config, bad JSON, a CLI that fails)
 are caught where they happen, print `[WARN]` and the run goes on; an unexpected exception aborts
@@ -236,7 +248,8 @@ the run with a traceback; a failed clone or a missing required repo file exits 1
 
 ## Migration plan
 
-Each phase is one commit: full test suite green, golden run (below) unchanged, then push.
+As planned, each phase was one commit: full test suite green, golden run (below) unchanged, then
+push. Phases 2 to 5 ended up as one commit (see [How it went](#how-it-went)).
 
 1. **Mechanical move.** `pull.py`'s body goes verbatim into `omadotfile/legacy.py`; `pull.py`
    becomes the bootstrap; `omadotfile/__main__.py` added. Tests import `omadotfile.legacy` instead
@@ -287,3 +300,17 @@ sandboxes, then diff the trees. Backup files and other timestamps are ignored. E
 - The cleanups for the chain hooks and the strip-attribution plugin were deleted before the split,
   since no machine has those states any more.
 - Golden runs use stub CLIs.
+
+## How it went
+
+- Phase 1 was its own commit. Phases 2 to 5 were done as one port instead of moving code out of
+  `legacy.py` piece by piece: every module was written against `Context`, then `cli.py` replaced
+  `legacy.main`, the tests were ported module by module, and `legacy.py` was deleted.
+- Golden runs against `legacy.main` matched file for file, apart from the changes listed under
+  [Behaviour changes](#behaviour-changes), in four sandboxes: `--all` with no agent CLIs; every
+  agent detected through stub CLIs (the stubs' recorded calls matched too); `--oauth --all`; and
+  existing user config with backups on (`opencode.json`, `oh-my-opencode.json`, `~/.omo/config.json`,
+  a user `config.toml`, Claude `settings.json`, Tokscale aliases, `.wakatime.cfg`).
+- `tests/test_install_run.py` runs `cli.main` twice with stub `codex`, `claude` and `npx`, and
+  checks that the second run changes no file, makes no backup and re-adds nothing.
+- Tests run with `python3 -m unittest discover -s tests` from the repo root.

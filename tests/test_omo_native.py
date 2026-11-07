@@ -1,20 +1,17 @@
 """OMO Native install tests use synthetic configs in temporary directories only."""
 
 import contextlib
-import importlib.util
 import io
 import json
-import os
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("pull_omo_native", ROOT / "omadotfile" / "legacy.py")
-assert SPEC is not None and SPEC.loader is not None
-pull = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(pull)
+from omadotfile.agents import omo_native
+from omadotfile.agents.omo import OmoConfig
+from omadotfile.agents.omo_native import OmoNative
+from omadotfile.core.jsonc import read_jsonc_object
+from support import ROOT, make_context
 
 # Agent names OMO Native 5.1.0 defines (omo-ai bin/lib/setup-opencode-models.js NATIVE_AGENT_NAMES).
 NATIVE_AGENT_NAMES = {
@@ -30,7 +27,7 @@ GATEWAY_URL = "https://example.invalid/v1"
 
 
 def omo_template() -> dict:
-    return pull.read_jsonc_object(ROOT / "omo.jsonc")
+    return read_jsonc_object(ROOT / "omo.jsonc")
 
 
 def model_strings(value) -> list[str]:
@@ -86,19 +83,24 @@ class NativeTemplateTests(unittest.TestCase):
 class NativeOAuthRenderTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
-        self.enterContext(patch.object(pull, "NO_BACKUP", True))
+        self.omo_dir = self.tmp / ".omo"
+
+    def install(self) -> None:
+        ctx = make_context(self.tmp, oauth=True, backup=False)
+        with contextlib.redirect_stdout(io.StringIO()):
+            OmoConfig().run(ctx)
 
     def test_oauth_routes_each_harness_to_its_own_subscription_provider(self) -> None:
-        pull.install_omo_config(ROOT, self.tmp, "oauth", oauth=True)
-        installed = pull.read_jsonc_object(self.tmp / "omo.jsonc")
+        self.install()
+        installed = read_jsonc_object(self.omo_dir / "omo.jsonc")
         native_models = model_strings(installed["[native]"])
         opencode_models = model_strings(installed["[opencode]"])
         self.assertTrue(all(m.startswith("chatgpt-subscription/") for m in native_models), native_models)
         self.assertTrue(all(m.startswith("openai/") for m in opencode_models), opencode_models)
 
     def test_oauth_render_changes_nothing_but_provider_prefixes(self) -> None:
-        pull.install_omo_config(ROOT, self.tmp, "oauth", oauth=True)
-        installed = (self.tmp / "omo.jsonc").read_text(encoding="utf-8")
+        self.install()
+        installed = (self.omo_dir / "omo.jsonc").read_text(encoding="utf-8")
         normalized = installed.replace('"chatgpt-subscription/', '"codex/').replace('"openai/', '"codex/')
         self.assertEqual(normalized, (ROOT / "omo.jsonc").read_text(encoding="utf-8"))
 
@@ -106,14 +108,13 @@ class NativeOAuthRenderTests(unittest.TestCase):
 class NativeModelsTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
-        self.enterContext(patch.object(pull, "NO_BACKUP", False))
         self.models = self.tmp / "models.json"
 
     def install(self, env: dict, oauth: bool = False) -> str:
-        with patch.dict(os.environ, env, clear=True), \
-                contextlib.redirect_stdout(io.StringIO()), \
+        ctx = make_context(self.tmp, env=env, oauth=oauth, backup=True)
+        with contextlib.redirect_stdout(io.StringIO()), \
                 contextlib.redirect_stderr(io.StringIO()) as err:
-            pull.install_omo_native_models(ROOT, self.tmp, "stamp", oauth=oauth)
+            omo_native.install_models(ctx, self.tmp)
         return err.getvalue()
 
     def test_gateway_provider_mirrors_opencode_codex_models(self) -> None:
@@ -123,7 +124,7 @@ class NativeModelsTests(unittest.TestCase):
         self.assertEqual(provider["baseUrl"], GATEWAY_URL)
         self.assertEqual(provider["apiKey"], "${CODEX_API_TOKEN}")
         self.assertEqual(provider["api"], "openai-responses")
-        opencode = pull.read_jsonc_object(ROOT / "opencode.jsonc")["provider"]["codex"]["models"]
+        opencode = read_jsonc_object(ROOT / "opencode.jsonc")["provider"]["codex"]["models"]
         by_id = {model["id"]: model for model in provider["models"]}
         self.assertEqual(set(by_id), set(opencode))
         sol = by_id["gpt-6.1-sol"]
@@ -170,12 +171,12 @@ class NativeModelsTests(unittest.TestCase):
 class NativeSettingsTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
-        self.enterContext(patch.object(pull, "NO_BACKUP", True))
         self.settings = self.tmp / "settings.json"
 
     def configure(self) -> str:
+        ctx = make_context(self.tmp, backup=False)
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
-            pull.ensure_omo_native_settings(self.tmp, "stamp")
+            omo_native.ensure_settings(ctx, self.tmp)
         return err.getvalue()
 
     def test_rules_extension_is_disabled_and_other_settings_survive(self) -> None:
@@ -216,15 +217,15 @@ class NativeSettingsTests(unittest.TestCase):
 
 class NativeAgentDirTests(unittest.TestCase):
     def test_agent_dir_follows_omo_override_order(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp, patch.object(Path, "home", return_value=Path(tmp)):
-            with patch.dict(os.environ, {}, clear=True):
-                self.assertEqual(pull.get_omo_agent_dir(), Path(tmp) / ".omo" / "agent")
-            with patch.dict(os.environ, {"PI_CODING_AGENT_DIR": "/pi",
-                                         "SENPI_CODING_AGENT_DIR": "/senpi"}, clear=True):
-                self.assertEqual(pull.get_omo_agent_dir(), Path("/senpi"))
-            with patch.dict(os.environ, {"OMO_CODING_AGENT_DIR": "/omo",
-                                         "SENPI_CODING_AGENT_DIR": "/senpi"}, clear=True):
-                self.assertEqual(pull.get_omo_agent_dir(), Path("/omo"))
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            self.assertEqual(OmoNative.config_dir({}, home), home / ".omo" / "agent")
+            self.assertEqual(OmoNative.config_dir({"PI_CODING_AGENT_DIR": "/pi",
+                                                   "SENPI_CODING_AGENT_DIR": "/senpi"}, home),
+                             Path("/senpi"))
+            self.assertEqual(OmoNative.config_dir({"OMO_CODING_AGENT_DIR": "/omo",
+                                                   "SENPI_CODING_AGENT_DIR": "/senpi"}, home),
+                             Path("/omo"))
 
 
 if __name__ == "__main__":

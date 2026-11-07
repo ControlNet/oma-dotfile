@@ -1,5 +1,6 @@
 """Synthetic Claude events and credentials; network calls are mocked in all tests."""
 
+import contextlib
 import importlib.util
 import io
 import json
@@ -179,17 +180,21 @@ ORIGINAL_POST = notify.post_json
 
 class PluginInstallTests(unittest.TestCase):
     def test_manifest_hooks_and_repeat_install_preserve_local_config(self):
-        from omadotfile import legacy as pull
+        from omadotfile.agents import claude
+        from support import make_context
 
         with tempfile.TemporaryDirectory() as directory:
-            target = Path(directory)
+            target = Path(directory) / "claude"
             settings = target / "settings.json"
+            settings.parent.mkdir()
             settings.write_text('{"hooks":{}}', encoding="utf-8")
             unrelated = target / "skills" / "personal-skill" / "SKILL.md"
             unrelated.parent.mkdir(parents=True)
             unrelated.write_text("Synthetic user skill", encoding="utf-8")
-            pull.install_claude_plugins(ROOT, target, "test-first")
-            pull.install_claude_plugins(ROOT, target, "test-second")
+            ctx = make_context(Path(directory) / "home", repo=ROOT, work=Path(directory) / "work")
+            with contextlib.redirect_stdout(io.StringIO()):
+                claude.install_plugins(ctx, target)
+                claude.install_plugins(ctx, target)
             plugin = target / "skills" / "gotify-notify"
             self.assertEqual(settings.read_text(), '{"hooks":{}}')
             self.assertEqual(unrelated.read_text(), "Synthetic user skill")
@@ -205,7 +210,9 @@ class PluginInstallTests(unittest.TestCase):
                     self.assertEqual(handler["command"], sys.executable)
                     self.assertEqual(handler["args"], ["${CLAUDE_PLUGIN_ROOT}/scripts/notify.py"])
             self.assertTrue((plugin / "scripts" / "notify.py").is_file())
-
+            # The second install found the plugin unchanged and wrote nothing.
+            self.assertEqual(ctx.files.changed, [plugin])
+            self.assertFalse(list(plugin.rglob("__pycache__")))
 
 if __name__ == "__main__":
     unittest.main()

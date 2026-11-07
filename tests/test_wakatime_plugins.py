@@ -1,26 +1,28 @@
 """Mocked agent CLI calls only; no marketplace is contacted and no user state changes."""
 
 import contextlib
-import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("pull", ROOT / "omadotfile" / "legacy.py")
-assert SPEC is not None and SPEC.loader is not None
-pull = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(pull)
+from omadotfile import constants
+from omadotfile.core import files as files_module
+from omadotfile.core import proc
+from omadotfile.core.proc import Runner
+from omadotfile.features import wakatime
+from omadotfile.features.wakatime import ClaudePlugins, CodexPlugins, ensure_plugin
+from support import make_context
 
 EMPTY_PLUGIN_LIST = {"installed": [], "available": []}
 INSTALLED_PLUGIN_LIST = {
     "installed": [
         {
-            "pluginId": pull.WAKATIME_PLUGIN_ID,
+            "pluginId": constants.CODEX_WAKATIME_PLUGIN_ID,
             "installed": True,
             "enabled": True,
         }
@@ -28,21 +30,21 @@ INSTALLED_PLUGIN_LIST = {
     "available": [],
 }
 WAKATIME_MARKETPLACE_ENTRY = {
-    "name": pull.WAKATIME_MARKETPLACE,
+    "name": constants.WAKATIME_MARKETPLACE,
     "marketplaceSource": {
         "sourceType": "git",
-        "source": pull.WAKATIME_MARKETPLACE_GIT_URL,
+        "source": constants.CODEX_WAKATIME_MARKETPLACE_GIT_URL,
     },
 }
 
 
 CLAUDE_PLUGIN_LIST = [
-    {"id": pull.CLAUDE_WAKATIME_PLUGIN_ID, "enabled": True, "version": "4.1.0"}
+    {"id": constants.CLAUDE_WAKATIME_PLUGIN_ID, "enabled": True, "version": "4.1.0"}
 ]
 CLAUDE_MARKETPLACE_ENTRY = {
-    "name": pull.WAKATIME_MARKETPLACE,
+    "name": constants.WAKATIME_MARKETPLACE,
     "source": "git",
-    "url": pull.CLAUDE_WAKATIME_MARKETPLACE_GIT_URL,
+    "url": constants.CLAUDE_WAKATIME_MARKETPLACE_GIT_URL,
 }
 
 
@@ -71,23 +73,35 @@ class FakeCli:
         return subprocess.CompletedProcess(argv, 1, stdout="", stderr="unexpected")
 
 
+def runner(home: Path) -> Runner:
+    return Runner({}, home)
+
+
+def ensure_codex(codex_dir: Path) -> bool:
+    return ensure_plugin(CodexPlugins(runner(codex_dir), codex_dir))
+
+
+def ensure_claude(claude_config_dir: Path) -> bool:
+    return ensure_plugin(ClaudePlugins(runner(claude_config_dir), claude_config_dir))
+
+
 def run_ensure(responses: dict[str, object], codex_dir: Path, has_node: bool = True):
     fake = FakeCli(responses)
     executables = {"codex": "/usr/bin/codex"}
     if has_node:
         executables["node"] = "/usr/bin/node"
-    with patch.object(pull.subprocess, "run", fake), \
-            patch.object(pull.shutil, "which", lambda name, path=None: executables.get(name)):
-        pull.ensure_codex_wakatime_plugin(codex_dir)
+    with patch.object(proc.subprocess, "run", fake), \
+            patch.object(proc.shutil, "which", lambda name, path=None: executables.get(name)):
+        ensure_codex(codex_dir)
     return fake
 
 
 def run_claude_ensure(responses: dict[str, object], claude_config_dir: Path):
     fake = FakeCli(responses)
     executables = {"claude": "/usr/bin/claude", "node": "/usr/bin/node"}
-    with patch.object(pull.subprocess, "run", fake), \
-            patch.object(pull.shutil, "which", lambda name, path=None: executables.get(name)):
-        installed = pull.ensure_claude_wakatime_plugin(claude_config_dir)
+    with patch.object(proc.subprocess, "run", fake), \
+            patch.object(proc.shutil, "which", lambda name, path=None: executables.get(name)):
+        installed = ensure_claude(claude_config_dir)
     return fake, installed
 
 
@@ -97,29 +111,27 @@ class CodexWakatimePluginTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             codex_dir = Path(tmp)
             (codex_dir / ".wakatime.cfg").write_text("[settings]\n", encoding="utf-8")
-            with patch.object(pull, "get_wakatime_config_path",
-                              lambda: codex_dir / ".wakatime.cfg"):
-                # When the installer configures the plugin.
-                fake = run_ensure(
-                    {
-                        "plugin list": EMPTY_PLUGIN_LIST,
-                        "marketplace list": {"marketplaces": []},
-                        "marketplace add": {"alreadyAdded": False},
-                        "plugin add": {"pluginId": pull.WAKATIME_PLUGIN_ID},
-                    },
-                    codex_dir,
-                )
+            # When the installer configures the plugin.
+            fake = run_ensure(
+                {
+                    "plugin list": EMPTY_PLUGIN_LIST,
+                    "marketplace list": {"marketplaces": []},
+                    "marketplace add": {"alreadyAdded": False},
+                    "plugin add": {"pluginId": constants.CODEX_WAKATIME_PLUGIN_ID},
+                },
+                codex_dir,
+            )
 
             # Then it inspects state, adds the marketplace, and installs the plugin.
             self.assertEqual(
                 fake.calls,
                 [
                     ["codex", "plugin", "list", "--marketplace",
-                     pull.WAKATIME_MARKETPLACE, "--json"],
+                     constants.WAKATIME_MARKETPLACE, "--json"],
                     ["codex", "plugin", "marketplace", "list", "--json"],
                     ["codex", "plugin", "marketplace", "add",
-                     pull.WAKATIME_MARKETPLACE_GIT_URL, "--json"],
-                    ["codex", "plugin", "add", pull.WAKATIME_PLUGIN_ID, "--json"],
+                     constants.CODEX_WAKATIME_MARKETPLACE_GIT_URL, "--json"],
+                    ["codex", "plugin", "add", constants.CODEX_WAKATIME_PLUGIN_ID, "--json"],
                 ],
             )
             # And every call honors the installer's Codex home.
@@ -134,7 +146,7 @@ class CodexWakatimePluginTests(unittest.TestCase):
                 {
                     "plugin list": EMPTY_PLUGIN_LIST,
                     "marketplace list": {"marketplaces": [WAKATIME_MARKETPLACE_ENTRY]},
-                    "plugin add": {"pluginId": pull.WAKATIME_PLUGIN_ID},
+                    "plugin add": {"pluginId": constants.CODEX_WAKATIME_PLUGIN_ID},
                 },
                 codex_dir,
             )
@@ -142,7 +154,7 @@ class CodexWakatimePluginTests(unittest.TestCase):
             self.assertNotIn("add", fake.calls[1])
             self.assertEqual(
                 fake.calls[-1],
-                ["codex", "plugin", "add", pull.WAKATIME_PLUGIN_ID, "--json"],
+                ["codex", "plugin", "add", constants.CODEX_WAKATIME_PLUGIN_ID, "--json"],
             )
 
     def test_installed_and_enabled_plugin_is_skipped(self) -> None:
@@ -154,7 +166,7 @@ class CodexWakatimePluginTests(unittest.TestCase):
             self.assertEqual(
                 fake.calls,
                 [["codex", "plugin", "list", "--marketplace",
-                  pull.WAKATIME_MARKETPLACE, "--json"]],
+                  constants.WAKATIME_MARKETPLACE, "--json"]],
             )
 
     def test_foreign_marketplace_source_is_not_replaced(self) -> None:
@@ -162,7 +174,7 @@ class CodexWakatimePluginTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             codex_dir = Path(tmp)
             foreign = {
-                "name": pull.WAKATIME_MARKETPLACE,
+                "name": constants.WAKATIME_MARKETPLACE,
                 "marketplaceSource": {
                     "sourceType": "git",
                     "source": "https://example.test/other.git",
@@ -182,9 +194,9 @@ class CodexWakatimePluginTests(unittest.TestCase):
         # Given Codex is not installed on this machine.
         with tempfile.TemporaryDirectory() as tmp:
             fake = FakeCli({})
-            with patch.object(pull.subprocess, "run", fake), \
-                    patch.object(pull.shutil, "which", lambda name, path=None: None):
-                pull.ensure_codex_wakatime_plugin(Path(tmp))
+            with patch.object(proc.subprocess, "run", fake), \
+                    patch.object(proc.shutil, "which", lambda name, path=None: None):
+                ensure_codex(Path(tmp))
             # Then no Codex command is attempted.
             self.assertEqual(fake.calls, [])
 
@@ -201,7 +213,7 @@ class CodexWakatimePluginTests(unittest.TestCase):
             )
             # Then the plugin install is not attempted.
             self.assertNotIn(
-                ["codex", "plugin", "add", pull.WAKATIME_PLUGIN_ID, "--json"],
+                ["codex", "plugin", "add", constants.CODEX_WAKATIME_PLUGIN_ID, "--json"],
                 fake.calls,
             )
 
@@ -230,8 +242,8 @@ class ClaudeWakatimePluginTests(unittest.TestCase):
                     ["claude", "plugin", "list", "--json"],
                     ["claude", "plugin", "marketplace", "list", "--json"],
                     ["claude", "plugin", "marketplace", "add",
-                     pull.CLAUDE_WAKATIME_MARKETPLACE_GIT_URL],
-                    ["claude", "plugin", "install", pull.CLAUDE_WAKATIME_PLUGIN_ID, "--json"],
+                     constants.CLAUDE_WAKATIME_MARKETPLACE_GIT_URL],
+                    ["claude", "plugin", "install", constants.CLAUDE_WAKATIME_PLUGIN_ID, "--json"],
                 ],
             )
             # And every call honors the installer's Claude Code config directory.
@@ -265,7 +277,7 @@ class ClaudeWakatimePluginTests(unittest.TestCase):
     def test_disabled_plugin_is_not_reinstalled(self) -> None:
         # Given the user disabled the installed plugin.
         with tempfile.TemporaryDirectory() as tmp:
-            disabled = [{"id": pull.CLAUDE_WAKATIME_PLUGIN_ID, "enabled": False}]
+            disabled = [{"id": constants.CLAUDE_WAKATIME_PLUGIN_ID, "enabled": False}]
             fake, installed = run_claude_ensure({"plugin list": disabled}, Path(tmp))
             # Then the choice is reported and left alone.
             self.assertTrue(installed)
@@ -287,16 +299,16 @@ class ClaudeWakatimePluginTests(unittest.TestCase):
             self.assertEqual(len(fake.calls), 3)
             self.assertEqual(
                 fake.calls[-1],
-                ["claude", "plugin", "install", pull.CLAUDE_WAKATIME_PLUGIN_ID, "--json"],
+                ["claude", "plugin", "install", constants.CLAUDE_WAKATIME_PLUGIN_ID, "--json"],
             )
 
     def test_shorthand_marketplace_is_recognized(self) -> None:
         # Given a marketplace added earlier by GitHub shorthand instead of URL.
         with tempfile.TemporaryDirectory() as tmp:
             entry = {
-                "name": pull.WAKATIME_MARKETPLACE,
+                "name": constants.WAKATIME_MARKETPLACE,
                 "source": "github",
-                "repo": pull.CLAUDE_WAKATIME_MARKETPLACE_REPO,
+                "repo": constants.CLAUDE_WAKATIME_MARKETPLACE_REPO,
             }
             fake, installed = run_claude_ensure(
                 {
@@ -313,7 +325,7 @@ class ClaudeWakatimePluginTests(unittest.TestCase):
     def test_foreign_marketplace_source_is_not_replaced(self) -> None:
         # Given another marketplace already claims the wakatime name.
         with tempfile.TemporaryDirectory() as tmp:
-            foreign = {"name": pull.WAKATIME_MARKETPLACE, "source": "git",
+            foreign = {"name": constants.WAKATIME_MARKETPLACE, "source": "git",
                        "url": "https://example.test/other.git"}
             fake, installed = run_claude_ensure(
                 {"plugin list": [], "marketplace list": [foreign]},
@@ -341,9 +353,9 @@ class ClaudeWakatimePluginTests(unittest.TestCase):
         # Given Claude Code is not installed on this machine.
         with tempfile.TemporaryDirectory() as tmp:
             fake = FakeCli({})
-            with patch.object(pull.subprocess, "run", fake), \
-                    patch.object(pull.shutil, "which", lambda name, path=None: None):
-                installed = pull.ensure_claude_wakatime_plugin(Path(tmp))
+            with patch.object(proc.subprocess, "run", fake), \
+                    patch.object(proc.shutil, "which", lambda name, path=None: None):
+                installed = ensure_claude(Path(tmp))
             # Then no Claude Code command is attempted.
             self.assertFalse(installed)
             self.assertEqual(fake.calls, [])
@@ -355,24 +367,24 @@ class AgentCliLookupTests(unittest.TestCase):
         extra = "/home/me/.bun/bin/codex"
         fake = FakeCli({"plugin list": INSTALLED_PLUGIN_LIST})
         with tempfile.TemporaryDirectory() as tmp, \
-                patch.object(pull.subprocess, "run", fake), \
-                patch.object(pull.shutil, "which",
+                patch.object(proc.subprocess, "run", fake), \
+                patch.object(proc.shutil, "which",
                              lambda name, path=None: extra if path and name == "codex" else None):
             # When the WakaTime step runs.
-            installed = pull.ensure_codex_wakatime_plugin(Path(tmp))
+            installed = ensure_codex(Path(tmp))
         # Then it finds the CLI there, calls it by path, and puts its dir on PATH for its runtime.
         self.assertTrue(installed)
         self.assertEqual(fake.executables[0], extra)
-        self.assertEqual(fake.envs[0]["PATH"].split(pull.os.pathsep)[0], "/home/me/.bun/bin")
+        self.assertEqual(fake.envs[0]["PATH"].split(os.pathsep)[0], "/home/me/.bun/bin")
 
 
 class WakatimePrerequisiteTests(unittest.TestCase):
     def test_prerequisites_are_not_checked_when_both_steps_skip(self) -> None:
         # Given neither agent CLI is available.
         with tempfile.TemporaryDirectory() as tmp, \
-                patch.object(pull.shutil, "which", lambda name, path=None: None), \
-                patch.object(pull, "get_wakatime_config_path") as config_path:
-            pull.ensure_wakatime_plugins(Path(tmp), Path(tmp))
+                patch.object(proc.shutil, "which", lambda name, path=None: None), \
+                patch.object(wakatime, "config_path") as config_path:
+            wakatime.ensure_plugins(make_context(Path(tmp), found={"codex", "claude"}))
         # Then the shared WakaTime prerequisites are not reported at all.
         config_path.assert_not_called()
 
@@ -380,26 +392,20 @@ class WakatimePrerequisiteTests(unittest.TestCase):
 # Test-only fake credentials; they never reach a WakaTime server.
 FAKE_KEY = "test-only-fake-wakatime-key"
 FAKE_URL = "https://wakapi.example.invalid/api"
-WAKATIME_ENV_NAMES = ("WAKATIME_HOME", "WAKATIME_API_KEY", "WAKATIME_API_URL")
 
 
 class WakatimeConfigTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.cfg = self.tmp / ".wakatime.cfg"
-        self.enterContext(patch.object(pull, "get_wakatime_config_path", lambda: self.cfg))
-        # Backups are on, to show that the cfg is still written without one.
-        self.enterContext(patch.object(pull, "NO_BACKUP", False))
-        # The developer's own WakaTime variables must not leak into these tests.
-        self.enterContext(patch.dict(pull.os.environ))
-        for name in WAKATIME_ENV_NAMES:
-            pull.os.environ.pop(name, None)
 
     def ensure(self, **env: str) -> tuple[str, str]:
-        with patch.dict(pull.os.environ, env), \
-                contextlib.redirect_stdout(io.StringIO()) as out, \
+        # Only the given variables: the developer's own WakaTime ones never reach the run.
+        # Backups are on, to show that the cfg is still written without one.
+        ctx = make_context(self.tmp / "home", env={"WAKATIME_HOME": str(self.tmp), **env}, backup=True)
+        with contextlib.redirect_stdout(io.StringIO()) as out, \
                 contextlib.redirect_stderr(io.StringIO()) as err:
-            pull.ensure_wakatime_config()
+            wakatime.ensure_config(ctx)
         return out.getvalue(), err.getvalue()
 
     def test_env_creates_private_config(self) -> None:
@@ -470,7 +476,7 @@ class WakatimeConfigTests(unittest.TestCase):
     def test_unchanged_config_is_not_rewritten(self) -> None:
         # Given a config that already matches the environment.
         self.ensure(WAKATIME_API_URL=FAKE_URL, WAKATIME_API_KEY=FAKE_KEY)
-        with patch.object(pull.os, "open") as open_file:
+        with patch.object(files_module.os, "open") as open_file:
             out, _ = self.ensure(WAKATIME_API_URL=FAKE_URL, WAKATIME_API_KEY=FAKE_KEY)
         # Then the file is not opened for writing.
         open_file.assert_not_called()

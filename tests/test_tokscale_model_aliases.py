@@ -1,17 +1,16 @@
 """Synthetic settings in temporary directories; no user configuration is changed."""
 
-import importlib.util
+import contextlib
+import io
 import json
-import os
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("pull", ROOT / "omadotfile" / "legacy.py")
-pull = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(pull)
+from omadotfile.agents import tokscale
+from omadotfile.agents.tokscale import Tokscale
+from support import ROOT, make_context
 
 
 class TokscaleAliasesTests(unittest.TestCase):
@@ -20,10 +19,12 @@ class TokscaleAliasesTests(unittest.TestCase):
         self.config = self.directory / "tokscale"
         self.config.mkdir()
         self.settings = self.config / "settings.json"
-        self.enterContext(patch.object(pull, "NO_BACKUP", False))
+        self.backup = True
 
     def install(self, repo=ROOT):
-        pull.install_tokscale_model_aliases(repo, self.config, "20260908-120000")
+        ctx = make_context(self.directory, repo=repo, backup=self.backup, stamp="20260908-120000")
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            tokscale.install_model_aliases(ctx, self.config)
 
     def test_merge_backup_and_idempotence(self):
         original = {
@@ -69,21 +70,24 @@ class TokscaleAliasesTests(unittest.TestCase):
 
     def test_no_backup(self):
         self.settings.write_text("{}")
-        with patch.object(pull, "NO_BACKUP", True):
-            self.install()
+        self.backup = False
+        self.install()
         self.assertEqual(list(self.config.glob("*.bak-*")), [])
 
     def test_platform_paths_and_override(self):
-        with patch.dict(os.environ, {}, clear=True), patch.object(Path, "home", return_value=self.directory):
-            self.assertEqual(pull.get_tokscale_config_dir(), self.directory / ".config/tokscale")
-            with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(self.directory / "xdg")}), patch.object(pull.sys, "platform", "linux"):
-                self.assertEqual(pull.get_tokscale_config_dir(), self.directory / "xdg/tokscale")
-                with patch.object(pull.sys, "platform", "darwin"):
-                    self.assertEqual(pull.get_tokscale_config_dir(), self.directory / ".config/tokscale")
-            with patch.dict(os.environ, {"APPDATA": str(self.directory / "appdata")}), patch.object(pull.sys, "platform", "win32"):
-                self.assertEqual(pull.get_tokscale_config_dir(), self.directory / "appdata/tokscale")
-            with patch.dict(os.environ, {"TOKSCALE_CONFIG_DIR": str(self.config)}):
-                self.assertEqual(pull.get_tokscale_config_dir(), self.config)
+        home = self.directory
+
+        def config_dir(**env):
+            return Tokscale.config_dir(env, home)
+
+        self.assertEqual(config_dir(), home / ".config/tokscale")
+        with patch.object(tokscale.sys, "platform", "linux"):
+            self.assertEqual(config_dir(XDG_CONFIG_HOME=str(home / "xdg")), home / "xdg/tokscale")
+        with patch.object(tokscale.sys, "platform", "darwin"):
+            self.assertEqual(config_dir(XDG_CONFIG_HOME=str(home / "xdg")), home / ".config/tokscale")
+        with patch.object(tokscale.sys, "platform", "win32"):
+            self.assertEqual(config_dir(APPDATA=str(home / "appdata")), home / "appdata/tokscale")
+        self.assertEqual(config_dir(TOKSCALE_CONFIG_DIR=str(self.config)), self.config)
 
     def test_repository_model_coverage(self):
         aliases = json.loads((ROOT / "tokscale_model_alias.json").read_text())

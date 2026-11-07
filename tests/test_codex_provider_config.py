@@ -1,20 +1,18 @@
 """Synthetic TOML and URLs in temporary directories; no user config is changed."""
 
 import contextlib
-import importlib.util
 import io
-import os
 from pathlib import Path, PureWindowsPath
 import tempfile
 import tomllib
 import unittest
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("pull", ROOT / "omadotfile" / "legacy.py")
-assert SPEC is not None and SPEC.loader is not None
-pull = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(pull)
+from omadotfile.agents import codex
+from omadotfile.core import toml_edit
+from support import make_context
+
+GATEWAY_ENV = {"CODEX_BASE_URL": "https://example.test/v1"}
 
 
 class CodexProviderConfigTests(unittest.TestCase):
@@ -35,11 +33,11 @@ class CodexProviderConfigTests(unittest.TestCase):
                     + '[profiles.work]\nmodel_provider = "codex_api"\n'
                 )
                 config.write_text(original, encoding="utf-8")
-                with patch.dict(os.environ, {"CODEX_BASE_URL": "https://example.test/v1"}):
-                    # When the installer updates the actual file twice.
-                    pull.ensure_codex_config(directory, "provider-test")
-                    first = config.read_text(encoding="utf-8")
-                    pull.ensure_codex_config(directory, "provider-test")
+                ctx = make_context(directory, env=GATEWAY_ENV, stamp="provider-test")
+                # When the installer updates the actual file twice.
+                codex.ensure_config(ctx, directory)
+                first = config.read_text(encoding="utf-8")
+                codex.ensure_config(ctx, directory)
                 # Then API routing is restored and nested settings survive.
                 saved = tomllib.loads(first)
                 self.assertEqual(saved["model_provider"], "codex_api")
@@ -52,9 +50,8 @@ class CodexProviderConfigTests(unittest.TestCase):
         for original in ("", 'model_provider = "openai"\n'):
             with self.subTest(original=original):
                 # Given no existing codex_api provider section.
-                with patch.dict(os.environ, {"CODEX_BASE_URL": "https://example.test/v1"}):
-                    # When provider configuration is installed.
-                    lines = pull.ensure_codex_api_provider_config(original.splitlines())
+                # When provider configuration is installed.
+                lines = codex.ensure_api_provider(original.splitlines(), "https://example.test/v1")
                 # Then the existing first-install behavior is preserved.
                 saved = tomllib.loads("\n".join(lines))
                 self.assertEqual(saved["model_provider"], "codex_api")
@@ -64,17 +61,16 @@ class CodexProviderConfigTests(unittest.TestCase):
     def test_empty_base_url_preserves_configuration(self) -> None:
         # Given a disabled provider and no usable URL.
         lines = ['# model_provider = "codex_api"', '[model_providers.codex_api]']
-        with patch.dict(os.environ, {"CODEX_BASE_URL": " "}):
-            # When provider configuration is requested.
-            result = pull.ensure_codex_api_provider_config(lines)
+        # When provider configuration is requested (ensure_config strips CODEX_BASE_URL).
+        with contextlib.redirect_stderr(io.StringIO()):
+            result = codex.ensure_api_provider(lines, " ".strip())
         # Then configuration is unchanged.
         self.assertEqual(result, lines)
 
 
 class TomlStructureTests(unittest.TestCase):
     def provider_update(self, content: str) -> dict:
-        with patch.dict(os.environ, {"CODEX_BASE_URL": "https://example.test/v1"}):
-            lines = pull.ensure_codex_api_provider_config(content.splitlines())
+        lines = codex.ensure_api_provider(content.splitlines(), "https://example.test/v1")
         return tomllib.loads("\n".join(lines))
 
     def test_commented_header_after_provider_survives(self) -> None:
@@ -96,10 +92,9 @@ class TomlStructureTests(unittest.TestCase):
         # Given instructions whose text contains config-looking lines.
         text = 'notify = ["x"]\n[model_providers.codex_api]\nmodel_provider = "codex_api"'
         content = f'developer_instructions = """\n{text}\n"""\n'
-        lines = pull.ensure_codex_notify_config_lines(content.splitlines(), Path("/codex"))
-        with patch.dict(os.environ, {"CODEX_BASE_URL": "https://example.test/v1"}):
-            lines = pull.ensure_codex_api_provider_config(lines)
-            lines = pull.ensure_codex_oauth_provider_config(lines)
+        lines = codex.ensure_notify(content.splitlines(), Path("/codex"))
+        lines = codex.ensure_api_provider(lines, "https://example.test/v1")
+        lines = codex.ensure_oauth_provider(lines)
         document = tomllib.loads("\n".join(lines))
         # Then the text is untouched, and the real top-level keys are added.
         self.assertEqual(document["developer_instructions"], text + "\n")
@@ -111,14 +106,14 @@ class TomlStructureTests(unittest.TestCase):
         # Given a typo tomllib rejects, then a multiline inline table (TOML 1.1).
         lines = ["model = oops", "tui = {", "  theme = 1,", "}", "[profiles.work]", 'model = "x"']
         # Then each value ends where its brackets balance, and the table is still found.
-        self.assertEqual(pull.toml_statement_starts(lines), [0, 1, 4, 5])
-        self.assertEqual(pull.find_first_toml_section_idx(lines), 4)
+        self.assertEqual(toml_edit.toml_statement_starts(lines), [0, 1, 4, 5])
+        self.assertEqual(toml_edit.find_first_toml_section_idx(lines), 4)
 
 
 class CodexNotifyPathTests(unittest.TestCase):
     def render_notify(self, python_bin: str, codex_dir: str) -> list:
-        with patch.object(pull.sys, "executable", python_bin):
-            lines = pull.ensure_codex_notify_config_lines([], PureWindowsPath(codex_dir)
+        with patch.object(codex.sys, "executable", python_bin):
+            lines = codex.ensure_notify([], PureWindowsPath(codex_dir)
                                                      if "\\" in codex_dir else Path(codex_dir))
         return tomllib.loads("\n".join(lines))["notify"]
 
@@ -140,7 +135,7 @@ class CodexSharedSkillOverrideTests(unittest.TestCase):
     shared = str(skills_dir / "skill-creator" / "SKILL.md")
 
     def entries(self, original: str) -> list[dict]:
-        lines = pull.ensure_codex_shared_skills_disabled(original.splitlines(), self.skills_dir)
+        lines = codex.ensure_shared_skills_disabled(original.splitlines(), self.skills_dir)
         return tomllib.loads("\n".join(lines)).get("skills", {}).get("config", [])
 
     def test_shared_copy_is_disabled_by_path(self) -> None:
@@ -153,7 +148,7 @@ class CodexSharedSkillOverrideTests(unittest.TestCase):
 
     def test_entry_without_enabled_gets_it(self) -> None:
         original = f'[[skills.config]]\npath = "{self.shared}"\n\n[profiles.work]\nmodel = "y"\n'
-        lines = pull.ensure_codex_shared_skills_disabled(original.splitlines(), self.skills_dir)
+        lines = codex.ensure_shared_skills_disabled(original.splitlines(), self.skills_dir)
         saved = tomllib.loads("\n".join(lines))
         self.assertEqual(saved["skills"]["config"], [{"path": self.shared, "enabled": False}])
         self.assertEqual(saved["profiles"]["work"]["model"], "y")
@@ -187,9 +182,9 @@ class CodexSharedSkillOverrideTests(unittest.TestCase):
         ):
             for fallback in (False, True):
                 with self.subTest(original=original, fallback=fallback), \
-                        patch.object(pull, "tomllib", None if fallback else tomllib), \
+                        patch.object(toml_edit, "tomllib", None if fallback else tomllib), \
                         contextlib.redirect_stderr(io.StringIO()) as err:
-                    lines = pull.ensure_codex_shared_skills_disabled(original.splitlines(), self.skills_dir)
+                    lines = codex.ensure_shared_skills_disabled(original.splitlines(), self.skills_dir)
                 self.assertEqual(lines, original.splitlines())
                 self.assertIn("skill-creator", err.getvalue())
 
@@ -197,8 +192,8 @@ class CodexSharedSkillOverrideTests(unittest.TestCase):
         original = f'[[skills.config]]\npath = "{self.shared}"\n[skills.config.extra]\nx = 1\n'
         for fallback in (False, True):
             with self.subTest(fallback=fallback), \
-                    patch.object(pull, "tomllib", None if fallback else tomllib):
-                lines = pull.ensure_codex_shared_skills_disabled(original.splitlines(), self.skills_dir)
+                    patch.object(toml_edit, "tomllib", None if fallback else tomllib):
+                lines = codex.ensure_shared_skills_disabled(original.splitlines(), self.skills_dir)
             saved = tomllib.loads("\n".join(lines))
             self.assertEqual(saved["skills"]["config"],
                              [{"path": self.shared, "enabled": False, "extra": {"x": 1}}])
@@ -206,29 +201,28 @@ class CodexSharedSkillOverrideTests(unittest.TestCase):
     def test_an_edit_that_would_break_the_file_is_dropped(self) -> None:
         # A table under skills.config that the static check does not catch.
         original = '[skills.config.x]\ny = 1\n'
-        with patch.object(pull, "codex_skills_config_is_static", return_value=False), \
+        with patch.object(codex, "skills_config_is_static", return_value=False), \
                 contextlib.redirect_stderr(io.StringIO()) as err:
-            lines = pull.ensure_codex_shared_skills_disabled(original.splitlines(), self.skills_dir)
+            lines = codex.ensure_shared_skills_disabled(original.splitlines(), self.skills_dir)
         self.assertEqual(lines, original.splitlines())
         self.assertIn("skill-creator", err.getvalue())
 
     def test_inline_entry_that_already_disables_it_is_accepted(self) -> None:
         original = f'[skills]\nconfig = [{{ path = "{self.shared}", enabled = false }}]\n'
         with contextlib.redirect_stderr(io.StringIO()) as err:
-            lines = pull.ensure_codex_shared_skills_disabled(original.splitlines(), self.skills_dir)
+            lines = codex.ensure_shared_skills_disabled(original.splitlines(), self.skills_dir)
         self.assertEqual(lines, original.splitlines())
         self.assertEqual(err.getvalue(), "")
 
     def test_second_run_changes_nothing(self) -> None:
-        once = pull.ensure_codex_shared_skills_disabled([], self.skills_dir)
-        self.assertEqual(pull.ensure_codex_shared_skills_disabled(once, self.skills_dir), once)
+        once = codex.ensure_shared_skills_disabled([], self.skills_dir)
+        self.assertEqual(codex.ensure_shared_skills_disabled(once, self.skills_dir), once)
 
     def test_full_config_install_disables_it(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp, \
-                patch.object(Path, "home", return_value=Path(tmp)), \
-                patch.dict(os.environ, {"CODEX_BASE_URL": "https://example.test/v1"}):
+        with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / ".codex").mkdir()
-            pull.ensure_codex_config(Path(tmp) / ".codex", "skills-test")
+            codex.ensure_config(make_context(Path(tmp), env=GATEWAY_ENV, stamp="skills-test"),
+                                Path(tmp) / ".codex")
             saved = tomllib.loads((Path(tmp) / ".codex" / "config.toml").read_text(encoding="utf-8"))
         shared = str(Path(tmp) / ".agents" / "skills" / "skill-creator" / "SKILL.md")
         self.assertEqual(saved["skills"]["config"], [{"path": shared, "enabled": False}])
