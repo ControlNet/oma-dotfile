@@ -15,7 +15,7 @@ from omadotfile.agents.omo_native import OmoNative
 from omadotfile.agents.omp import Omp
 from omadotfile.agents.opencode import OpenCode
 from omadotfile.agents.tokscale import Tokscale
-from omadotfile.console import BANNER, Console, current_console, error, info, line, step, success, use_console, warn
+from omadotfile.console import BANNER, Console, HomeAsTilde, current_console, error, info, line, step, success, use_console, warn
 from omadotfile.constants import GATEWAY_ENV_VARS, REQUIRED_ENV_VARS, REQUIRED_REPO_FILES
 from omadotfile.context import Context, Options, RepoRef
 from omadotfile.features.skills import install_shared_skills
@@ -129,16 +129,16 @@ def main(argv: Sequence[str] | None = None, repo: Path | None = None,
 
     The composition root: the only reader of the process's env, home, platform and
     interpreter. Output goes to `console` if given, else to the Console already bound
-    (the Terminal unless a caller bound another).
+    (the Terminal unless a caller bound another), with the home directory written as `~`.
     """
-    with use_console(current_console() if console is None else console):
+    home = Path.home() if home is None else home
+    with use_console(HomeAsTilde(current_console() if console is None else console, home)):
         return install(parse_args(argv), repo, env, home)
 
 
 def install(args: argparse.Namespace, repo: Path | None, env: Mapping[str, str] | None,
-            home: Path | None) -> Context:
+            home: Path) -> Context:
     env = dict(os.environ if env is None else env)
-    home = Path.home() if home is None else home
     repo = Path(__file__).resolve().parent.parent if repo is None else repo
     options = Options.from_env(env, oauth=args.oauth, install_all=args.install_all)
 

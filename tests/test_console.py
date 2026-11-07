@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from omadotfile import console
-from omadotfile.console import Terminal, current_console, info, item, line, use_console, warn
+from omadotfile.console import HomeAsTilde, Terminal, current_console, info, item, line, use_console, warn
 from omadotfile.core.errors import Skip, skips, warns_on
 from omadotfile.features import skills
 from omadotfile.step import requires
@@ -107,3 +107,30 @@ class TerminalTests(TestCase):
         with contextlib.redirect_stdout(io.StringIO()) as out:
             terminal.emit("success", "done")
         self.assertIn("done", out.getvalue())
+
+
+class HomeAsTildeTests(TestCase):
+    def shown(self, home: str, text: str) -> str:
+        recorder = Recorder()
+        HomeAsTilde(recorder, Path(home)).emit("info", text)
+        (shown,) = recorder.of("info")
+        return shown
+
+    def test_the_home_directory_is_written_as_a_tilde(self):
+        self.assertEqual(self.shown("/home/u", "Installing to: /home/u/.omp/agent"), "Installing to: ~/.omp/agent")
+        self.assertEqual(self.shown("/home/u", "copy /home/u/a to /home/u/b"), "copy ~/a to ~/b")
+        self.assertEqual(self.shown("/home/u", "home is /home/u"), "home is ~")
+        self.assertEqual(self.shown("/home/u", "Failed to read '/home/u/x': denied"), "Failed to read '~/x': denied")
+
+    def test_only_the_home_directory_itself(self):
+        for text in ("/home/user/x", "/mnt/home/u/x", "/home/u.old/x", "/home/u-2"):
+            with self.subTest(text):
+                self.assertEqual(self.shown("/home/u", text), text)
+
+    def test_a_root_home_is_left_alone(self):
+        self.assertEqual(self.shown("/", "/etc/x"), "/etc/x")
+
+    def test_the_level_is_kept(self):
+        recorder = Recorder()
+        HomeAsTilde(recorder, Path("/home/u")).emit("warn", "/home/u/x")
+        self.assertEqual(recorder.lines, [("warn", "~/x")])

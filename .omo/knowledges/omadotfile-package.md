@@ -124,6 +124,9 @@ Things worth knowing when changing it:
   wants `@contextmanager` functions annotated `-> Generator[T, None, None]`, not `Iterator[T]`;
   with stdout piped, buffered test output can land after unittest's summary line, so match
   `^(OK|FAILED)` instead of taking the last line.
+- Print real paths; `cli.main` wraps the Console in `HomeAsTilde`, which writes the home
+  directory as `~`. Do not shorten paths by hand in messages, and do not print to stdout
+  around the Console (subprocess output is captured, never echoed).
 - A file line under a step is printed after the write and only if something was written: wrap
   the write in `with ctx.files.reporting("label"):` (or print the item when the write returned
   True). Do not print an item before writing; a rerun that changes nothing should list nothing.

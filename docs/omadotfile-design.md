@@ -567,3 +567,12 @@ real machine), as the single-file installer did before the split. Now:
 
 Kept on every run: step headings, the "already configured; skip" notes, the OAuth mode note,
 the Claude Code plugin line, and the closing notes. Golden runs: identical files.
+
+### Home as `~` (2026-11-07)
+
+`cli.main` binds `HomeAsTilde(console, home)` around the run, so every line names paths under
+the home directory as `~/...`: output gets pasted into issues and chats, and the user name
+should not go with it. It rewrites only the whole directory (not `/home/user` for `/home/u`,
+not `/mnt/home/u`) and leaves a home of `/` alone. Code keeps printing real paths; the Console
+does the rewriting, so no message has to remember to. pull.py's one path message (a `--repo`
+checkout without the package) does the same with its own `tilde()`.

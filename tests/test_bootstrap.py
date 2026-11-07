@@ -76,6 +76,13 @@ class BootstrapTests(TestCase):
         self.assertIn("has no omadotfile package", message)
         self.assertNotIn("Traceback", message)
 
+    def test_a_checkout_under_home_is_named_with_a_tilde(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(bootstrap.Path, "home", return_value=Path(directory)):
+            message = errors_of(bootstrap.run, Path(directory) / "src" / "dotfile", [])
+        self.assertIn("~/src/dotfile has no omadotfile package", message)
+        self.assertNotIn(directory, message)
+
     def clone(self, terminal: bool, returncode: int = 0) -> tuple[str, str]:
         """Run the clone path with git and omadotfile mocked; what it wrote to stdout and stderr."""
         out, err = Stream(terminal), io.StringIO()

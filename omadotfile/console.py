@@ -9,6 +9,8 @@ recorder and reads the lines it kept instead of capturing stdout/stderr.
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from pathlib import Path
+import re
 import sys
 from typing import Literal, Protocol, TypeVar
 
@@ -78,6 +80,21 @@ class Terminal:
             print(PREFIXES[level] + text, file=sys.stderr, flush=True)
         else:
             print(PREFIXES[level] + text)
+
+
+class HomeAsTilde:
+    """A Console that writes the home directory as `~` before passing each line on.
+
+    Output gets pasted into issues and chats; this keeps the user name out of it.
+    """
+
+    def __init__(self, inner: Console, home: Path) -> None:
+        self.inner = inner
+        # Only the whole directory: not /home/user for /home/u, not /mnt/home/u.
+        self.pattern = re.compile(rf"(?<![\w.~/\\-]){re.escape(str(home))}(?![\w.-])") if home.name else None
+
+    def emit(self, level: Level, text: str, /) -> None:
+        self.inner.emit(level, text if self.pattern is None else self.pattern.sub("~", text))
 
 
 CURRENT: ContextVar[Console] = ContextVar("console", default=Terminal())

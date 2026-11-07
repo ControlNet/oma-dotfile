@@ -61,10 +61,19 @@ def split_repo_arg(argv):
     return repo, rest
 
 
+def tilde(path):
+    """path with the home directory written as `~`, as omadotfile prints paths."""
+    home = Path.home()
+    try:
+        return "~/" + path.relative_to(home).as_posix() if path != home else "~"
+    except ValueError:
+        return str(path)
+
+
 def run(repo_dir, argv):
     """Run omadotfile from repo_dir, ahead of any other omadotfile on sys.path."""
     if not (repo_dir / "omadotfile" / "__init__.py").is_file():
-        fail("{} has no omadotfile package; it is older than this pull.py".format(repo_dir))
+        fail("{} has no omadotfile package; it is older than this pull.py".format(tilde(repo_dir)))
     sys.path.insert(0, str(repo_dir))
     from omadotfile.cli import main
     main(argv, repo=repo_dir)
