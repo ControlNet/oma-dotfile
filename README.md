@@ -112,8 +112,6 @@ When Claude Code is found, commits and PRs carry no Claude attribution:
     `git lfs install` once so its hooks go into that dir too.
   - A relative `core.hooksPath` is left alone, and nothing is installed when `python3` is not on `PATH`.
   - Repos that set their own `core.hooksPath` (such as husky) do not use this hook.
-- Hooks and plugins from earlier versions of this setup (chain hooks, the `strip-attribution` Claude
-  Code plugin) are removed, and the hooks they replaced are put back.
 
 ## OMP Gotify notifications
 

@@ -1,6 +1,6 @@
 # omadotfile: design for splitting pull.py into a package
 
-Status: proposal, not started. `pull.py` is about 2240 lines in one file. Each function is small; the
+Status: decided, not started. `pull.py` is about 2240 lines in one file. Each function is small; the
 problem is that everything about one agent is spread over several places, global state is read
 at import time, and generic helpers sit between agent-specific code. This document describes the
 target layout and the order in which to get there without breaking installs.
@@ -24,6 +24,7 @@ omadotfile/
   __init__.py
   __main__.py              `python3 -m omadotfile --repo .` for local runs
   cli.py                   parse_args, main(argv, repo, source): banner, detection, steps, summary
+  constants.py             what gets installed: agents, file lists, skills, pins, plugin ids
   context.py               Options, RepoRef, Context
   console.py               info / success / warn / error, banner, step header
   migration.py             @migration decorator and its registry (metadata only)
@@ -119,11 +120,10 @@ class Component:                     # one numbered step
     def run(self, ctx: Context) -> None
 
 @dataclass(frozen=True)
-class FileSpec:
+class FileSpec:                      # pure data, declared in constants.py
     src: str                         # path in the repo
     dst: str                         # path under the agent's dir
-    managed: bool = False            # repo-owned code: no backup
-    render: Callable[[str, Context], str] | None = None   # e.g. the oauth rewrite
+    managed: bool = False            # repo-owned code: no backup, else user config with backup
 
 class Agent(Component):
     key: ClassVar[str]               # "codex"
@@ -140,8 +140,9 @@ class Agent(Component):
 ```
 
 `run` is a template method: it installs `files` the same way for every agent and then calls
-`configure`, which only Codex, Claude, OMO Native and a few others override. A `FileSpec` is one of
-three cases (rendered, managed, user config), handled by one `install_file` function. There is one
+`configure`, which only Codex, Claude, OMO Native and a few others override. Files whose content is
+rewritten (the `--oauth` variants of `opencode.jsonc`, `omo.jsonc`, `omp_config.yml`, …) are left
+out of `files` and written by `configure`, so `constants.py` holds no code. There is one
 level of inheritance and no factories: the steps are a literal, ordered list in `cli.py`:
 
 ```python
@@ -173,25 +174,40 @@ and one `ensure_plugin(cli)` that holds the flow and the messages once.
 
 ### Migrations
 
-One-off cleanups (`remove_git_hook_chain`, `remove_retired_claude_plugin`, legacy config renames,
-old per-agent skill copies, …) stay in the module that owns them, next to the code they clean up
-after. A decorator only records metadata:
+One-off cleanups (legacy config renames, old per-agent skill copies, retired and removed skills)
+stay in the module that owns them, next to the code they clean up after. A decorator only records
+metadata; it does not change what the function does:
 
 ```python
-@migration(since="83300b5", reason="chain hooks of 2ada252..b182b57", review_after="2027-05")
-def remove_git_hook_chain(hooks_dir: Path) -> None: ...
+@migration(since="2026-04", reason="oh-my-opencode / oh-my-openagent config names", remove_by="2027-04")
+def retire_legacy_openagent_files(ctx: Context, config_dir: Path) -> None: ...
 ```
 
-`omadotfile.migration.MIGRATIONS` then lists every one in one place. How to act on
-`review_after` is an open question (below).
+- A migration runs on every install until its code is deleted. A machine that has not pulled for
+  months still gets cleaned up.
+- `tests/test_migrations.py` fails once any `remove_by` date has passed. That failing test is the
+  only reminder; nothing is printed at install time. (The repo has no CI, so this shows up when the
+  suite is run locally.)
+- When it fails: delete the migration, or move `remove_by` later if some machine may still need it.
 
-### Data next to logic
+### Data: constants.py
 
-Tables such as `UPSTREAM_SKILLS`, `REMOVED_SKILLS`, pinned versions, WakaTime plugin ids and the
-`FileSpec` tuples stay as Python constants in a data block at the top of their module (or as class
-attributes of the agent). They are not moved to an external data file: reading TOML needs
-`tomllib` (Python 3.11, not on Ubuntu 22.04), and JSON cannot carry the comments that explain
-most of these entries.
+`omadotfile/constants.py` holds what gets installed, as plain data with comments:
+
+- repo defaults (`REPO_OWNER`, `REPO_NAME`, `REPO_REV`) and required environment variables;
+- the agents: key, label, executable;
+- each agent's `FileSpec` list;
+- skill sources, skills excluded from Claude Code or disabled in Codex, retired and removed skills;
+- pinned versions (skills CLI, omo-herdr-dag);
+- WakaTime marketplace and plugin ids and URLs;
+- legacy file names that migrations rename.
+
+How things are installed stays with the code that does it: regexes for TOML/JSONC, marker strings,
+timeouts and JSON field names live in their own modules. `constants.py` imports nothing from the
+package, so every module can import it.
+
+An external data file was ruled out: reading TOML needs `tomllib` (Python 3.11, not on Ubuntu
+22.04), and JSON cannot carry the comments that explain most of these entries.
 
 ## Bootstrap contract (`pull.py`)
 
@@ -208,14 +224,15 @@ most of these entries.
 
 ## Behaviour changes
 
-Everything else must be identical. Each item can be vetoed:
+Everything else must be identical:
 
-1. Step numbering: 12 steps become 9 (merged OpenCode and Codex steps), and the clone message
-   from the bootstrap has no number.
-2. Step isolation: today an unexpected exception aborts the run with a traceback and later agents
-   are not installed. Proposed: catch it per step, print the traceback, continue, list the failed
-   steps at the end and exit 1.
-3. Message text stays the same except where a merged step needs one heading.
+1. Step numbering: 12 steps become 9 (merged OpenCode and Codex steps), numbered from the step
+   list, and the clone message from the bootstrap has no number.
+2. Message text stays the same except where a merged step needs one heading.
+
+Error handling stays as it is: expected failures (unreadable config, bad JSON, a CLI that fails)
+are caught where they happen, print `[WARN]` and the run goes on; an unexpected exception aborts
+the run with a traceback; a failed clone or a missing required repo file exits 1.
 
 ## Migration plan
 
@@ -230,7 +247,7 @@ Each phase is one commit: full test suite green, golden run (below) unchanged, t
    `main`. `legacy.py` shrinks to features and migrations.
 4. **Features.** `features/wakatime.py` (with the adapters) and `features/skills.py`; the
    migration decorator; `legacy.py` deleted.
-5. **Wrap-up.** Idempotence test, step isolation (if approved), README and knowledge notes.
+5. **Wrap-up.** Idempotence test, migration date test, README and knowledge notes.
 
 ### Golden run
 
@@ -244,9 +261,8 @@ sandboxes, then diff the trees. Backup files and other timestamps are ignored. E
 - `XDG_STATE_HOME=<sandbox>/state`: the skills CLI lock.
 - `--all`, and the `CODEX_BASE_URL` etc. variables set to fixed fake values.
 - External commands (`npx skills`, `git ls-remote`, `npm pack`, `codex plugin`, `claude plugin`)
-  either run for real (network, slow, results can drift between the two runs) or through stub
-  scripts put first on `PATH` that record their arguments. The stubs are the default; a real run
-  is done once at the end.
+  run through stub scripts put first on `PATH` that record their arguments, so both runs see the
+  same answers without network. One real install is done at the end.
 
 ### Test migration
 
@@ -263,12 +279,11 @@ sandboxes, then diff the trees. Backup files and other timestamps are ignored. E
 - New: an idempotence test that runs every step twice in a sandbox with stub CLIs and checks that
   `Files` changed nothing the second time.
 
-## Open questions
+## Decisions (2026-11-07)
 
-1. Behaviour changes 1 and 2 above: accept, or keep today's numbering and abort-on-error?
-2. `@migration(review_after=…)`: fail a test once the date passes (a reminder that makes the
-   suite depend on the calendar), or only list them with `python3 -m omadotfile --migrations`?
-3. Data in Python constants at the top of each module, as above, or an external data file anyway?
-4. Can the cleanups for states no machine has any more (chain hooks, strip-attribution plugin) be
-   deleted now instead of being moved?
-5. Golden run: stub CLIs by default as proposed?
+- Error handling stays as it is today; no per-step isolation.
+- Migrations keep running until deleted; a test fails after `remove_by`; no install-time reminder.
+- Installer data goes in `constants.py`, limited to what gets installed.
+- The cleanups for the chain hooks and the strip-attribution plugin were deleted before the split,
+  since no machine has those states any more.
+- Golden runs use stub CLIs.

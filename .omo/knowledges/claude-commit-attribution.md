@@ -27,7 +27,8 @@
 ## Chain hooks (2ada252 to b182b57, dropped on 2026-11-07)
 
 Those versions kept each repo's own hooks running under the global dir. It worked, but needed too
-much machinery. `ensure_git_commit_msg_hook` first runs `remove_git_hook_chain` on the hooks dir.
+much machinery. 83300b5 to a71ac13 cleaned up after them (`remove_git_hook_chain`); that code was
+deleted once no machine had those hooks left.
 
 - Keeping repo hooks running meant a chain script under every hook name in githooks(5), drop-in
   `<name>.d/` dirs, and regenerating git-lfs's hooks. A review found further gaps: include/system
@@ -45,18 +46,16 @@ much machinery. `ensure_git_commit_msg_hook` first runs `remove_git_hook_chain` 
   - `git lfs post-commit` creates `.git/lfs` in every repo, so that dir does not show a repo uses LFS.
   - `push-to-checkout` changes git's behavior just by existing: with
     `receive.denyCurrentBranch=updateInstead`, git updates the pushed-to worktree only without it.
-- What `remove_git_hook_chain` undoes: files marked
-  `# managed by oma-dotfile` get back `<name>.d/previous*`, else the newest `<name>.bak-*`, else
-  `<name>.d/git-lfs`, else (commit-msg) `drop-claude-attribution`; unmarked hooks are never touched.
-  Our drop-ins are deleted and other `<name>.d/` files are kept with a warning. It runs after
-  `core.hooksPath` is resolved (and set), so a leftover chain dir is cleaned even if the user unset it.
+- `remove_git_hook_chain` gave each hook marked `# managed by oma-dotfile` back what it replaced:
+  `<name>.d/previous*`, else the newest `<name>.bak-*`, else `<name>.d/git-lfs`, else (commit-msg)
+  `drop-claude-attribution`. Unmarked hooks were never touched.
 
 ## strip-attribution plugin (tried in 762325f, dropped on 2026-11-07)
 
 A Claude Code plugin rewrote commit commands instead of using a git hook. It was dropped because
 parsing shell commands with regexes is fragile (`$'…'`, escaped `\n`, strings built in pieces), while a
-commit-msg hook sees the final message. `pull.py` deletes the installed copy from
-`~/.claude/skills/strip-attribution` when its manifest still names it. What was learned:
+commit-msg hook sees the final message. 83300b5 to a71ac13 deleted the installed copy from
+`~/.claude/skills/strip-attribution`; that code was removed once no machine had it. What was learned:
 
 - A PreToolUse hook on `Bash`. It rewrites `git commit` and `gh pr create|edit` commands, dropping
   whole lines (and `-m`/`--trailer` arguments) that are `Co-Authored-By: Claude …@anthropic.com`,

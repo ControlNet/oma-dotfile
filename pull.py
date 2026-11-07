@@ -1003,24 +1003,6 @@ def install_claude_plugins(
     for src_dir in sorted(plugins_dir.iterdir()):
         if (src_dir / ".claude-plugin" / "plugin.json").is_file():
             install_claude_plugin(src_dir, claude_config_dir / "skills" / src_dir.name)
-    for name in RETIRED_CLAUDE_PLUGINS:
-        remove_retired_claude_plugin(claude_config_dir / "skills" / name)
-
-
-# Plugins that earlier versions installed and this one no longer ships.
-RETIRED_CLAUDE_PLUGINS = ("strip-attribution",)
-
-
-def remove_retired_claude_plugin(dst_dir: Path) -> None:
-    """Delete dst_dir if its manifest still names it, i.e. it is the copy pull.py installed."""
-    try:
-        manifest = json.loads((dst_dir / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return
-    if dst_dir.is_symlink() or not isinstance(manifest, dict) or manifest.get("name") != dst_dir.name:
-        return
-    shutil.rmtree(dst_dir)
-    print(f"         - removed Claude Code plugin {dst_dir.name} (no longer shipped)")
 
 
 def install_claude_plugin(src_dir: Path, dst_dir: Path) -> None:
@@ -1069,71 +1051,6 @@ def ensure_claude_attribution(claude_config_dir: Path, stamp: str) -> None:
     print("         - settings.json (no commit or PR attribution)")
 
 
-# Versions 2ada252 to b182b57 put a chain script, marked with this, under every hook name
-# in the core.hooksPath dir, so each repo's own hooks kept running.
-GIT_HOOK_MARKER = b"# managed by oma-dotfile"
-# Files those versions put in <name>.d/ (drop-claude-attribution also at the top level);
-# any other file there is the user's.
-GIT_HOOK_DROP_INS = ("git-lfs", "drop-claude-attribution")
-
-
-def remove_git_hook_chain(hooks_dir: Path) -> None:
-    """Put back the hooks those versions replaced in hooks_dir with their chain script.
-
-    Each marked hook gets back what it replaced: <name>.d/previous*, else the newest
-    <name>.bak-*, else <name>.d/git-lfs, else, for commit-msg, drop-claude-attribution.
-    Marked hooks with none of these are deleted.
-    """
-    if not hooks_dir.is_dir():
-        return
-    try:
-        restored: list[str] = []
-        removed = 0
-        sub_dirs: list[Path] = []
-        for hook in sorted(hooks_dir.iterdir()):
-            if not hook.is_file() or hook.is_symlink() or GIT_HOOK_MARKER not in hook.read_bytes():
-                continue
-            sub_dir = hooks_dir / f"{hook.name}.d"
-            sub_dirs.append(sub_dir)
-            candidates = [*sorted(sub_dir.glob("previous*")),
-                          *sorted(hooks_dir.glob(f"{hook.name}.bak-*"), reverse=True),
-                          sub_dir / "git-lfs"]
-            if hook.name == "commit-msg":
-                candidates += [sub_dir / "drop-claude-attribution", hooks_dir / "drop-claude-attribution"]
-            original = next((path for path in candidates if path.is_file() and not path.is_symlink()
-                             and GIT_HOOK_MARKER not in path.read_bytes()), None)
-            if original is None:
-                hook.unlink()
-                removed += 1
-            else:
-                _ = original.replace(hook)
-                restored.append(hook.name)
-        drop = hooks_dir / "drop-claude-attribution"
-        if sub_dirs and drop.is_file() and not drop.is_symlink():
-            drop.unlink()
-        kept: list[str] = []
-        for sub_dir in sub_dirs:
-            if not sub_dir.is_dir() or sub_dir.is_symlink():
-                continue
-            for path in sorted(sub_dir.iterdir()):
-                if path.name in GIT_HOOK_DROP_INS and path.is_file() and not path.is_symlink():
-                    path.unlink()
-                else:
-                    kept.append(f"{sub_dir.name}/{path.name}")
-            if not any(sub_dir.iterdir()):
-                sub_dir.rmdir()
-    except OSError as exc:
-        warn(f"Failed to remove the old git hooks from {hooks_dir}: {exc}")
-        return
-    if not restored and not removed:
-        return
-    print(f"         - {hooks_dir}: removed the chain hooks of earlier versions"
-          + (f"; put back {', '.join(restored)}" if restored else ""))
-    if kept:
-        warn(f"         Kept {', '.join(kept)} in {hooks_dir}; git does not run them, "
-             "so move the ones you need back to the hook name")
-
-
 def ensure_git_commit_msg_hook(repo_path: Path, stamp: str) -> None:
     """Install the commit-msg hook that drops Claude attribution lines from every commit.
 
@@ -1167,7 +1084,6 @@ def ensure_git_commit_msg_hook(repo_path: Path, stamp: str) -> None:
     except (OSError, subprocess.CalledProcessError) as exc:
         warn(f"git config failed ({type(exc).__name__}); commit-msg hook not installed")
         return
-    remove_git_hook_chain(hooks_dir)
     dst = hooks_dir / "commit-msg"
     content = src.read_bytes()
     if not (dst.is_file() and dst.read_bytes() == content):
