@@ -38,6 +38,18 @@
   - Files marked `# managed by oma-dotfile` are replaced.
   - `GIT_RETIRED_HOOK_FILES` removes the managed top-level `push-to-checkout` and
     `drop-claude-attribution` left by earlier versions.
+- Upgrading from earlier versions was checked on 2026-11-07. Each version was installed from git
+  history into a sandbox whose hooks dir already held Git LFS's own hooks, then the new version was
+  installed on top.
+  - Versions checked: `eaccad9` (Python `commit-msg` only), `2ada252` (LFS-aware chain plus
+    `push-to-checkout`) and `21567f0`.
+  - All three ended the same: 25 chains and 5 drop-ins, no other files, a silent second run, Claude
+    lines dropped and LFS objects pushed.
+  - The `<name>.bak-<stamp>` files those versions left are removed when their content is in
+    `<name>.d/`. Others are listed every run as not running.
+  - If git-lfs was upgraded between versions, its old hook text differs from what it writes now. It
+    then lands in `<name>.d/previous` next to `git-lfs` and LFS runs twice; that is harmless but
+    slower.
 - Hook names:
   - Git runs only the names in githooks(5). A repo hook under any other name never ran anyway.
   - `GIT_CHAINED_HOOKS` is githooks(5) of git 2.34 (28 names) minus `GIT_UNCHAINED_HOOKS`.

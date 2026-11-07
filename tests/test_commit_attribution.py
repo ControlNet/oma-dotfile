@@ -241,6 +241,20 @@ class GitHookTests(unittest.TestCase):
         self.assertFalse((hooks / "push-to-checkout").exists())
         self.assertFalse((hooks / "drop-claude-attribution").exists())
 
+    def test_backups_left_by_earlier_versions_go_when_their_content_is_kept(self):
+        hooks = self.use_dir()
+        _ = (hooks / "pre-push.bak-20261107-085000").write_bytes(FAKE_LFS["pre-push"])
+        _ = (hooks / "commit-msg.bak-20261107-085000").write_bytes(DROP.read_bytes())
+        _ = (hooks / "commit-msg.bak-20261106-120000").write_text("#!/bin/sh\nmy-msg-check\n",
+                                                                  encoding="utf-8")
+        output = self.install()
+        self.assertFalse((hooks / "pre-push.bak-20261107-085000").exists())
+        self.assertFalse((hooks / "commit-msg.bak-20261107-085000").exists())
+        # Different content was someone's own hook: it stays, and the output says so.
+        self.assertTrue((hooks / "commit-msg.bak-20261106-120000").is_file())
+        self.assertIn("commit-msg.bak-20261106-120000", output)
+        self.assertIn("commit-msg.d/", output)
+
     def test_own_push_to_checkout_is_kept(self):
         hooks = self.use_dir()
         _ = (hooks / "push-to-checkout").write_text("#!/bin/sh\ngit read-tree -u -m HEAD \"$1\"\n",

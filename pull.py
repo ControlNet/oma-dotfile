@@ -1168,6 +1168,24 @@ def ensure_git_hooks(repo_path: Path, stamp: str) -> None:
             old.unlink()
             print(f"         - removed {old} (left by an earlier version)")
 
+    # Earlier versions backed hooks up as <name>.bak-<stamp> before replacing them. A backup
+    # whose content now sits in <name>.d/ is a spare copy; any other one is reported.
+    stale_backups: list[str] = []
+    for name in GIT_CHAINED_HOOKS:
+        kept_contents = {path.read_bytes() for path in (hooks_dir / f"{name}.d").glob("*")
+                         if path.is_file()}
+        for backup in sorted(hooks_dir.glob(f"{name}.bak-*")):
+            if not backup.is_file() or backup.is_symlink():
+                continue
+            if backup.read_bytes() in kept_contents:
+                backup.unlink()
+                print(f"         - removed {backup.name} (same as a file in {name}.d/)")
+            else:
+                stale_backups.append(backup.name)
+    if stale_backups:
+        info(f"         Not running: {', '.join(stale_backups)} in {hooks_dir}; "
+             "to run one again, move it into <name>.d/ and make it executable")
+
     chain = chain_src.read_bytes()
     chained = 0
     kept: list[str] = []
