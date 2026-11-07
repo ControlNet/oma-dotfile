@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+
+from pathlib import Path
+import re
+import sys
+
+path = Path(sys.argv[1])
+lines = path.read_text().splitlines()
+
+patterns = [
+    re.compile(
+        r"^Co-Authored-By:\s*Claude\b.*<[^>]*anthropic\.com>\s*$",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^🤖?\s*Generated with \[Claude Code\].*$",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^Claude-Session:\s*https://claude\.ai/code/session_.*$",
+        re.IGNORECASE,
+    ),
+]
+
+lines = [
+    line
+    for line in lines
+    if not any(pattern.match(line) for pattern in patterns)
+]
+
+while lines and not lines[-1].strip():
+    lines.pop()
+
+path.write_text("\n".join(lines) + "\n")

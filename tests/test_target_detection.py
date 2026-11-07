@@ -3,6 +3,7 @@
 import contextlib
 import importlib.util
 import io
+import json
 import os
 from pathlib import Path
 import shutil
@@ -162,6 +163,8 @@ class InstallGatingTests(unittest.TestCase):
         self.herdr_dag = self.enterContext(patch.object(pull, "ensure_omo_herdr_dag"))
         # npx and the skills CLI would hit the same fake clone.
         self.agent_skills = self.enterContext(patch.object(pull, "ensure_agent_skills"))
+        # git config would hit the same fake clone, and must not reach the real ~/.gitconfig.
+        self.git_hook = self.enterContext(patch.object(pull, "ensure_git_commit_msg_hook"))
         # Never reach the developer's real ~/.wakatime.cfg.
         self.wakatime_config = self.enterContext(patch.object(pull, "ensure_wakatime_config"))
         self.tokscale = self.enterContext(patch.object(pull, "install_tokscale_model_aliases"))
@@ -323,6 +326,17 @@ class InstallGatingTests(unittest.TestCase):
         self.assertEqual(len(list(codex_dir.glob("AGENTS.md.bak-*"))), 1)
         self.assertEqual(list(codex_dir.glob("codex-gotify-notify.py.bak-*")), [])
         self.assertEqual(list(extensions.glob("*.bak-*")), [])
+
+    def test_claude_code_commits_carry_no_attribution(self) -> None:
+        self.run_main(claude=True)
+        settings = self.target_dir("get_claude_config_dir") / "settings.json"
+        self.assertEqual(json.loads(settings.read_text(encoding="utf-8"))["attribution"],
+                         {"commit": "", "pr": ""})
+        self.git_hook.assert_called_once()
+
+    def test_no_claude_code_means_no_git_hook(self) -> None:
+        self.run_main(codex=True)
+        self.git_hook.assert_not_called()
 
     def test_claude_instructions_preserve_existing_user_memory(self) -> None:
         # Existing personal instructions must remain separate from the shared rules.

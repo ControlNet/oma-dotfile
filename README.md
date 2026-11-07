@@ -58,7 +58,7 @@ Rerun without `--oauth` to switch back.
 | OMO Native | `~/.omo/agent` | `AGENTS.md`, `models.json`, `settings.json` (ignores `~/.claude` rules); routing under `"[native]"` in `omo.jsonc`. With `herdr`, `node` and `npm` found: [omo-herdr-dag](https://github.com/jc01rho/omo-herdr-dag) (pinned, upstream installer, reinstalled only when changed; English by default, `npx omo-herdr-dag@<version> install --lang zh-cn` once to switch) |
 | OMP | `~/.omp/agent` | `AGENTS.md`, config, models, Gotify and WakaTime extensions |
 | Codex | `~/.codex` | `AGENTS.md`, Gotify notifier, WakaTime plugin; `config.toml` turns off the shared `skill-creator` so Codex keeps its bundled one |
-| Claude Code | `~/.claude` | Rule `rules/oma-dotfile.md`, Gotify plugin, WakaTime plugin, links to shared skills |
+| Claude Code | `~/.claude` | Rule `rules/oma-dotfile.md`, Gotify plugin, WakaTime plugin, links to shared skills; commit attribution off (see [Commit attribution](#commit-attribution)) |
 | Tokscale | Tokscale `settings.json` | Model aliases from `tokscale_model_alias.json` |
 | Skills | `~/.agents/skills` | See [Skills](#skills) |
 
@@ -98,6 +98,18 @@ Claude Code already has.
 - To drop one of your own, delete it from `skills/` and add its name to `REMOVED_SKILLS`. The next
   run uninstalls it with `npx skills remove`, but only if `~/.agents/.skill-lock.json` says it came
   from this repo; a same-named skill from elsewhere is kept. Dropped so far: `frontend-codex`.
+
+## Commit attribution
+
+When Claude Code is found, commits and PRs carry no Claude attribution:
+
+- `settings.json` gets `"attribution": {"commit": "", "pr": ""}`; other settings are kept.
+- `git-hooks/commit-msg` is installed into the global `core.hooksPath` dir. It drops
+  `Co-Authored-By: Claude …@anthropic.com`, `Generated with [Claude Code]` and `Claude-Session:` lines,
+  which also covers lines an agent writes into the message itself. If `core.hooksPath` is unset, it
+  is set to `~/.config/git/hooks`; hooks in each repo's `.git/hooks` then stop running (run
+  `git lfs install` again if you use Git LFS). A relative `core.hooksPath` is left alone, and the hook
+  is skipped when `python3` is not on `PATH`.
 
 ## OMP Gotify notifications
 

@@ -30,6 +30,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import sys
 import subprocess
 import tarfile
@@ -1020,6 +1021,73 @@ def install_claude_plugin(
         return
 
     success(f"Installed Claude Code plugin: {dst_dir}")
+
+
+CLAUDE_ATTRIBUTION = {"commit": "", "pr": ""}
+
+
+def ensure_claude_attribution(claude_config_dir: Path, stamp: str) -> None:
+    """Turn off the attribution Claude Code adds to commits and PRs; keep other settings."""
+    dst = claude_config_dir / "settings.json"
+    try:
+        settings = json.loads(dst.read_text(encoding="utf-8")) if dst.exists() else {}
+        if not isinstance(settings, dict):
+            raise ValueError("not a JSON object")
+    except (OSError, ValueError) as exc:
+        warn(f"Failed to read {dst} ({type(exc).__name__}); leaving commit attribution unchanged")
+        return
+    current = settings.get("attribution")
+    current = current if isinstance(current, dict) else {}
+    if all(current.get(key) == value for key, value in CLAUDE_ATTRIBUTION.items()):
+        return
+    settings["attribution"] = {**current, **CLAUDE_ATTRIBUTION}
+    claude_config_dir.mkdir(parents=True, exist_ok=True)
+    backup_file_if_exists(dst, stamp)
+    _ = dst.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print("         - settings.json (no commit or PR attribution)")
+
+
+def ensure_git_commit_msg_hook(repo_path: Path, stamp: str) -> None:
+    """Install the commit-msg hook that drops Claude attribution lines from every commit.
+
+    Git has no global hooks dir unless core.hooksPath is set, so it is set to
+    ~/.config/git/hooks when missing; an existing value is kept and used.
+    """
+    src = repo_path / "git-hooks" / "commit-msg"
+    if not src.is_file():
+        warn(f"Source file not found: {src}")
+        return
+    if shutil.which("python3") is None:
+        # The hook runs through `#!/usr/bin/env python3`; without it every commit would fail.
+        warn("python3 not found on PATH; commit-msg hook not installed")
+        return
+    try:
+        result = subprocess.run(["git", "config", "--global", "--type=path", "--get", "core.hooksPath"],
+                                capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout.strip():
+            hooks_dir = Path(result.stdout.strip())
+            if not hooks_dir.is_absolute():
+                warn(f"core.hooksPath is relative ({result.stdout.strip()}); "
+                     "each repo resolves it itself, so the commit-msg hook is not installed")
+                return
+        else:
+            hooks_dir = Path.home() / ".config" / "git" / "hooks"
+            _ = subprocess.run(["git", "config", "--global", "core.hooksPath", str(hooks_dir)],
+                               check=True, capture_output=True, text=True)
+            print(f"         - git core.hooksPath set to {hooks_dir}")
+            warn("         Hooks in each repo's .git/hooks no longer run; with git-lfs, "
+                 "run `git lfs install` to put its hooks there too")
+    except (OSError, subprocess.CalledProcessError) as exc:
+        warn(f"git config failed ({type(exc).__name__}); commit-msg hook not installed")
+        return
+    dst = hooks_dir / "commit-msg"
+    content = src.read_bytes()
+    if not (dst.is_file() and dst.read_bytes() == content):
+        hooks_dir.mkdir(parents=True, exist_ok=True)
+        backup_file_if_exists(dst, stamp)
+        _ = dst.write_bytes(content)
+        print(f"         - {dst} (drops Claude attribution lines)")
+    dst.chmod(dst.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
 def backup_file_if_exists(path: Path, stamp: str) -> None:
@@ -2043,6 +2111,8 @@ def main(argv: list[str] | None = None):
                     stamp,
                 )
             install_claude_plugin(repo_path, claude_config_dir, stamp)
+            ensure_claude_attribution(claude_config_dir, stamp)
+            ensure_git_commit_msg_hook(repo_path, stamp)
 
         if begin_step("11/12", "Configuring Tokscale model aliases",
                       targets["tokscale"], "tokscale config directory not found"):
