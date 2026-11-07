@@ -253,7 +253,7 @@ class EnsureTests(TestCase):
         dist = self.tmp / "dist"
         write_tree(dist, FAKE_DIST)
         install_generation(self.agent, dist)
-        self.assertEqual(self.ensure().of("item"), [f"omo-herdr-dag {OMO_HERDR_DAG_VERSION} (already installed)"])
+        self.assertEqual(self.ensure().lines, [])  # current: nothing installed, nothing listed
 
     def test_unmanaged_install_is_reported(self):
         (self.agent / "herdr-dag" / "integration").mkdir(parents=True)

@@ -19,7 +19,7 @@ from omadotfile import inject as injection
 from omadotfile.context import Options
 from omadotfile.inject import MAX_INJECTED, home_of, inject, options_of, repo_of, runner_of, uses
 from omadotfile.step import FunctionStep, Step, found_any, requires, step
-from omadotfile.console import use_console
+from omadotfile.console import use_console, warn
 from support import Recorder, TestCase, make_context
 
 
@@ -303,6 +303,28 @@ class CodecTests(TestCase):
         for codec in (JSON, JSONC):
             with self.subTest(codec=codec), self.assertRaises(ValueError):
                 codec.load("[]")
+
+
+class FilesReportingTests(TestCase):
+    def setUp(self):
+        self.dir = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.files = Files("20261107-120000", backup=False)
+
+    def test_a_label_is_listed_only_when_the_block_wrote_something(self):
+        dst = self.dir / "a.txt"
+        with self.files.reporting("a.txt"):
+            self.files.write_text(dst, "x")
+        with self.files.reporting("a.txt (again)"):
+            self.files.write_text(dst, "x")  # already there: nothing written
+        with self.files.reporting("nothing"):
+            pass
+        self.assertEqual(self.console.of("item"), ["a.txt"])
+
+    def test_the_label_follows_what_the_block_printed(self):
+        with self.files.reporting("b.txt"):
+            warn("first")
+            self.files.write_text(self.dir / "b.txt", "y")
+        self.assertEqual(self.console.lines, [("warn", "first"), ("item", "b.txt")])
 
 
 class FilesUpdateTests(TestCase):

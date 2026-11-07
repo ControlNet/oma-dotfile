@@ -124,6 +124,9 @@ Things worth knowing when changing it:
   wants `@contextmanager` functions annotated `-> Generator[T, None, None]`, not `Iterator[T]`;
   with stdout piped, buffered test output can land after unittest's summary line, so match
   `^(OK|FAILED)` instead of taking the last line.
+- A file line under a step is printed after the write and only if something was written: wrap
+  the write in `with ctx.files.reporting("label"):` (or print the item when the write returned
+  True). Do not print an item before writing; a rerun that changes nothing should list nothing.
 - One-off cleanups are `@migration(since=, reason=, remove_by=)`. They run on every install
   until deleted; `tests/test_migrations.py` fails from the `remove_by` month on.
 - PATH lookups read the run's env (`ctx.env["PATH"]`), never the process PATH:

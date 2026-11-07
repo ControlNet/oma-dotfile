@@ -5,7 +5,7 @@ from collections.abc import Mapping, Sequence
 import os
 from pathlib import Path
 import sys
-from tempfile import TemporaryDirectory
+from tempfile import TemporaryDirectory, gettempdir
 
 from omadotfile.agents.base import Agent
 from omadotfile.agents.claude import Claude
@@ -147,7 +147,8 @@ def install(args: argparse.Namespace, repo: Path | None, env: Mapping[str, str] 
     found = detect_agents(env, home, sys.platform, force=options.install_all)
     report_agents(found, forced=options.install_all)
 
-    info(f"Using repository: {repo}")
+    if not repo.resolve().is_relative_to(Path(gettempdir()).resolve()):
+        info(f"Using repository: {repo}")  # not pull.py's temporary clone, whose path says nothing
     for name in REQUIRED_REPO_FILES:
         if not (repo / name).is_file():
             error(f"Required repository file is missing: {name}")

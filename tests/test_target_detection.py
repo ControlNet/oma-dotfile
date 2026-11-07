@@ -240,6 +240,13 @@ class InstallGatingTests(TestCase):
             return self.home / ".omo"
         return self.tmp / name
 
+    def test_a_checkout_in_the_temp_dir_is_not_named(self) -> None:
+        # pull.py clones into a temp dir under curl | python3; its path tells the user nothing.
+        printed = Recorder()
+        with patch.object(cli, "detect_agents", return_value=frozenset()):
+            cli.main([], repo=self.repo, env=self.env, home=self.home, console=printed)
+        self.assertEqual([line for line in printed.of("info") if line.startswith("Using repository")], [])
+
     def test_only_detected_targets_are_written(self) -> None:
         # Given a machine with OpenCode but nothing else.
         self.run_main(opencode=True, env=GATEWAY)

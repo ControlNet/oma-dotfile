@@ -377,7 +377,7 @@ class SkipUnchangedSourceTests(AgentSkillsHarness):
         old = write_skill(self.legacy[0], "find-skills")
         output = self.run_install()
         self.assertNotIn(self.SOURCE, self.ran())
-        self.assertIn("find-skills (vercel-labs/skills, unchanged)", output)
+        self.assertIn("1 skill from 1 source unchanged", output.splitlines())
         # The skipped skill still counts as installed, so a leftover per-agent copy goes.
         self.assertFalse(old.exists())
 
@@ -434,7 +434,7 @@ class SkipUnchangedSourceTests(AgentSkillsHarness):
         self.installed_on_disk("ccf-common", "ccf-paper-writer")
         output = self.run_install()
         self.assertNotIn(source, self.ran())
-        self.assertIn("ccf-common, ccf-paper-writer (mikubaka88/CCFA-Skills, unchanged)", output)
+        self.assertIn("2 skills from 1 source unchanged", output.splitlines())
 
     def test_whole_repo_source_without_lock_entries_reinstalls(self):
         source = "mikubaka88/CCFA-Skills"

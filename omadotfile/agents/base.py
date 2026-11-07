@@ -11,7 +11,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import ClassVar
 
-from omadotfile.console import item
 from omadotfile.constants import FileSpec
 from omadotfile.context import Context
 from omadotfile.core.proc import find_executable
@@ -62,14 +61,14 @@ class Component(ABC):
         src = ctx.repo / spec.src
         if not src.exists():
             return
-        item(file_label(spec))
         dst = target / spec.dst
-        if spec.merge:
-            self.install_merged_file(ctx, spec, src, dst)
-        elif spec.oauth and ctx.options.oauth:
-            self.install_oauth_file(ctx, src, dst)
-        else:
-            ctx.files.copy(src, dst, backup=not spec.managed)
+        with ctx.files.reporting(file_label(spec)):
+            if spec.merge:
+                self.install_merged_file(ctx, spec, src, dst)
+            elif spec.oauth and ctx.options.oauth:
+                self.install_oauth_file(ctx, src, dst)
+            else:
+                ctx.files.copy(src, dst, backup=not spec.managed)
 
     @staticmethod
     def install_oauth_file(ctx: Context, src: Path, dst: Path) -> None:

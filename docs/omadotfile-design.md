@@ -551,3 +551,19 @@ scope instead, the way a logging handler is:
   notifier scripts, the Terminal's own tests).
 
 Golden runs: byte-identical output (the banner and blank line go through `line()`).
+
+### Quieter reruns (2026-11-07)
+
+A rerun that changed nothing printed every file it looked at (46 lines after the banner on a
+real machine), as the single-file installer did before the split. Now:
+
+- File lines are listed after the write, only for what was written: `Files.reporting(label)`
+  wraps `install_file` and the OpenCode plugins; OMP `models.yml` and OMO Native `models.json`
+  are listed when their write changed something; a current omo-herdr-dag lists nothing. The
+  "Injected CODEX_BASE_URL into omp models.yml" line is gone (the file line says it).
+- Unchanged skill sources are one line: "26 skills from 8 sources unchanged"; sources that
+  installed, failed or changed are still listed one by one.
+- `Using repository:` is left out for a checkout under the temp dir (pull.py's clone).
+
+Kept on every run: step headings, the "already configured; skip" notes, the OAuth mode note,
+the Claude Code plugin line, and the closing notes. Golden runs: identical files.

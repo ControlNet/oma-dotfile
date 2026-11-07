@@ -7,12 +7,13 @@ is not, since git history keeps its old versions. `changed` lists what this run 
 
 import filecmp
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Generator
+from contextlib import contextmanager
 from pathlib import Path
 import shutil
 from typing import TypeVar
 
-from omadotfile.console import info, warn
+from omadotfile.console import info, item, warn
 from omadotfile.core.codec import Codec
 
 T = TypeVar("T")
@@ -40,6 +41,17 @@ class Files:
         self.backup_enabled = backup
         self.keep = keep
         self.changed: list[Path] = []
+
+    @contextmanager
+    def reporting(self, label: str) -> Generator[None, None, None]:
+        """List `label` under the step once the block is done, if it wrote anything.
+
+        So a rerun that leaves every file as it was lists none of them.
+        """
+        before = len(self.changed)
+        yield
+        if len(self.changed) > before:
+            item(label)
 
     def backup_path(self, path: Path) -> Path:
         return path.with_suffix(f"{path.suffix}.bak-{self.stamp}")

@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 
 from omadotfile.agents.base import Agent
-from omadotfile.console import info, item, warn
+from omadotfile.console import item, warn
 from omadotfile.constants import FileSpec, OMP_FILES, OMP_MODELS, OMP_MODELS_DST, OMP_MODELS_OAUTH
 from omadotfile.context import Context
 from omadotfile.core import yaml_merge
@@ -38,14 +38,16 @@ def install_models(ctx: Context, agent_dir: Path) -> None:
     src = ctx.repo / OMP_MODELS
     if not src.exists():
         return
-    content = oauth_models(ctx, ctx.repo / OMP_MODELS_OAUTH) if ctx.options.oauth else gateway_models(ctx, src)
-    if content is not None:
-        write_models(ctx, agent_dir / OMP_MODELS_DST, content)
+    if ctx.options.oauth:
+        content, label = oauth_models(ctx, ctx.repo / OMP_MODELS_OAUTH), "native model overrides"
+    else:
+        content, label = gateway_models(ctx, src), "render CODEX_BASE_URL"
+    if content is not None and write_models(ctx, agent_dir / OMP_MODELS_DST, content):
+        item(f"{Path(OMP_MODELS_DST).name} ({label})")
 
 
 @warns_on(OSError, message="Failed to read {src}: {reason}")
 def oauth_models(ctx: Context, src: Path) -> str:
-    item(f"{Path(OMP_MODELS_OAUTH).name} (native model overrides)")
     return src.read_text(encoding="utf-8")
 
 
@@ -53,16 +55,13 @@ def oauth_models(ctx: Context, src: Path) -> str:
 @warns_on(OSError, message="Failed to read {src}: {reason}")
 def gateway_models(env: Mapping[str, str], /, src: Path) -> str:
     """The gateway catalog with CODEX_BASE_URL inlined, or with the placeholder left in."""
-    item(f"{Path(OMP_MODELS).name} (render CODEX_BASE_URL)")
     content = src.read_text(encoding="utf-8")
     codex_base_url = env.get("CODEX_BASE_URL", "").strip()
     if not codex_base_url:
         warn("CODEX_BASE_URL is not set; leaving `baseUrl: CODEX_BASE_URL` in omp models.yml. oh-my-pi will not auto-expand it.")
         return content
     content, replaced = render_models(content, codex_base_url)
-    if replaced:
-        info("Injected CODEX_BASE_URL into omp models.yml")
-    else:
+    if not replaced:
         warn("No `baseUrl: CODEX_BASE_URL` placeholder found in config/omp/models.yml")
     return content
 

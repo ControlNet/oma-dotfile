@@ -259,6 +259,13 @@ def add_skills(cli: Runner, source: str, names: tuple[str, ...], agents: tuple[s
     return frozenset(installed_skill_names(cli.json(add_command(source, names, agents))))
 
 
+def unchanged_summary(unchanged: list[frozenset[str]]) -> str:
+    """One line for every source left as it was: '26 skills from 8 sources unchanged'."""
+    skill_count, source_count = sum(len(names) for names in unchanged), len(unchanged)
+    return (f"{skill_count} skill{'s' * (skill_count != 1)} from "
+            f"{source_count} source{'s' * (source_count != 1)} unchanged")
+
+
 @requires("npx", skip="         skills skipped: npx not found (install Node.js)")
 def ensure_skills(ctx: Context, legacy_skill_dirs: list[Path], claude_dir: Path | None = None) -> None:
     """Install the shared skills with the skills CLI, then drop the old per-agent copies.
@@ -277,6 +284,7 @@ def ensure_skills(ctx: Context, legacy_skill_dirs: list[Path], claude_dir: Path 
     commits = remote_commits(ctx, {source for source, _, _ in installs})
     recorded = read_commits(ctx)
     claude_skills_dir = claude_dir / "skills" if claude_dir is not None else None
+    unchanged: list[frozenset[str]] = []  # the skills of each source left as it was
 
     def install_or_reuse(install: Install) -> InstallResult:
         source, names, agents = install
@@ -285,7 +293,7 @@ def ensure_skills(ctx: Context, legacy_skill_dirs: list[Path], claude_dir: Path 
         if commit is not None and recorded.get(key) == commit:
             current = current_skill_names(ctx, source, names, agents, claude_skills_dir)
             if current:
-                item(f"{', '.join(sorted(current))} ({source}, unchanged)")
+                unchanged.append(frozenset(current))
                 return InstallResult(key, frozenset(current), commit)
         done = add_skills(cli, source, names, agents) or frozenset()
         if done:
@@ -297,6 +305,8 @@ def ensure_skills(ctx: Context, legacy_skill_dirs: list[Path], claude_dir: Path 
         return InstallResult(key, done, commit)
 
     results = [install_or_reuse(install) for install in installs]
+    if unchanged:
+        item(unchanged_summary(unchanged))
     write_commits(ctx, recorded_commits(results))
     remove_legacy_skill_copies(legacy_skill_dirs, set[str]().union(*(result.done for result in results)))
 

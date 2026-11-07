@@ -136,6 +136,7 @@ class InstallRunTests(TestCase):
         self.assertEqual(ctx.found, frozenset(cli.AGENTS))
         # No step is skipped (console.step's skip line); a step's own optional parts may be.
         self.assertFalse([line for line in printed.warnings if line.startswith("         skipped: ")])
+        self.assertIn(f"Using repository: {ROOT}", printed.of("info"))  # a checkout of its own
         self.assertTrue([line for line in printed.of("info") if line.startswith("[9/9] ")])
         for path in (".config/opencode/opencode.jsonc", ".config/opencode/AGENTS.md",
                      ".omo/omo.jsonc", ".omo/agent/models.json", ".omp/agent/models.yml",
@@ -158,6 +159,9 @@ class InstallRunTests(TestCase):
         self.assertEqual(list(self.home.rglob("*.bak-*")), [])
         self.assertIn("Codex WakaTime plugin already installed; skip", printed.of("info"))
         self.assertIn("Claude Code WakaTime plugin already installed; skip", printed.of("info"))
+        # No file is listed: the skills that did not move are one summary line.
+        (summary,) = printed.of("item")
+        self.assertRegex(summary, r"^\d+ skills? from \d+ sources? unchanged$")
         # Only the listings run again: no plugin is re-added and no skill re-installed.
         rerun = self.stub_calls()[calls:]
         self.assertFalse([call for call in rerun if "add" in call or "install" in call], rerun)

@@ -74,7 +74,7 @@ def install_models(ctx: Context, agent_dir: Path) -> None:
     if not codex_base_url:
         warn("CODEX_BASE_URL is not set; skipping OMO Native models.json, so codex/ models stay unavailable")
         return
-    if update_models(ctx, agent_dir / "models.json", codex_base_url) is not None:
+    if update_models(ctx, agent_dir / "models.json", codex_base_url):
         item("models.json (codex gateway provider, render CODEX_BASE_URL)")
 
 
@@ -216,7 +216,7 @@ def ensure_herdr_dag(runner: Runner, /, agent_dir: Path, work_dir: Path) -> None
     package = extract_npm_package(tarball_from_pack(packed, work_dir), work_dir / "extract")
     match herdr_dag_install_state(package / "dist", agent_dir):
         case InstallState.CURRENT:
-            item(f"{HERDR_DAG_LABEL} (already installed)")
+            pass  # nothing to install, nothing to list
         case InstallState.UNMANAGED:
             raise Skip(f"{agent_dir / 'extensions' / 'omo-herdr-dag.js'} or herdr-dag/integration was not "
                        f"written by omo-herdr-dag; leaving {HERDR_DAG_LABEL} uninstalled")
