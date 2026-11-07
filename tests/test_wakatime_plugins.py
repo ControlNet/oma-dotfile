@@ -229,6 +229,18 @@ class CodexWakatimePluginTests(TestCase):
             )
 
 
+    def test_plugin_add_without_a_json_object_is_reported(self) -> None:
+        # Given `codex plugin add` succeeds but prints something other than a JSON object.
+        with tempfile.TemporaryDirectory() as tmp, \
+                contextlib.redirect_stdout(io.StringIO()) as out, \
+                contextlib.redirect_stderr(io.StringIO()) as err:
+            run_ensure({"plugin list": EMPTY_PLUGIN_LIST, "marketplace list": {"marketplaces": []},
+                        "marketplace add": {}, "plugin add": "[]"}, Path(tmp))
+        # Then the install is reported as failed, not as done.
+        self.assertIn(f"Failed to install {constants.CODEX_WAKATIME_PLUGIN_ID}\n", err.getvalue())
+        self.assertNotIn("Installed Codex plugin", out.getvalue())
+
+
 class ClaudeWakatimePluginTests(TestCase):
     def test_first_install_adds_marketplace_then_plugin(self) -> None:
         # Given a Claude Code config directory without the marketplace or plugin.
@@ -359,6 +371,19 @@ class ClaudeWakatimePluginTests(TestCase):
             )
             # Then the step fails instead of claiming success.
             self.assertFalse(installed)
+
+    def test_failing_install_command_is_one_warning(self) -> None:
+        # Given the marketplace is added but `claude plugin install` exits non-zero.
+        with tempfile.TemporaryDirectory() as tmp, \
+                contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()) as err:
+            _, installed = run_claude_ensure(
+                {"plugin list": [], "marketplace list": [], "marketplace add": ""}, Path(tmp))
+        # Then the runner's line is the only warning.
+        warnings = [line for line in err.getvalue().splitlines() if "[WARN]" in line]
+        self.assertEqual(len(warnings), 1)
+        self.assertRegex(warnings[0], r"/usr/bin/claude plugin install \S+ --json failed with exit code 1$")
+        self.assertFalse(installed)
 
     def test_missing_claude_cli_skips_quietly(self) -> None:
         # Given Claude Code is not installed on this machine.
