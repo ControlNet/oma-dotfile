@@ -13,6 +13,9 @@ from unittest.mock import patch
 from omadotfile import cli
 from omadotfile.agents import claude, omo_native, tokscale
 from omadotfile.agents.base import Agent
+from omadotfile.agents.claude import Claude
+from omadotfile.agents.omo_native import OmoNative
+from omadotfile.context import expand_home
 from omadotfile.constants import LEGACY_OMO_CONFIG_NAMES, LEGACY_OPENAGENT_CONFIG_NAMES
 from omadotfile.core import proc
 from omadotfile.features import skills, wakatime
@@ -120,6 +123,18 @@ class AgentDetectionTests(TestCase):
         found = cli.detect_agents(self.env, self.home, "linux", force=True)
         # Then every known target is enabled.
         self.assertEqual(found, frozenset(cli.AGENTS))
+
+    def test_tilde_in_a_configured_dir_is_the_runs_home_not_the_process_home(self) -> None:
+        # Given a process HOME that differs from the run's home.
+        with patch.dict(os.environ, {"HOME": str(self.tmp / "process-home")}):
+            self.assertEqual(Claude.config_dir({"CLAUDE_CONFIG_DIR": "~/claude"}, self.home, "linux"),
+                             self.home / "claude")
+            self.assertEqual(OmoNative.config_dir({"OMO_CODING_AGENT_DIR": "~"}, self.home, "linux"),
+                             self.home)
+            self.assertEqual(wakatime.config_path({"WAKATIME_HOME": "~/w"}, self.home),
+                             self.home / "w" / ".wakatime.cfg")
+        self.assertEqual(expand_home("/abs/~x", self.home), Path("/abs/~x"))
+        self.assertEqual(expand_home("rel", self.home), Path("rel"))
 
     def test_agents_are_listed_once_each_in_report_order(self) -> None:
         self.assertEqual(list(cli.AGENTS), ["opencode", "omo", "omp", "codex", "claude", "tokscale"])

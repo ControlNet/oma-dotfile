@@ -8,7 +8,7 @@ import stat
 from omadotfile.agents.base import Agent
 from omadotfile.console import item, success, warn
 from omadotfile.constants import CLAUDE_ATTRIBUTION, CLAUDE_FILES, CLAUDE_PLUGINS_DIR, COMMIT_MSG_HOOK
-from omadotfile.context import Context
+from omadotfile.context import Context, expand_home
 from omadotfile.core.codec import JSON, JsonObject
 from omadotfile.core.errors import warns_on
 from omadotfile.core.files import IGNORED_NAMES, Files
@@ -130,7 +130,7 @@ class Claude(Agent, key="claude", label="Claude Code", executable="claude"):
     def config_dir(env: Mapping[str, str], home: Path, platform: str) -> Path:
         configured = env.get("CLAUDE_CONFIG_DIR", "").strip()
         if configured:
-            return Path(configured).expanduser()
+            return expand_home(configured, home)
         return home / ".claude"
 
     def title(self, ctx: Context) -> str:

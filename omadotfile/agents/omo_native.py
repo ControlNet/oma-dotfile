@@ -12,7 +12,7 @@ from omadotfile.agents.base import Agent
 from omadotfile.agents.omo import omo_dir
 from omadotfile.console import info, item, warn
 from omadotfile.constants import OMO_HERDR_DAG_VERSION, OMO_NATIVE_FILES, OPENCODE_CONFIG
-from omadotfile.context import Context
+from omadotfile.context import Context, expand_home
 from omadotfile.core.codec import JSONC, JsonObject
 from omadotfile.core.errors import Skip, skips, warns_on
 from omadotfile.core.files import Files
@@ -231,7 +231,7 @@ class OmoNative(Agent, key="omo", label="OMO Native", executable="omo"):
         for name in OMO_AGENT_DIR_ENV_NAMES:
             configured = env.get(name, "").strip()
             if configured:
-                return Path(configured).expanduser()
+                return expand_home(configured, home)
         return omo_dir(home) / "agent"
 
     def title(self, ctx: Context) -> str:

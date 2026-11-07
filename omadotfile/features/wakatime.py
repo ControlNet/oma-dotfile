@@ -19,7 +19,7 @@ from omadotfile.constants import (
     CODEX_WAKATIME_PLUGIN_ID,
     WAKATIME_MARKETPLACE,
 )
-from omadotfile.context import Context
+from omadotfile.context import Context, expand_home
 from omadotfile.core.codec import TEXT
 from omadotfile.core.errors import Skip, skips, warns_on
 from omadotfile.core.ini import set_section_keys
@@ -39,7 +39,7 @@ def config_path(env: Mapping[str, str], home: Path) -> Path:
     """WakaTime reads ~/.wakatime.cfg unless WAKATIME_HOME redirects it."""
     wakatime_home = env.get("WAKATIME_HOME", "").strip()
     if wakatime_home:
-        return Path(wakatime_home).expanduser() / ".wakatime.cfg"
+        return expand_home(wakatime_home, home) / ".wakatime.cfg"
     return home / ".wakatime.cfg"
 
 

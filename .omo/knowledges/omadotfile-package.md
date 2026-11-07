@@ -104,9 +104,10 @@ Things worth knowing when changing it:
   `sys.platform` and `sys.executable`. Agents get the platform as a parameter
   (`config_dir(env, home, platform)`, `detect(env, home, platform)`); the interpreter for
   installed hooks and the Codex notifier is `ctx.python`. Context has no ambient defaults for
-  `home`/`python` (only `stamp`, the clock). Check:
-  `grep -rn 'os.environ\|sys.platform\|sys.executable\|Path.home()' omadotfile | grep -v cli.py`
-  (comments only). git runs through `ctx.runner` like every other CLI: `run(..., check=False)`
+  `home`/`python` (only `stamp`, the clock). A configured path's `~` is the run's home:
+  `expand_home(text, home)`, not `Path.expanduser()` (which reads `$HOME`). Check (expected hits: comments,
+  `proc.py` itself, `expand_home`'s `~user` fallback and the `stamp` clock):
+  `grep -rnE 'os\.environ|os\.getenv|os\.name\b|sys\.platform|sys\.executable|Path\.home\(|expanduser|expandvars|Path\.cwd|os\.getcwd|getpass|platform\.|subprocess\.|shutil\.which\(|datetime\.now' omadotfile | grep -v 'omadotfile/cli.py'`. git runs through `ctx.runner` like every other CLI: `run(..., check=False)`
   when a non-zero exit is an answer (`git config --get` of an unset key), `timeout=` per call.
 - One-off cleanups are `@migration(since=, reason=, remove_by=)`. They run on every install
   until deleted; `tests/test_migrations.py` fails from the `remove_by` month on.

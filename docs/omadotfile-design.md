@@ -499,8 +499,10 @@ what it needs from the Context or as a parameter:
 - `sys.platform` is a parameter of `Agent.config_dir`/`detect`; `sys.executable` is
   `ctx.python`, passed to `codex.ensure_notify` as `python_bin`. Context's `home` and `python`
   are required fields (no `Path.home()` default).
+- A `~` in `CLAUDE_CONFIG_DIR`, `WAKATIME_HOME` or an OMO agent-dir variable is the run's home
+  (`expand_home`), not `$HOME` (`Path.expanduser`).
 
-Tests now pass a fake PATH, platform or interpreter as arguments instead of patching
-`shutil.which`, `tokscale.sys` or `codex.sys`. Golden runs: identical JSON in all five scenarios.
+The detection, Tokscale and Codex notify tests now pass a fake PATH, platform or interpreter
+as arguments instead of patching `shutil.which`, `tokscale.sys` or `codex.sys`. Golden runs: identical JSON in all five scenarios.
 Left as is: `pull.py` (the bootstrap reads its own env before the package is importable),
 `Context.stamp` (the clock), and `PATHEXT`, which `shutil.which` reads from `os.environ` on Windows.

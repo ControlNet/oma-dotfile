@@ -11,6 +11,18 @@ from omadotfile.core.files import Files
 from omadotfile.core.proc import Runner
 
 
+def expand_home(path: str, home: Path) -> Path:
+    """A configured path with `~` meaning the run's home; Path.expanduser would read $HOME instead.
+
+    `~user` forms still go to expanduser, which looks the user up in the password database.
+    """
+    if path == "~":
+        return home
+    if path.startswith(("~/", "~\\")):
+        return home / path[2:]
+    return Path(path).expanduser() if path.startswith("~") else Path(path)
+
+
 def timestamp() -> str:
     return datetime.now().strftime("%Y%m%d-%H%M%S")
 
