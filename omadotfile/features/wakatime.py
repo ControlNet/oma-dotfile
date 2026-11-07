@@ -5,6 +5,7 @@ only the cfg. Codex and Claude Code get the WakaTime plugin through their own pl
 CodexPlugins and ClaudePlugins adapt those two CLIs to the one flow in ensure_plugin.
 """
 
+from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from functools import partial
 from pathlib import Path
@@ -87,11 +88,11 @@ def update_config(ctx: Context, path: Path, settings: dict[str, str]) -> bool:
     if "api_key" in settings and path.exists():
         path.chmod(0o600)
     # No backup: only env-sourced values change, and a backup would keep the old key.
-    return ctx.files.update(path, TEXT, partial(render_config, settings=settings), default="",
+    return ctx.files.update(path, TEXT, partial(render_config, settings=settings),
                             backup=False, mode=0o600)
 
 
-class PluginCli:
+class PluginCli(ABC):
     """One agent's plugin CLI, run with the agent's config dir pinned to the installer's."""
 
     label: str  # the agent's name in messages
@@ -110,15 +111,18 @@ class PluginCli:
     def ok(self, command: list[str]) -> bool:
         return self.runner.ok(command, self.pin)
 
+    @abstractmethod
     def is_installed(self) -> bool:
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def ensure_marketplace(self) -> bool:
         """Add the WakaTime marketplace, without replacing a differently sourced one."""
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def install(self) -> bool:
-        raise NotImplementedError
+        ...
 
 
 class CodexPlugins(PluginCli):

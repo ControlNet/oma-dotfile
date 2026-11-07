@@ -234,7 +234,7 @@ def ensure_config(ctx: Context, codex_dir: Path) -> None:
 
 @warns_on(OSError, message="Failed to read {dst}: {reason}")
 def update_config(ctx: Context, dst: Path, transform: Callable[[list[str]], list[str]]) -> bool:
-    return ctx.files.update(dst, LINES, transform, default=[])
+    return ctx.files.update(dst, LINES, transform)
 
 
 @agent("codex", label="Codex", executable="codex")

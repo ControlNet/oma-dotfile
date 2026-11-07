@@ -128,6 +128,14 @@ class CodecTests(TestCase):
         self.assertEqual(LINES.dump(["a", "b"]), "a\nb\n")
         self.assertEqual(TEXT.load("x"), TEXT.dump("x"))
 
+    def test_empty_is_a_fresh_value_that_dumps_and_loads_back(self):
+        self.assertEqual((JSON.empty(), JSONC.empty(), LINES.empty(), TEXT.empty()), ({}, {}, [], ""))
+        # A new object each call: a transform that mutates it cannot leak into the next update.
+        for codec in (JSON, JSONC, LINES):
+            with self.subTest(codec=codec):
+                self.assertIsNot(codec.empty(), codec.empty())
+        self.assertEqual(JSON.load(JSON.dump(JSON.empty())), {})
+
     def test_object_codecs_reject_other_json(self):
         for codec in (JSON, JSONC):
             with self.subTest(codec=codec), self.assertRaises(ValueError):
@@ -140,35 +148,35 @@ class FilesUpdateTests(TestCase):
         self.files = Files("20261107-120000", backup=True)
         self.dst = self.dir / "settings.json"
 
-    def test_missing_file_starts_from_default(self):
-        changed = self.files.update(self.dst, JSON, lambda value: {**value, "a": 1}, default={})
+    def test_missing_file_starts_from_the_codecs_empty_value(self):
+        changed = self.files.update(self.dst, JSON, lambda value: {**value, "a": 1})
         self.assertTrue(changed)
         self.assertEqual(JSON.load(self.dst.read_text()), {"a": 1})
 
     def test_equal_value_is_not_written_even_if_formatted_differently(self):
         self.dst.write_text('{"a":1}')
-        changed = self.files.update(self.dst, JSON, lambda value: dict(value), default={})
+        changed = self.files.update(self.dst, JSON, lambda value: dict(value))
         self.assertFalse(changed)
         self.assertEqual(self.dst.read_text(), '{"a":1}')
         self.assertEqual(self.files.changed, [])
 
     def test_changed_value_is_backed_up_and_recorded(self):
         self.dst.write_text('{"a": 1}')
-        self.files.update(self.dst, JSON, lambda value: {**value, "a": 2}, default={})
+        self.files.update(self.dst, JSON, lambda value: {**value, "a": 2})
         self.assertEqual(self.dir.joinpath("settings.json.bak-20261107-120000").read_text(), '{"a": 1}')
         self.assertEqual(self.files.changed, [self.dst])
 
     def test_errors_from_load_or_transform_propagate_and_nothing_is_written(self):
         self.dst.write_text("[]")
         with self.assertRaises(ValueError):
-            self.files.update(self.dst, JSON, lambda value: value, default={})
+            self.files.update(self.dst, JSON, lambda value: value)
 
         def reject(value: dict) -> dict:
             raise ValueError("no")
 
         self.dst.write_text("{}")
         with self.assertRaises(ValueError):
-            self.files.update(self.dst, JSON, reject, default={})
+            self.files.update(self.dst, JSON, reject)
         self.assertEqual(self.dst.read_text(), "{}")
 
 

@@ -43,7 +43,7 @@ def install_model_aliases(ctx: Context, config_dir: Path) -> None:
     aliases = parse_aliases((ctx.repo / TOKSCALE_MODEL_ALIASES).read_text(encoding="utf-8"))
     dst = config_dir / "settings.json"
     existed = dst.exists()
-    if not ctx.files.update(dst, JSON, partial(with_aliases, aliases), default={}):
+    if not ctx.files.update(dst, JSON, partial(with_aliases, aliases)):
         info("Tokscale model aliases already configured; skip")
         return
     if existed:

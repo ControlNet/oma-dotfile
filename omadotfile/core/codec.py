@@ -1,8 +1,9 @@
-"""Codec: how a config file's text becomes a value and back.
+"""Codec: how a config file's text becomes a value and back, and what a missing file is.
 
-`Files.update(dst, codec, transform)` reads dst with `codec.load`, applies a pure
-`transform`, and writes `codec.dump` of the result only when the value changed. Each codec
-is a small class; the module constants below are the instances to pass.
+`Files.update(dst, codec, transform)` reads dst with `codec.load` (or starts from
+`codec.empty()` when dst is missing), applies a pure `transform`, and writes `codec.dump` of
+the result only when the value changed. Codec is a typeclass in Protocol form: each instance
+is a small class of staticmethods, and the module constants below are the instances to pass.
 """
 
 import json
@@ -24,6 +25,11 @@ class Codec(Protocol[T]):
     def dump(value: T) -> str:
         ...
 
+    @staticmethod
+    def empty() -> T:
+        """The value of a missing file; a new object on every call."""
+        ...
+
 
 def dump_json(value: JsonObject) -> str:
     return json.dumps(value, indent=2, ensure_ascii=False) + "\n"
@@ -41,6 +47,10 @@ class JsonObjectCodec:
     def dump(value: JsonObject) -> str:
         return dump_json(value)
 
+    @staticmethod
+    def empty() -> JsonObject:
+        return {}
+
 
 class JsoncObjectCodec:
     """Reads JSON with comments and trailing commas; writes plain JSON."""
@@ -53,6 +63,10 @@ class JsoncObjectCodec:
     def dump(value: JsonObject) -> str:
         return dump_json(value)
 
+    @staticmethod
+    def empty() -> JsonObject:
+        return {}
+
 
 class LinesCodec:
     @staticmethod
@@ -63,6 +77,10 @@ class LinesCodec:
     def dump(value: list[str]) -> str:
         return "\n".join(value) + "\n"
 
+    @staticmethod
+    def empty() -> list[str]:
+        return []
+
 
 class TextCodec:
     @staticmethod
@@ -72,6 +90,10 @@ class TextCodec:
     @staticmethod
     def dump(value: str) -> str:
         return value
+
+    @staticmethod
+    def empty() -> str:
+        return ""
 
 
 JSON: Codec[JsonObject] = JsonObjectCodec()

@@ -93,7 +93,7 @@ class Omp(Agent):
         if spec.oauth and ctx.options.oauth:
             managed = render_oauth_config(managed)
         try:
-            ctx.files.update(dst, TEXT, partial(yaml_merge.merge, managed=managed), default="")
+            ctx.files.update(dst, TEXT, partial(yaml_merge.merge, managed=managed))
         except ValueError as exc:
             warn(f"{dst} could not be merged ({exc}); replacing it, backup kept")
             ctx.files.write_text(dst, managed)

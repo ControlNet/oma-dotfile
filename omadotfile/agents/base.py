@@ -6,6 +6,7 @@ An Agent subclass is declared with `@agent(key, label=..., executable=...)`, whi
 those on the class and registers it in AGENT_CLASSES; cli.AGENTS puts them in order.
 """
 
+from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import ClassVar, TypeVar
@@ -22,24 +23,32 @@ def file_label(spec: FileSpec) -> str:
     return f"{spec.src} -> {spec.dst}"
 
 
-class Component:
-    """A step that installs `files` under target_dir, then runs `configure` (see omadotfile.step.Step)."""
+class Component(ABC):
+    """A step that installs `files` under target_dir, then runs `configure` (see omadotfile.step.Step).
+
+    The four abstract methods are what every component must say; a subclass that leaves one
+    out cannot be instantiated (pyright reports it, Python raises TypeError).
+    """
 
     files: ClassVar[tuple[FileSpec, ...]] = ()
     creates_dir: ClassVar[bool] = True  # whether run() creates target_dir before anything else
 
+    @abstractmethod
     def title(self, ctx: Context) -> str:
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def enabled(self, ctx: Context) -> bool:
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def skip_reason(self, ctx: Context) -> str:
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def target_dir(self, ctx: Context) -> Path:
         """The dir `files` are installed under."""
-        raise NotImplementedError
+        ...
 
     def run(self, ctx: Context) -> None:
         target = self.target_dir(ctx)
@@ -85,8 +94,10 @@ class Agent(Component):
     executable: ClassVar[str | None]  # the CLI whose presence detects the agent, if it has one
 
     @staticmethod
+    @abstractmethod
     def config_dir(env: Mapping[str, str], home: Path) -> Path:
-        raise NotImplementedError
+        """The agent's config dir, found from the env the way the agent itself finds it."""
+        ...
 
     def detect(self, env: Mapping[str, str], home: Path) -> bool:
         return find_executable(self.executable, home) is not None

@@ -392,7 +392,7 @@ sandboxes, then diff the trees. Backup files and other timestamps are ignored. E
   rejected: on 3.10 there is no `typing.Never`, so `Err.map`/`Err.bind` need `NoReturn` or
   `Any` parameters, lambdas in `.map(...)` chains come out partially `Unknown` under strict
   mode, and an `Err(exc)` that is never raised has no traceback. `T | None` already is Option,
-  and closures over `ctx` already are Reader. Worth doing later: `@abstractmethod` on
+  and closures over `ctx` already are Reader. Done in the next commit: `@abstractmethod` on
   `Component`/`Agent`/`PluginCli` (pyright then reports a missing method at instantiation),
   and a `Codec.empty()` so `Files.update` needs no `default=`.
 - `@agent(key, label=..., executable=...)` (`agents/base.py`) declares each agent class: it sets
@@ -400,3 +400,12 @@ sandboxes, then diff the trees. Backup files and other timestamps are ignored. E
   `AGENT_EXECUTABLES` are gone, and so are the per-class `key = ...` lines. `cli.AGENTS`
   instantiates the registered classes in an explicit report order and asserts it lists all
   of them, so import order decides nothing.
+- `Component`, `Agent` and `PluginCli` are ABCs: their required methods are `@abstractmethod`
+  (`Agent.config_dir` is `@staticmethod` + `@abstractmethod`), so pyright reports
+  `Cannot instantiate abstract class` for a subclass missing one, and Python raises
+  `TypeError` when `cli.AGENTS` is built. The optional hooks (`install_oauth_file`,
+  `install_merged_file`, `configure`) stay concrete. ClassVars (`key`, `label`) are not
+  checked this way; `@agent` sets them.
+- `Codec` gained `empty()`, the value of a missing file (a new object per call), so
+  `Files.update(dst, codec, transform)` has no `default=` argument: the seven call sites lost
+  it, and a default that does not match the codec cannot be written any more.

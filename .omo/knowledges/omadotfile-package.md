@@ -38,8 +38,8 @@ Things worth knowing when changing it:
   A file with an `--oauth` variant is `FileSpec(..., oauth=True)` and the agent overrides
   `install_oauth_file`.
 - A config the installer edits rather than replaces goes through
-  `ctx.files.update(dst, codec, transform, default=...)`: `Codec` (`core/codec.py`) loads and
-  dumps, `transform` is a pure function (bind arguments with `functools.partial`). The function
+  `ctx.files.update(dst, codec, transform)`: `Codec` (`core/codec.py`) loads, dumps and gives
+  `empty()` for a missing file; `transform` is a pure function (bind arguments with `functools.partial`). The function
   doing it is wrapped in `@warns_on(OSError, ValueError, message="...{dst}...({error})")`
   (`core/errors.py`) instead of a try/except; pure helpers just raise.
 - An action that stops early raises `Skip("message")` (`core/errors.py`) and is decorated
@@ -59,6 +59,9 @@ Things worth knowing when changing it:
   `for v in 3.10 3.11 3.12 3.13 3.14; do pixi exec --spec "python=$v" -- python -m unittest discover -s tests; done`.
   Test classes inherit `support.TestCase` (adds `enterContext` on 3.10); tests that need
   `tomllib` to check output carry `@requires_tomllib` and are skipped on 3.10.
+- `Component`, `Agent` and `PluginCli` are ABCs; a method every subclass must define is an
+  `@abstractmethod` (pyright then reports a subclass that leaves it out), not a
+  `raise NotImplementedError` body.
 - A method that never uses `self` is a `@staticmethod` (declared static in the base class as
   well, or pyright reports the override).
 - A file the agent also writes to is `FileSpec(..., merge=True)`; the agent's

@@ -78,14 +78,14 @@ class Files:
         self.changed.append(dst)
         return True
 
-    def update(self, dst: Path, codec: Codec[T], transform: Callable[[T], T], *, default: T,
+    def update(self, dst: Path, codec: Codec[T], transform: Callable[[T], T], *,
                backup: bool = True, mode: int | None = None) -> bool:
-        """Apply transform to dst's value (default when dst is missing); write if it changed.
+        """Apply transform to dst's value (codec.empty() when dst is missing); write if it changed.
 
         The comparison is between values, so a file that only differs in formatting is left
         alone. Errors from reading, codec.load or transform propagate and nothing is written.
         """
-        value = codec.load(dst.read_text(encoding="utf-8")) if dst.exists() else default
+        value = codec.load(dst.read_text(encoding="utf-8")) if dst.exists() else codec.empty()
         result = transform(value)
         if dst.exists() and result == value:
             return False

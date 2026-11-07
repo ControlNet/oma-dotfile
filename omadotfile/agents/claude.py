@@ -76,7 +76,7 @@ def ensure_attribution(ctx: Context, claude_dir: Path) -> None:
 
 @warns_on(OSError, ValueError, message="Failed to read {dst} ({error}); leaving commit attribution unchanged")
 def update_settings(ctx: Context, dst: Path) -> bool:
-    return ctx.files.update(dst, JSON, without_attribution, default={})
+    return ctx.files.update(dst, JSON, without_attribution)
 
 
 @warns_on(OSError, subprocess.CalledProcessError, message="git config failed ({error}); commit-msg hook not installed")

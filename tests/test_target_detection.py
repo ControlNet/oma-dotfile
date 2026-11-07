@@ -143,6 +143,18 @@ class AgentDetectionTests(TestCase):
             AGENT_CLASSES.clear()
             AGENT_CLASSES.update(before)
 
+    def test_a_class_missing_a_required_method_cannot_be_instantiated(self) -> None:
+        class Incomplete(Agent):  # no config_dir or title
+            pass
+
+        class NoInstall(wakatime.PluginCli):  # no is_installed, ensure_marketplace or install
+            pass
+
+        with self.assertRaisesRegex(TypeError, "config_dir"):
+            Incomplete()
+        with self.assertRaisesRegex(TypeError, "install"):
+            NoInstall(proc.Runner({}, Path("/h")), Path("/h"))
+
     def test_report_names_detected_and_skipped_targets(self) -> None:
         # Given a machine with Codex but no Claude Code.
         with contextlib.redirect_stdout(io.StringIO()) as out, \

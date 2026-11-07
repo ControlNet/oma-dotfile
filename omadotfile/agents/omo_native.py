@@ -86,7 +86,7 @@ def with_provider(name: str, provider: JsonObject, document: JsonObject) -> Json
 @warns_on(OSError, ValueError, KeyError, message="Failed to update {dst} ({error}); leaving models.json unchanged")
 def update_models(ctx: Context, dst: Path, codex_base_url: str) -> bool:
     provider = build_gateway_provider(ctx.repo, codex_base_url)
-    return ctx.files.update(dst, JSONC, partial(with_provider, "codex", provider), default={})
+    return ctx.files.update(dst, JSONC, partial(with_provider, "codex", provider))
 
 
 def ensure_settings(ctx: Context, agent_dir: Path) -> None:
@@ -110,7 +110,7 @@ def with_extension_disabled(name: str, settings: JsonObject) -> JsonObject:
 
 @warns_on(OSError, ValueError, message="Failed to read {dst} ({error}); leaving settings.json unchanged")
 def update_settings(ctx: Context, dst: Path) -> bool:
-    return ctx.files.update(dst, JSONC, partial(with_extension_disabled, "rules"), default={})
+    return ctx.files.update(dst, JSONC, partial(with_extension_disabled, "rules"))
 
 
 def herdr_dag_payload(root: Path) -> dict[str, bytes] | None:
