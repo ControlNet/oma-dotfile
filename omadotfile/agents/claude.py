@@ -7,7 +7,7 @@ import stat
 import subprocess
 import sys
 
-from omadotfile.agents.base import Agent, agent
+from omadotfile.agents.base import Agent
 from omadotfile.console import item, success, warn
 from omadotfile.constants import CLAUDE_ATTRIBUTION, CLAUDE_FILES, CLAUDE_PLUGINS_DIR, COMMIT_MSG_HOOK
 from omadotfile.context import Context
@@ -123,8 +123,7 @@ def ensure_commit_msg_hook(ctx: Context) -> None:
     dst.chmod(dst.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
-@agent("claude", label="Claude Code", executable="claude")
-class Claude(Agent):
+class Claude(Agent, key="claude", label="Claude Code", executable="claude"):
     files = CLAUDE_FILES
 
     @staticmethod

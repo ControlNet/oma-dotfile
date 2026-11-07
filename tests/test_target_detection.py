@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from omadotfile import cli
 from omadotfile.agents import claude, omo_native, tokscale
-from omadotfile.agents.base import AGENT_CLASSES, Agent, agent
+from omadotfile.agents.base import Agent
 from omadotfile.constants import LEGACY_OMO_CONFIG_NAMES, LEGACY_OPENAGENT_CONFIG_NAMES
 from omadotfile.core import proc
 from omadotfile.features import skills, wakatime
@@ -119,32 +119,25 @@ class AgentDetectionTests(TestCase):
         # Then every known target is enabled.
         self.assertEqual(found, frozenset(cli.AGENTS))
 
-    def test_agents_are_registered_by_their_decorator_in_report_order(self) -> None:
+    def test_agents_are_listed_once_each_in_report_order(self) -> None:
         self.assertEqual(list(cli.AGENTS), ["opencode", "omo", "omp", "codex", "claude", "tokscale"])
-        self.assertEqual(set(cli.AGENTS), set(AGENT_CLASSES))
+        self.assertEqual(len(cli.AGENTS), len({type(agent) for agent in cli.AGENTS.values()}))
         codex = cli.AGENTS["codex"]
-        self.assertIsInstance(codex, AGENT_CLASSES["codex"])
         self.assertEqual((codex.key, codex.label, codex.executable), ("codex", "Codex", "codex"))
         self.assertIsNone(cli.AGENTS["tokscale"].executable)
 
-    def test_agent_decorator_returns_the_class_and_refuses_a_second_key(self) -> None:
-        before = dict(AGENT_CLASSES)
-        try:
-            @agent("test-agent", label="Test Agent", executable=None)
-            class TestAgent(Agent):
-                pass
+    def test_an_agent_is_declared_by_its_class_keywords(self) -> None:
+        class TestAgent(Agent, key="test-agent", label="Test Agent", executable=None):
+            pass
 
-            self.assertIs(AGENT_CLASSES["test-agent"], TestAgent)
-            self.assertEqual((TestAgent.key, TestAgent.label, TestAgent.executable),
-                             ("test-agent", "Test Agent", None))
-            with self.assertRaisesRegex(ValueError, "registered twice"):
-                agent("test-agent", label="Again", executable=None)(type("Again", (Agent,), {}))
-        finally:
-            AGENT_CLASSES.clear()
-            AGENT_CLASSES.update(before)
+        self.assertEqual((TestAgent.key, TestAgent.label, TestAgent.executable),
+                         ("test-agent", "Test Agent", None))
+        self.assertNotIn("test-agent", cli.AGENTS)  # declaring a class registers nothing
+        with self.assertRaisesRegex(TypeError, "label"):
+            type("Unlabelled", (Agent,), {}, key="x", executable=None)
 
     def test_a_class_missing_a_required_method_cannot_be_instantiated(self) -> None:
-        class Incomplete(Agent):  # no config_dir or title
+        class Incomplete(Agent, key="incomplete", label="Incomplete", executable=None):  # no config_dir, title
             pass
 
         class NoInstall(wakatime.PluginCli):  # no is_installed, ensure_marketplace or install

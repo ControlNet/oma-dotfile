@@ -2,14 +2,14 @@
 
 `run` is a template method: it creates the target dir, installs the component's `files`
 (see constants.FileSpec), then calls `configure` for whatever else the component does.
-An Agent subclass is declared with `@agent(key, label=..., executable=...)`, which records
-those on the class and registers it in AGENT_CLASSES; cli.AGENTS puts them in order.
+An Agent subclass names itself in its class statement:
+`class Codex(Agent, key="codex", label="Codex", executable="codex")`. cli.AGENTS lists them.
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from pathlib import Path
-from typing import ClassVar, TypeVar
+from typing import ClassVar
 
 from omadotfile.console import item
 from omadotfile.constants import FileSpec
@@ -87,11 +87,20 @@ class Component(ABC):
 
 
 class Agent(Component):
-    """One agent; its subclasses are declared with @agent, which sets these three."""
+    """One agent; a subclass passes these three as keywords of its class statement."""
 
     key: ClassVar[str]  # "codex": the key of cli.AGENTS, ctx.found and ctx.dirs
     label: ClassVar[str]  # "Codex": the name in reports
     executable: ClassVar[str | None]  # the CLI whose presence detects the agent, if it has one
+
+    def __init_subclass__(cls, *, key: str, label: str, executable: str | None, **kwargs: object) -> None:
+        """`class Codex(Agent, key="codex", label="Codex", executable="codex")`.
+
+        All three are required, so pyright reports a subclass that leaves one out and Python
+        raises TypeError when the class is defined.
+        """
+        super().__init_subclass__(**kwargs)
+        cls.key, cls.label, cls.executable = key, label, executable
 
     @staticmethod
     @abstractmethod
@@ -111,26 +120,3 @@ class Agent(Component):
     def target_dir(self, ctx: Context) -> Path:
         return ctx.dirs[self.key]
 
-
-AgentClass = TypeVar("AgentClass", bound=type[Agent])
-
-# Every @agent class by key, in import order; cli.AGENTS gives the report order.
-AGENT_CLASSES: dict[str, type[Agent]] = {}
-
-
-def agent(key: str, *, label: str, executable: str | None) -> Callable[[AgentClass], AgentClass]:
-    """Declare an Agent subclass: record key, label and executable on it and register it.
-
-        @agent("codex", label="Codex", executable="codex")
-        class Codex(Agent): ...
-    """
-
-    def register(cls: AgentClass) -> AgentClass:
-        if key in AGENT_CLASSES:
-            raise ValueError(f"agent {key!r} is registered twice: by {AGENT_CLASSES[key].__qualname__} "
-                             f"and {cls.__qualname__}")
-        cls.key, cls.label, cls.executable = key, label, executable
-        AGENT_CLASSES[key] = cls
-        return cls
-
-    return register

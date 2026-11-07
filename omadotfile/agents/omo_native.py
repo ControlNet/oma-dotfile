@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 import tarfile
 
-from omadotfile.agents.base import Agent, agent
+from omadotfile.agents.base import Agent
 from omadotfile.agents.omo import omo_dir
 from omadotfile.console import info, item, warn
 from omadotfile.constants import OMO_HERDR_DAG_VERSION, OMO_NATIVE_FILES
@@ -219,8 +219,7 @@ def ensure_herdr_dag(ctx: Context, agent_dir: Path, work_dir: Path) -> None:
             cli.run(["node", str(package / "bin" / "omo-herdr-dag.mjs"), "install", "--agent-dir", str(agent_dir)])
 
 
-@agent("omo", label="OMO Native", executable="omo")
-class OmoNative(Agent):
+class OmoNative(Agent, key="omo", label="OMO Native", executable="omo"):
     files = OMO_NATIVE_FILES
 
     @staticmethod

@@ -7,10 +7,14 @@ from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
 
-# Importing an agent module registers its @agent class in AGENT_CLASSES.
-from omadotfile.agents import claude, codex, omo_native, omp, opencode, tokscale  # noqa: F401
-from omadotfile.agents.base import AGENT_CLASSES, Agent
+from omadotfile.agents.base import Agent
+from omadotfile.agents.claude import Claude
+from omadotfile.agents.codex import Codex
 from omadotfile.agents.omo import OmoConfig
+from omadotfile.agents.omo_native import OmoNative
+from omadotfile.agents.omp import Omp
+from omadotfile.agents.opencode import OpenCode
+from omadotfile.agents.tokscale import Tokscale
 from omadotfile.console import BANNER, error, info, step, success, warn
 from omadotfile.constants import GATEWAY_ENV_VARS, REQUIRED_ENV_VARS, REQUIRED_REPO_FILES
 from omadotfile.context import Context, Options, RepoRef
@@ -18,11 +22,10 @@ from omadotfile.features.skills import install_shared_skills
 from omadotfile.features.wakatime import configure_wakatime
 from omadotfile.step import Step
 
-# One instance per @agent class, in the order agents are detected and reported.
-AGENTS: dict[str, Agent] = {key: AGENT_CLASSES[key]() for key in (
-    "opencode", "omo", "omp", "codex", "claude", "tokscale",
+# One instance per agent, in the order agents are detected and reported.
+AGENTS: dict[str, Agent] = {agent.key: agent for agent in (
+    OpenCode(), OmoNative(), Omp(), Codex(), Claude(), Tokscale(),
 )}
-assert set(AGENTS) == set(AGENT_CLASSES), "AGENTS must list every @agent class"
 
 # The install steps, run in this order and numbered from 1.
 STEPS: tuple[Step, ...] = (

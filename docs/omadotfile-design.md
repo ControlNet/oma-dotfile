@@ -144,8 +144,7 @@ class FileSpec:                      # pure data, declared in constants.py
     managed: bool = False            # repo-owned code: no backup, else user config with backup
     oauth: bool = False              # under --oauth the agent's install_oauth_file writes it
 
-@agent("codex", label="Codex", executable="codex")   # sets the three ClassVars, registers the class
-class Codex(Agent): ...
+class Codex(Agent, key="codex", label="Codex", executable="codex"): ...   # Agent.__init_subclass__ sets the ClassVars
 
 class Agent(Component):
     key: ClassVar[str]               # "codex"
@@ -395,17 +394,15 @@ sandboxes, then diff the trees. Backup files and other timestamps are ignored. E
   and closures over `ctx` already are Reader. Done in the next commit: `@abstractmethod` on
   `Component`/`Agent`/`PluginCli` (pyright then reports a missing method at instantiation),
   and a `Codec.empty()` so `Files.update` needs no `default=`.
-- `@agent(key, label=..., executable=...)` (`agents/base.py`) declares each agent class: it sets
-  the three ClassVars and registers the class in `AGENT_CLASSES`. `constants.AGENT_LABELS` and
-  `AGENT_EXECUTABLES` are gone, and so are the per-class `key = ...` lines. `cli.AGENTS`
-  instantiates the registered classes in an explicit report order and asserts it lists all
-  of them, so import order decides nothing.
+- Each agent class names itself: `key`, `label` and `executable` (first an `@agent` class
+  decorator, then class keywords, see below). `constants.AGENT_LABELS` and `AGENT_EXECUTABLES`
+  are gone, and so are the per-class `key = ...` lines.
 - `Component`, `Agent` and `PluginCli` are ABCs: their required methods are `@abstractmethod`
   (`Agent.config_dir` is `@staticmethod` + `@abstractmethod`), so pyright reports
   `Cannot instantiate abstract class` for a subclass missing one, and Python raises
   `TypeError` when `cli.AGENTS` is built. The optional hooks (`install_oauth_file`,
   `install_merged_file`, `configure`) stay concrete. ClassVars (`key`, `label`) are not
-  checked this way; `@agent` sets them.
+  checked this way; the class keywords below are.
 - `Codec` gained `empty()`, the value of a missing file (a new object per call), so
   `Files.update(dst, codec, transform)` has no `default=` argument: the seven call sites lost
   it, and a default that does not match the codec cannot be written any more.
@@ -428,3 +425,14 @@ sandboxes, then diff the trees. Backup files and other timestamps are ignored. E
   "did not report a tarball" after the runner's line) and a Claude `plugin install` whose CLI
   fails (no "Failed to install" after it). A Codex `plugin add` that prints non-object JSON
   now says "Failed to install" instead of stopping silently.
+- The `@agent` decorator gave way to class keywords:
+  `class Codex(Agent, key="codex", label="Codex", executable="codex")`, taken by
+  `Agent.__init_subclass__` (PEP 487, not a metaclass). The decorator mixed two mechanisms
+  (inherit for behaviour, decorate for metadata) and registered classes in a global dict,
+  which needed a side-effect import and a second key list in `cli.py` for the order. Now the
+  class statement carries the metadata, pyright checks it (a missing keyword is "Arguments
+  missing for parameters ...", a wrong type is reported too) and `cli.AGENTS` is a plain tuple
+  of instances. A Protocol plus decorator was considered and rejected: pyright does not see
+  attributes a class decorator sets, so such a class never satisfies the Protocol, and the
+  shared template method (`run`, `install_file`, default `detect`/`enabled`) would have no
+  home. Protocols stay where implementations share no code (`Step`, `Codec`).
