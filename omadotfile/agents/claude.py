@@ -27,7 +27,7 @@ def with_hook_command(document: JsonObject, command: str) -> JsonObject:
 
 
 def install_plugins(ctx: Context, claude_dir: Path) -> None:
-    """Install each plugin in claude-plugins/ as a skill dir, without touching other skills."""
+    """Install each plugin in config/claude/plugins/ as a skill dir, without touching other skills."""
     plugins_dir = ctx.repo / CLAUDE_PLUGINS_DIR
     if not plugins_dir.is_dir():
         warn(f"Source directory not found: {plugins_dir}")
@@ -48,7 +48,7 @@ def install_plugin(ctx: Context, src_dir: Path, dst_dir: Path) -> None:
 @warns_on(OSError, ValueError, KeyError, TypeError, message="Failed to render Claude Code hooks: {reason}")
 def stage_plugin(ctx: Context, src_dir: Path) -> Path:
     """A scratch copy of the plugin with its hooks rendered, so an unchanged one is left as it is."""
-    staged = ctx.work / CLAUDE_PLUGINS_DIR / src_dir.name
+    staged = ctx.work / "claude-plugins" / src_dir.name
     if staged.exists():
         shutil.rmtree(staged)
     _ = shutil.copytree(src_dir, staged, ignore=shutil.ignore_patterns(*IGNORED_NAMES))

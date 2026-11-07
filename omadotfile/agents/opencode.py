@@ -8,7 +8,7 @@ import sys
 from omadotfile.agents.base import Agent
 from omadotfile.console import item
 from omadotfile.constants import (LEGACY_OPENAGENT_CONFIG_NAMES, LEGACY_OPENCODE_JSON,
-                                  OPENCODE_FILES, OPENCODE_PLUGINS_DIR)
+                                  OPENCODE_FILES, OPENCODE_PLUGINS)
 from omadotfile.context import Context
 from omadotfile.core.jsonc import merge_config_objects, read_jsonc_object
 from omadotfile.migration import migration
@@ -80,7 +80,7 @@ class OpenCode(Agent, key="opencode", label="OpenCode/OMO", executable="opencode
         # After the files: render_oauth_config reads opencode.json before it is retired.
         retire_legacy_opencode_json(ctx, target)
         retire_legacy_openagent_files(ctx, target)
-        plugins = ctx.repo / OPENCODE_PLUGINS_DIR
-        if plugins.exists():
-            item(f"{OPENCODE_PLUGINS_DIR}/ (replace managed items)")
-            ctx.files.copy_items(plugins, target / OPENCODE_PLUGINS_DIR)
+        src, dst = OPENCODE_PLUGINS
+        if (ctx.repo / src).exists():
+            item(f"{dst}/ (replace managed items)")
+            ctx.files.copy_items(ctx.repo / src, target / dst)

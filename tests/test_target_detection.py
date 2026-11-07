@@ -201,9 +201,11 @@ class InstallGatingTests(TestCase):
         # A checkout with only the files these tests need.
         self.repo = self.tmp / "repo"
         self.repo.mkdir()
-        for name in ("opencode.jsonc", "omo.jsonc", "omp_config.yml", "omp_models.yaml",
-                     "_AGENTS.md", "tui.json", "codex-gotify-notify.py",
-                     "omp-gotify-notify.js", "omp-wakatime-sync.js"):
+        for name in ("config/opencode/opencode.jsonc", "config/opencode/tui.json", "config/omo/omo.jsonc",
+                     "config/omp/config.yml", "config/omp/models.yml", "config/_AGENTS.md",
+                     "config/codex/codex-gotify-notify.py", "config/omp/extensions/omp-gotify-notify.js",
+                     "config/omp/extensions/omp-wakatime-sync.js"):
+            (self.repo / name).parent.mkdir(parents=True, exist_ok=True)
             _ = shutil.copy2(ROOT / name, self.repo / name)
         _ = shutil.copytree(ROOT / "skills", self.repo / "skills")
 
@@ -270,7 +272,8 @@ class InstallGatingTests(TestCase):
         # Then the Gotify notifier and the WakaTime sync trigger are both installed.
         extensions = self.target_dir("get_omp_agent_dir") / "extensions"
         for name in ("omp-gotify-notify.js", "omp-wakatime-sync.js"):
-            self.assertEqual((extensions / name).read_bytes(), (ROOT / name).read_bytes(), name)
+            self.assertEqual((extensions / name).read_bytes(),
+                             (ROOT / "config" / "omp" / "extensions" / name).read_bytes(), name)
 
     def test_omp_gets_user_level_instructions(self) -> None:
         # Given an OMP agent dir with locally edited instructions. OMP ignores
@@ -280,7 +283,7 @@ class InstallGatingTests(TestCase):
         _ = (agent_dir / "AGENTS.md").write_text("local rules\n", encoding="utf-8")
         self.run_main(omp=True, env={**GATEWAY, "NO_BACKUP": "0"})
         # Then OMP's native user-level AGENTS.md holds the shared rules.
-        self.assertEqual((agent_dir / "AGENTS.md").read_bytes(), (ROOT / "_AGENTS.md").read_bytes())
+        self.assertEqual((agent_dir / "AGENTS.md").read_bytes(), (ROOT / "config/_AGENTS.md").read_bytes())
         # And the edited copy is kept as a backup, like other user-editable config.
         backups = list(agent_dir.glob("AGENTS.md.bak-*"))
         self.assertEqual(len(backups), 1)
@@ -337,9 +340,10 @@ class InstallGatingTests(TestCase):
         # When the installer runs with backups enabled.
         self.run_main(omp=True, codex=True, env={**GATEWAY, "NO_BACKUP": "0"})
         # Then every file is updated from the repo.
-        self.assertEqual((codex_dir / "AGENTS.md").read_bytes(), (ROOT / "_AGENTS.md").read_bytes())
+        self.assertEqual((codex_dir / "AGENTS.md").read_bytes(), (ROOT / "config/_AGENTS.md").read_bytes())
         for path in list(stale)[1:]:
-            self.assertEqual(path.read_bytes(), (ROOT / path.name).read_bytes(), path.name)
+            (source,) = (ROOT / "config").rglob(path.name)  # one repo file per installed name
+            self.assertEqual(path.read_bytes(), source.read_bytes(), path.name)
         # And only the user-editable config keeps a backup.
         self.assertEqual(len(list(codex_dir.glob("AGENTS.md.bak-*"))), 1)
         self.assertEqual(list(codex_dir.glob("codex-gotify-notify.py.bak-*")), [])
@@ -368,7 +372,7 @@ class InstallGatingTests(TestCase):
 
         self.run_main(claude=True, env={"NO_BACKUP": "0"})
         self.assertEqual(managed.read_text(encoding="utf-8"),
-                         (ROOT / "_AGENTS.md").read_text(encoding="utf-8"))
+                         (ROOT / "config/_AGENTS.md").read_text(encoding="utf-8"))
         self.assertEqual(personal.read_text(encoding="utf-8"),
                          "Personal instructions\n")
         backups = list(rules_dir.glob("oma-dotfile.md.bak-*"))

@@ -27,7 +27,7 @@ GATEWAY_URL = "https://example.invalid/v1"
 
 
 def omo_template() -> dict:
-    return read_jsonc_object(ROOT / "omo.jsonc")
+    return read_jsonc_object(ROOT / "config/omo/omo.jsonc")
 
 
 def model_strings(value) -> list[str]:
@@ -102,7 +102,7 @@ class NativeOAuthRenderTests(TestCase):
         self.install()
         installed = (self.omo_dir / "omo.jsonc").read_text(encoding="utf-8")
         normalized = installed.replace('"chatgpt-subscription/', '"codex/').replace('"openai/', '"codex/')
-        self.assertEqual(normalized, (ROOT / "omo.jsonc").read_text(encoding="utf-8"))
+        self.assertEqual(normalized, (ROOT / "config/omo/omo.jsonc").read_text(encoding="utf-8"))
 
 
 class NativeModelsTests(TestCase):
@@ -124,7 +124,7 @@ class NativeModelsTests(TestCase):
         self.assertEqual(provider["baseUrl"], GATEWAY_URL)
         self.assertEqual(provider["apiKey"], "${CODEX_API_TOKEN}")
         self.assertEqual(provider["api"], "openai-responses")
-        opencode = read_jsonc_object(ROOT / "opencode.jsonc")["provider"]["codex"]["models"]
+        opencode = read_jsonc_object(ROOT / "config/opencode/opencode.jsonc")["provider"]["codex"]["models"]
         by_id = {model["id"]: model for model in provider["models"]}
         self.assertEqual(set(by_id), set(opencode))
         sol = by_id["gpt-6.1-sol"]

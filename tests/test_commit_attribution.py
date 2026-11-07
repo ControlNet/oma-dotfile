@@ -19,7 +19,7 @@ from unittest.mock import patch
 from omadotfile.agents import claude
 from support import ROOT, TestCase, make_context
 
-HOOK = ROOT / "git-hooks" / "commit-msg"
+HOOK = ROOT / "config" / "git-hooks" / "commit-msg"
 
 
 def quiet(function, *args):

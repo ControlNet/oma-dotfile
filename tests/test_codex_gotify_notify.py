@@ -14,7 +14,7 @@ from unittest.mock import patch
 from support import TestCase
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "codex-gotify-notify.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "config" / "codex" / "codex-gotify-notify.py"
 SPEC = importlib.util.spec_from_file_location("codex_gotify_notify", SCRIPT)
 notify = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(notify)

@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import OmpGotifyNotify from "../omp-gotify-notify.js";
+import OmpGotifyNotify from "../config/omp/extensions/omp-gotify-notify.js";
 
 const MANAGED_ENV = [
 	"GOTIFY_URL",

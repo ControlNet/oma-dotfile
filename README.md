@@ -54,6 +54,11 @@ Rerun without `--oauth` to switch back.
 
 ## Installed files
 
+The sources live under `config/`, one directory per agent laid out like the directory it is
+installed into (`config/omp/config.yml` becomes `~/.omp/agent/config.yml`). `config/_AGENTS.md`
+holds the rules every agent gets as its `AGENTS.md`. It is not called `AGENTS.md`, so agents
+working in this repo do not load it.
+
 | Agent | Directory | Contents |
 |---|---|---|
 | OpenCode/OMO | `~/.config/opencode`, `~/.omo/omo.jsonc` | Config, plugins; OMO settings under `"[opencode]"` |
@@ -61,7 +66,7 @@ Rerun without `--oauth` to switch back.
 | OMP | `~/.omp/agent` | `AGENTS.md`, config, models, Gotify and WakaTime extensions |
 | Codex | `~/.codex` | `AGENTS.md`, Gotify notifier, WakaTime plugin; `config.toml` turns off the shared `skill-creator` so Codex keeps its bundled one |
 | Claude Code | `~/.claude` | Rule `rules/oma-dotfile.md`, Gotify plugin, WakaTime plugin, links to shared skills; commit attribution off (see [Commit attribution](#commit-attribution)) |
-| Tokscale | Tokscale `settings.json` | Model aliases from `tokscale_model_alias.json` |
+| Tokscale | Tokscale `settings.json` | Model aliases from `config/tokscale/model-aliases.json` |
 | Skills | `~/.agents/skills` | See [Skills](#skills) |
 
 ## Skills
@@ -106,7 +111,7 @@ Claude Code already has.
 When Claude Code is found, commits and PRs carry no Claude attribution:
 
 - `settings.json` gets `"attribution": {"commit": "", "pr": ""}`; other settings are kept.
-- `git-hooks/commit-msg` goes into the global `core.hooksPath` dir, which is set to
+- `config/git-hooks/commit-msg` goes into the global `core.hooksPath` dir, which is set to
   `~/.config/git/hooks` when unset. It drops `Co-Authored-By: Claude …@anthropic.com`,
   `Generated with [Claude Code]` and `Claude-Session:` lines, including ones an agent writes into the
   message itself. A different `commit-msg` there is backed up first.

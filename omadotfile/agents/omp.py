@@ -23,7 +23,7 @@ def render_oauth_config(content: str) -> str:
 
 
 def render_models(content: str, codex_base_url: str) -> tuple[str, bool]:
-    """Render omp_models.yaml by inlining CODEX_BASE_URL placeholder."""
+    """Render config/omp/models.yml by inlining the CODEX_BASE_URL placeholder."""
     quoted_url = json.dumps(codex_base_url)
     rendered, count = BASE_URL_PLACEHOLDER.subn(
         lambda m: f"{m.group(1)}{quoted_url}{m.group(3)}", content
@@ -43,14 +43,14 @@ def install_models(ctx: Context, agent_dir: Path) -> None:
 
 @warns_on(OSError, message="Failed to read {src}: {reason}")
 def oauth_models(ctx: Context, src: Path) -> str:
-    item(f"{OMP_MODELS_OAUTH} (native model overrides)")
+    item(f"{Path(OMP_MODELS_OAUTH).name} (native model overrides)")
     return src.read_text(encoding="utf-8")
 
 
 @warns_on(OSError, message="Failed to read {src}: {reason}")
 def gateway_models(ctx: Context, src: Path) -> str:
     """The gateway catalog with CODEX_BASE_URL inlined, or with the placeholder left in."""
-    item(f"{OMP_MODELS} (render CODEX_BASE_URL)")
+    item(f"{Path(OMP_MODELS).name} (render CODEX_BASE_URL)")
     content = src.read_text(encoding="utf-8")
     codex_base_url = ctx.env.get("CODEX_BASE_URL", "").strip()
     if not codex_base_url:
@@ -60,7 +60,7 @@ def gateway_models(ctx: Context, src: Path) -> str:
     if replaced:
         info("Injected CODEX_BASE_URL into omp models.yml")
     else:
-        warn("No `baseUrl: CODEX_BASE_URL` placeholder found in omp_models.yaml")
+        warn("No `baseUrl: CODEX_BASE_URL` placeholder found in config/omp/models.yml")
     return content
 
 

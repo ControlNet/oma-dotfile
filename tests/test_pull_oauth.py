@@ -12,6 +12,7 @@ from unittest.mock import patch
 from omadotfile import cli
 from omadotfile.agents import claude, codex, omo, omo_native, omp, opencode, tokscale
 from omadotfile.agents.base import Component
+from omadotfile.constants import OMP_MODELS, OMP_MODELS_OAUTH
 from omadotfile.core.jsonc import read_jsonc_object
 from omadotfile.features import skills, wakatime
 from support import ROOT, TestCase, make_context, requires_tomllib, tomllib
@@ -113,7 +114,7 @@ class OAuthTests(TestCase):
         for model in ('gpt-6.1-sol', 'gpt-6-luna', 'gpt-6.1-sol-fast', 'gpt-6-luna-fast'):
             self.assertEqual(parsed['provider']['openai']['models'][model]['limit'],
                              {'context': 400000, 'input': 272000, 'output': 128000})
-        self.assertEqual(parsed['plugin'], json.loads((ROOT / 'opencode.jsonc').read_text())['plugin'])
+        self.assertEqual(parsed['plugin'], json.loads((ROOT / 'config/opencode/opencode.jsonc').read_text())['plugin'])
         self.assertEqual(dst.with_suffix('.jsonc.bak-oauth').read_text(), original)
 
     def test_opencode_does_not_add_missing_provider(self):
@@ -153,17 +154,17 @@ class OAuthTests(TestCase):
         self.assertNotIn('"codex/', json.dumps(opencode))
         self.assertIn('"openai/gpt-6.1-sol"', actual)
         install_files(omo.OmoConfig(), self.context('api'), self.tmp)
-        self.assertEqual((self.tmp / 'omo.jsonc').read_text(), (ROOT / 'omo.jsonc').read_text())
+        self.assertEqual((self.tmp / 'omo.jsonc').read_text(), (ROOT / 'config/omo/omo.jsonc').read_text())
 
     def test_omp_native_roles_and_model_overrides(self):
         install_files(omp.Omp(), self.context('oauth', oauth=True), self.tmp)
         content = (self.tmp / 'config.yml').read_text()
-        self.assertEqual(content, (ROOT / 'omp_config.yml').read_text().replace('codex_api/', 'openai-codex/'))
+        self.assertEqual(content, (ROOT / 'config/omp/config.yml').read_text().replace('codex_api/', 'openai-codex/'))
         dst = self.tmp / 'models.yml'
         dst.write_text('providers: {}\n')
         with contextlib.redirect_stderr(io.StringIO()) as stderr, contextlib.redirect_stdout(io.StringIO()):
             omp.install_models(self.context('oauth', oauth=True, env={}), self.tmp)
-        self.assertEqual(dst.read_text(), (ROOT / 'omp_models_oauth.yaml').read_text())
+        self.assertEqual(dst.read_text(), (ROOT / 'config/omp/models.oauth.yml').read_text())
         for model in ('gpt-6.1-sol', 'gpt-6-luna', 'gpt-6.1-sol-fast', 'gpt-6-luna-fast'):
             self.assertIn(f'      {model}:\n        contextWindow: 272000\n        maxTokens: 128000', dst.read_text())
         self.assertEqual(stderr.getvalue(), '')
@@ -173,15 +174,15 @@ class OAuthTests(TestCase):
 
     def test_unreadable_omp_models_warn_and_leave_models_yml_alone(self):
         repo = self.tmp / 'repo'
-        repo.mkdir()
-        (repo / 'omp_models.yaml').write_text('providers: {}\n')
+        (repo / 'config' / 'omp').mkdir(parents=True)
+        (repo / OMP_MODELS).write_text('providers: {}\n')
         dst = self.tmp / 'agent' / 'models.yml'
-        for oauth, missing in ((True, 'omp_models_oauth.yaml'), (False, None)):
+        for oauth, missing in ((True, OMP_MODELS_OAUTH), (False, None)):
             with self.subTest(oauth=oauth):
                 if missing is None:
-                    (repo / 'omp_models.yaml').unlink()
-                    (repo / 'omp_models.yaml').mkdir()  # exists, but reading it fails
-                    missing = 'omp_models.yaml'
+                    (repo / OMP_MODELS).unlink()
+                    (repo / OMP_MODELS).mkdir()  # exists, but reading it fails
+                    missing = OMP_MODELS
                 ctx = make_context(self.tmp, repo=repo, oauth=oauth)
                 with contextlib.redirect_stderr(io.StringIO()) as stderr, contextlib.redirect_stdout(io.StringIO()):
                     omp.install_models(ctx, dst.parent)
@@ -229,7 +230,9 @@ class OAuthTests(TestCase):
         # A checkout holding only the files these routes read.
         repo = self.tmp / 'repo'
         repo.mkdir()
-        for name in ('opencode.jsonc', 'omo.jsonc', 'omp_config.yml', 'omp_models.yaml', 'omp_models_oauth.yaml'):
+        for name in ('config/opencode/opencode.jsonc', 'config/omo/omo.jsonc', 'config/omp/config.yml',
+                     'config/omp/models.yml', 'config/omp/models.oauth.yml'):
+            (repo / name).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / name, repo / name)
 
         def main(argv):
@@ -244,7 +247,7 @@ class OAuthTests(TestCase):
         self.assertNotIn('"codex/', (self.tmp / '.omo/omo.jsonc').read_text())
         self.assertNotIn('codex_api/', (self.tmp / 'omp_agent_dir/config.yml').read_text())
         self.assertEqual((self.tmp / 'omp_agent_dir/models.yml').read_text(),
-                         (ROOT / 'omp_models_oauth.yaml').read_text())
+                         (ROOT / 'config/omp/models.oauth.yml').read_text())
         ctx = plugins.call_args.args[0]
         self.assertEqual((ctx.dirs['codex'], ctx.dirs['claude']),
                          (self.tmp / 'codex_dir', self.tmp / 'claude_config_dir'))

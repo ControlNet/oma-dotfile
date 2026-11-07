@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import OmpWakatimeSync, { cliCandidates } from "../omp-wakatime-sync.js";
+import OmpWakatimeSync, { cliCandidates } from "../config/omp/extensions/omp-wakatime-sync.js";
 
 // Synthetic test double: a shell script stands in for wakatime-cli and records its
 // arguments. No real wakatime-cli is executed and nothing is sent anywhere.

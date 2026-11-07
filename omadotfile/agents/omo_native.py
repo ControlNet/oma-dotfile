@@ -11,7 +11,7 @@ import tarfile
 from omadotfile.agents.base import Agent
 from omadotfile.agents.omo import omo_dir
 from omadotfile.console import info, item, warn
-from omadotfile.constants import OMO_HERDR_DAG_VERSION, OMO_NATIVE_FILES
+from omadotfile.constants import OMO_HERDR_DAG_VERSION, OMO_NATIVE_FILES, OPENCODE_CONFIG
 from omadotfile.context import Context
 from omadotfile.core.codec import JSONC, JsonObject
 from omadotfile.core.errors import Skip, skips, warns_on
@@ -29,7 +29,7 @@ HERDR_DAG_LABEL = f"omo-herdr-dag {OMO_HERDR_DAG_VERSION}"
 
 def build_gateway_provider(repo: Path, codex_base_url: str) -> dict:
     """Mirror OpenCode's `codex` gateway provider in OMO Native's models.json shape."""
-    opencode = read_jsonc_object(repo / "opencode.jsonc")
+    opencode = read_jsonc_object(repo / OPENCODE_CONFIG)
     models = []
     for model_id, entry in opencode["provider"]["codex"]["models"].items():
         limit = entry.get("limit", {})
@@ -39,7 +39,7 @@ def build_gateway_provider(repo: Path, codex_base_url: str) -> dict:
             "id": model_id,
             "reasoning": bool(entry.get("reasoning")),
             "input": entry.get("modalities", {}).get("input", ["text"]),
-            # A separate input cap is what the gateway enforces, as omp_models.yaml records.
+            # A separate input cap is what the gateway enforces, as config/omp/models.yml records.
             "contextWindow": limit.get("input", limit.get("context")),
             "maxTokens": limit.get("output"),
             "cost": {

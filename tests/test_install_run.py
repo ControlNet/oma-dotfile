@@ -215,14 +215,14 @@ class InstallRunTests(TestCase):
 
     def test_missing_required_repo_file_exits(self):
         repo = self.root / "repo"
-        repo.mkdir()
-        (repo / "opencode.jsonc").write_text("{}")
+        (repo / "config" / "opencode").mkdir(parents=True)
+        (repo / "config" / "opencode" / "opencode.jsonc").write_text("{}")
         with contextlib.redirect_stdout(io.StringIO()), \
                 contextlib.redirect_stderr(io.StringIO()) as err, \
                 self.assertRaises(SystemExit) as raised:
             cli.main([], repo=repo, env=self.env, home=self.home)
         self.assertEqual(raised.exception.code, 1)
-        self.assertIn("Required repository file is missing: omo.jsonc", err.getvalue())
+        self.assertIn("Required repository file is missing: config/omo/omo.jsonc", err.getvalue())
         self.assertFalse((self.home / ".config" / "opencode").exists())
 
 

@@ -11,7 +11,7 @@ from omadotfile.agents import omp
 from omadotfile.core import yaml_merge
 from support import ROOT, TestCase, make_context
 
-REPO_CONFIG = (ROOT / "omp_config.yml").read_text(encoding="utf-8")
+REPO_CONFIG = (ROOT / "config/omp/config.yml").read_text(encoding="utf-8")
 
 
 def yaml(text: str) -> str:

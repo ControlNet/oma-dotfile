@@ -16,7 +16,7 @@ for (const name of ["GOTIFY_NOTIFY_SUMMARIZER_MODEL", "GOTIFY_NOTIFY_SUMMARIZER_
 	"GOTIFY_NOTIFY_SUMMARIZER_API_KEY", "OPENCODE_NOTIFY_PERMISSION", "OPENCODE_NOTIFY_COMPLETE"]) {
 	delete process.env[name];
 }
-const { GotifyNotify } = await import("../plugins/gotify-notify.js");
+const { GotifyNotify } = await import("../config/opencode/plugins/gotify-notify.js");
 
 test.after(() => fs.rmSync(home, { recursive: true, force: true }));
 

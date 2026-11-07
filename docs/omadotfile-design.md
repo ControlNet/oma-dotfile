@@ -22,6 +22,16 @@ These hold after every commit on `master`, since every machine installs from raw
 
 ```
 pull.py                    bootstrap only (~60 lines), see below
+config/                    what gets installed, one dir per agent laid out like its config dir
+  _AGENTS.md               shared rules, installed as each agent's AGENTS.md
+  opencode/                opencode.jsonc, tui.json, plugins/
+  omo/                     omo.jsonc
+  omp/                     config.yml, models.yml, models.oauth.yml, extensions/
+  codex/                   codex-gotify-notify.py
+  claude/                  plugins/ (each one installed as a skill dir)
+  tokscale/                model-aliases.json
+  git-hooks/               commit-msg
+skills/                    this repo's own skills, installed with the skills CLI
 omadotfile/
   __init__.py
   __main__.py              `python3 -m omadotfile` from a checkout's root
@@ -162,7 +172,7 @@ class Agent(Component):
 
 `run` is a template method: it installs `files` the same way for every agent and then calls
 `configure`, which only Codex, Claude, OMO Native and a few others override. Files with an
-`--oauth` variant (`opencode.jsonc`, `omo.jsonc`, `omp_config.yml`) are marked `oauth=True`; under
+`--oauth` variant (`opencode.jsonc`, `omo.jsonc`, OMP's `config.yml`) are marked `oauth=True`; under
 `--oauth` the agent's `install_oauth_file` writes the rewritten copy, so `constants.py` holds no
 code.
 
@@ -436,3 +446,16 @@ sandboxes, then diff the trees. Backup files and other timestamps are ignored. E
   attributes a class decorator sets, so such a class never satisfies the Protocol, and the
   shared template method (`run`, `install_file`, default `detect`/`enabled`) would have no
   home. Protocols stay where implementations share no code (`Step`, `Codec`).
+
+### Repo layout: config/ (2026-11-07)
+
+The files that get installed moved out of the repo root into `config/`, one directory per agent
+laid out like that agent's config dir; files renamed to their installed names where they had a
+prefix (`omp_config.yml` -> `config/omp/config.yml`, `omp_models.yaml` -> `config/omp/models.yml`,
+`omp_models_oauth.yaml` -> `config/omp/models.oauth.yml`, `tokscale_model_alias.json` ->
+`config/tokscale/model-aliases.json`; `plugins/` -> `config/opencode/plugins/`,
+`claude-plugins/` -> `config/claude/plugins/`, `git-hooks/` -> `config/git-hooks/`).
+`config/_AGENTS.md` keeps its underscore so agents working in this repo do not load it. All paths
+are in `constants.py`. A golden run against the previous commit installed the same files in all
+five sandboxes; the step output names the three renamed OMP files by their new names.
+`skills/` stays at the root, where the skills CLI looks for this repo's skills.

@@ -13,7 +13,7 @@ from unittest.mock import patch
 from support import TestCase
 
 ROOT = Path(__file__).resolve().parents[1]
-PLUGIN = ROOT / "claude-plugins" / "gotify-notify"
+PLUGIN = ROOT / "config" / "claude" / "plugins" / "gotify-notify"
 SPEC = importlib.util.spec_from_file_location("claude_notify", PLUGIN / "scripts" / "notify.py")
 notify = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(notify)

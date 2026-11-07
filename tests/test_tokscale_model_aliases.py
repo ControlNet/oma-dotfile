@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from omadotfile.agents import tokscale
 from omadotfile.agents.tokscale import Tokscale
+from omadotfile.constants import TOKSCALE_MODEL_ALIASES
 from support import ROOT, TestCase, make_context
 
 
@@ -49,7 +50,7 @@ class TokscaleAliasesTests(TestCase):
         self.config = self.directory / "new" / "tokscale"
         self.install()
         saved = json.loads((self.config / "settings.json").read_text())
-        self.assertEqual(saved, {"modelAliases": json.loads((ROOT / "tokscale_model_alias.json").read_text())})
+        self.assertEqual(saved, {"modelAliases": json.loads((ROOT / "config/tokscale/model-aliases.json").read_text())})
 
     def test_invalid_settings_remain_untouched(self):
         for content in ("{", "[]", '{"modelAliases": null}'):
@@ -64,7 +65,8 @@ class TokscaleAliasesTests(TestCase):
         for content in (None, "[]", '{"alias": null}', '{"alias": " "}'):
             with self.subTest(content=content):
                 if content is not None:
-                    (self.directory / "tokscale_model_alias.json").write_text(content)
+                    (self.directory / TOKSCALE_MODEL_ALIASES).parent.mkdir(parents=True, exist_ok=True)
+                    (self.directory / TOKSCALE_MODEL_ALIASES).write_text(content)
                 self.install(self.directory)
                 self.assertEqual(self.settings.read_text(), '{"colorPalette": "blue"}')
 
@@ -90,8 +92,8 @@ class TokscaleAliasesTests(TestCase):
         self.assertEqual(config_dir(TOKSCALE_CONFIG_DIR=str(self.config)), self.config)
 
     def test_repository_model_coverage(self):
-        aliases = json.loads((ROOT / "tokscale_model_alias.json").read_text())
-        models = json.loads((ROOT / "opencode.jsonc").read_text())["provider"]["codex"]["models"]
+        aliases = json.loads((ROOT / "config/tokscale/model-aliases.json").read_text())
+        models = json.loads((ROOT / "config/opencode/opencode.jsonc").read_text())["provider"]["codex"]["models"]
         for model_id in models:
             for provider in ("openai", "codex", "codex_api", "omp"):
                 self.assertEqual(aliases[f"{provider}/{model_id}"], model_id)

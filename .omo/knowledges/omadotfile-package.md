@@ -29,6 +29,21 @@ Older notes in this directory name `pull.py` functions. Where they live now:
 | `ensure_wakatime_config`, `ensure_*_wakatime_plugin` | `features/wakatime.py` (`ensure_config`, `CodexPlugins` / `ClaudePlugins` + `ensure_plugin`) |
 | `ensure_agent_skills` and the skills helpers | `features/skills.py` (`ensure_skills`, ...) |
 
+Repo layout: the installed files live under `config/` (one dir per agent, laid out like its
+config dir). Older notes use the root names from before 2026-11-07:
+
+| old root path | now |
+|---|---|
+| `_AGENTS.md` | `config/_AGENTS.md` |
+| `opencode.jsonc`, `tui.json`, `plugins/` | `config/opencode/` (same names) |
+| `omo.jsonc` | `config/omo/omo.jsonc` |
+| `omp_config.yml`, `omp_models.yaml`, `omp_models_oauth.yaml` | `config/omp/config.yml`, `models.yml`, `models.oauth.yml` |
+| `omp-gotify-notify.js`, `omp-wakatime-sync.js` | `config/omp/extensions/` (same names) |
+| `codex-gotify-notify.py` | `config/codex/codex-gotify-notify.py` |
+| `claude-plugins/` | `config/claude/plugins/` |
+| `tokscale_model_alias.json` | `config/tokscale/model-aliases.json` |
+| `git-hooks/commit-msg` | `config/git-hooks/commit-msg` |
+
 Things worth knowing when changing it:
 
 - Every write goes through `ctx.files` (`Files`): it compares first, writes only on change,

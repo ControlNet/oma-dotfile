@@ -18,9 +18,9 @@ from omadotfile.core.proc import find_executable
 
 
 def file_label(spec: FileSpec) -> str:
-    if Path(spec.src).name == Path(spec.dst).name:
-        return spec.src
-    return f"{spec.src} -> {spec.dst}"
+    """The repo file's name, or `name -> dst` when it is installed under another name."""
+    name = Path(spec.src).name
+    return name if name == Path(spec.dst).name else f"{name} -> {spec.dst}"
 
 
 class Component(ABC):

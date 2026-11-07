@@ -16,8 +16,15 @@ REQUIRED_ENV_VARS = ("CODEX_BASE_URL", "CODEX_API_TOKEN", "GITHUB_PERSONAL_ACCES
 # Not needed with --oauth, which uses each agent's own OpenAI login.
 GATEWAY_ENV_VARS = ("CODEX_BASE_URL", "CODEX_API_TOKEN")
 
+# What gets installed lives under config/, one dir per agent laid out like that agent's
+# config dir (config/omp/config.yml goes to ~/.omp/agent/config.yml); files every agent gets
+# sit in config/ itself. All repo paths below are relative to the repo root.
+SHARED_RULES = "config/_AGENTS.md"  # not AGENTS.md: agents working in this repo must not load it
+OPENCODE_CONFIG = "config/opencode/opencode.jsonc"
+OMO_CONFIG = "config/omo/omo.jsonc"
+
 # A checkout without these is not this repo.
-REQUIRED_REPO_FILES = ("opencode.jsonc", "omo.jsonc")
+REQUIRED_REPO_FILES = (OPENCODE_CONFIG, OMO_CONFIG)
 
 
 @dataclass(frozen=True)
@@ -32,45 +39,46 @@ class FileSpec:
 
 
 OPENCODE_FILES = (
-    FileSpec("opencode.jsonc", "opencode.jsonc", oauth=True),
-    FileSpec("tui.json", "tui.json"),
-    FileSpec("_AGENTS.md", "AGENTS.md"),
+    FileSpec(OPENCODE_CONFIG, "opencode.jsonc", oauth=True),
+    FileSpec("config/opencode/tui.json", "tui.json"),
+    FileSpec(SHARED_RULES, "AGENTS.md"),
 )
-OPENCODE_PLUGINS_DIR = "plugins"  # each entry replaces the same-named one in <config>/plugins
+# Each entry replaces the same-named one in <config>/plugins.
+OPENCODE_PLUGINS = ("config/opencode/plugins", "plugins")  # (repo dir, dir under the config dir)
 
 # ~/.omo/omo.jsonc, read by both the OMO OpenCode plugin and OMO Native.
-OMO_FILES = (FileSpec("omo.jsonc", "omo.jsonc", oauth=True),)
+OMO_FILES = (FileSpec(OMO_CONFIG, "omo.jsonc", oauth=True),)
 
-OMO_NATIVE_FILES = (FileSpec("_AGENTS.md", "AGENTS.md"),)
+OMO_NATIVE_FILES = (FileSpec(SHARED_RULES, "AGENTS.md"),)
 
 OMP_FILES = (
-    FileSpec("omp_config.yml", "config.yml", oauth=True, merge=True),  # OMP writes to it too
+    FileSpec("config/omp/config.yml", "config.yml", oauth=True, merge=True),  # OMP writes to it too
     # OMP loads ~/.config/opencode/AGENTS.md only when opencode is in enabledProviders, which
     # would also pull in OpenCode's plugins and MCP.
-    FileSpec("_AGENTS.md", "AGENTS.md"),
-    FileSpec("omp-gotify-notify.js", "extensions/omp-gotify-notify.js", managed=True),
-    FileSpec("omp-wakatime-sync.js", "extensions/omp-wakatime-sync.js", managed=True),
+    FileSpec(SHARED_RULES, "AGENTS.md"),
+    FileSpec("config/omp/extensions/omp-gotify-notify.js", "extensions/omp-gotify-notify.js", managed=True),
+    FileSpec("config/omp/extensions/omp-wakatime-sync.js", "extensions/omp-wakatime-sync.js", managed=True),
 )
-OMP_MODELS = "omp_models.yaml"  # gateway catalog, CODEX_BASE_URL filled in
-OMP_MODELS_OAUTH = "omp_models_oauth.yaml"  # native model overrides under --oauth
+OMP_MODELS = "config/omp/models.yml"  # gateway catalog, CODEX_BASE_URL filled in
+OMP_MODELS_OAUTH = "config/omp/models.oauth.yml"  # native model overrides under --oauth
 OMP_MODELS_DST = "models.yml"
 
 CODEX_FILES = (
-    FileSpec("_AGENTS.md", "AGENTS.md"),
-    FileSpec("codex-gotify-notify.py", "codex-gotify-notify.py", managed=True),
+    FileSpec(SHARED_RULES, "AGENTS.md"),
+    FileSpec("config/codex/codex-gotify-notify.py", "codex-gotify-notify.py", managed=True),
 )
 # Codex bundles its own copy of these, which Codex keeps using; the shared copies in
 # ~/.agents/skills are switched off in Codex only, so every other agent still gets them.
 CODEX_DISABLED_SHARED_SKILLS = ("skill-creator",)
 
-CLAUDE_FILES = (FileSpec("_AGENTS.md", "rules/oma-dotfile.md"),)
-CLAUDE_PLUGINS_DIR = "claude-plugins"  # each plugin dir goes to <config>/skills/<name>
+CLAUDE_FILES = (FileSpec(SHARED_RULES, "rules/oma-dotfile.md"),)
+CLAUDE_PLUGINS_DIR = "config/claude/plugins"  # each plugin dir goes to <config>/skills/<name>
 # Empty strings hide Claude Code's own commit and PR attribution.
 CLAUDE_ATTRIBUTION = {"commit": "", "pr": ""}
 # Drops Claude attribution lines from every commit; installed into the global core.hooksPath.
-COMMIT_MSG_HOOK = "git-hooks/commit-msg"
+COMMIT_MSG_HOOK = "config/git-hooks/commit-msg"
 
-TOKSCALE_MODEL_ALIASES = "tokscale_model_alias.json"
+TOKSCALE_MODEL_ALIASES = "config/tokscale/model-aliases.json"
 
 # Live workflow DAGs in a Herdr side pane (github.com/jc01rho/omo-herdr-dag). Bump on release.
 OMO_HERDR_DAG_VERSION = "1.7.0"
