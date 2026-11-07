@@ -99,7 +99,6 @@ def done_notes(ctx: Context) -> list[str]:
         logins = [command for key, command in OAUTH_LOGINS.items() if key in ctx.found]
         if logins:
             notes.append(f"Log in with: {'; '.join(logins)}")
-        notes.append("Check each agent's model list. Existing profiles, explicit model choices, and resumed sessions may override defaults.")
     notes.append(f"Timestamp: {ctx.stamp}")
     if ctx.options.backup:
         notes.append(f"Backups: *.bak-{ctx.stamp} (keep last {ctx.options.max_backups} per file)")

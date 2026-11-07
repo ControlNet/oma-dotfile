@@ -194,9 +194,10 @@ class OAuthTests(TestCase):
     def test_done_notes_name_logins_only_for_found_agents(self):
         ctx = make_context(self.tmp, oauth=True, found=('codex', 'claude'), stamp='20261107-120000')
         notes = cli.done_notes(ctx)
-        self.assertIn('Log in with: codex login', notes)
-        self.assertEqual(notes[-2:], ['Timestamp: 20261107-120000',
-                                      'Backups: *.bak-20261107-120000 (keep last 1 per file)'])
+        self.assertEqual(notes, ['OAuth routing installed; model IDs and reasoning levels are unchanged.',
+                                 'Log in with: codex login',
+                                 'Timestamp: 20261107-120000',
+                                 'Backups: *.bak-20261107-120000 (keep last 1 per file)'])
         self.assertEqual(cli.done_notes(make_context(self.tmp, backup=False, stamp='s')), ['Timestamp: s'])
 
     def test_oauth_environment_warnings_exclude_gateway(self):
