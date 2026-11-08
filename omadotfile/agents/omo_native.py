@@ -13,7 +13,7 @@ from omadotfile.agents.omo import omo_dir
 from omadotfile.console import info, item, warn
 from omadotfile.constants import OMO_HERDR_DAG_VERSION, OMO_NATIVE_FILES, OPENCODE_CONFIG
 from omadotfile.context import Context, expand_home
-from omadotfile.core.codec import JSONC, JsonObject
+from omadotfile.core.config_file import JsoncFile, JsonObject
 from omadotfile.core.errors import Skip, skips, warns_on
 from omadotfile.core.files import Files
 from omadotfile.core.jsonc import read_jsonc_object
@@ -90,7 +90,7 @@ def with_provider(name: str, provider: JsonObject, document: JsonObject) -> Json
 @warns_on(OSError, ValueError, KeyError, message="Failed to update {dst} ({error}); leaving models.json unchanged")
 def update_models(files: Files, repo: Path, /, dst: Path, codex_base_url: str) -> bool:
     provider = build_gateway_provider(repo, codex_base_url)
-    return files.update(dst, JSONC, partial(with_provider, "codex", provider))
+    return files.update(JsoncFile(dst), partial(with_provider, "codex", provider))
 
 
 def ensure_settings(ctx: Context, agent_dir: Path) -> None:
@@ -115,7 +115,7 @@ def with_extension_disabled(name: str, settings: JsonObject) -> JsonObject:
 @inject
 @warns_on(OSError, ValueError, message="Failed to read {dst} ({error}); leaving settings.json unchanged")
 def update_settings(files: Files, /, dst: Path) -> bool:
-    return files.update(dst, JSONC, partial(with_extension_disabled, "rules"))
+    return files.update(JsoncFile(dst), partial(with_extension_disabled, "rules"))
 
 
 def herdr_dag_payload(root: Path) -> dict[str, bytes] | None:

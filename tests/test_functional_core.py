@@ -1,4 +1,4 @@
-"""The higher-order building blocks: warns_on/Skip, Codec + Files.update, @step, found_any, requires,
+"""The higher-order building blocks: warns_on/Skip, ConfigFile + Files.update, @step, found_any, requires,
 and dependency injection (@inject by type, @uses with explicit providers)."""
 
 from collections.abc import Mapping
@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import unittest
 
-from omadotfile.core.codec import JSON, JSONC, LINES, TEXT
+from omadotfile.core.config_file import ConfigFile, JsonFile, JsoncFile, LinesFile, TextFile
 from unittest.mock import patch
 
 from omadotfile.core.errors import Skip, skips, warns_on
@@ -282,27 +282,43 @@ class InjectTests(TestCase):
         self.assertEqual(warnings, ["Failed to write x.json: disk full"])
 
 
-class CodecTests(TestCase):
+class ConfigFileTests(TestCase):
     def test_round_trips(self):
-        self.assertEqual(JSON.load('{"a": [1]}'), {"a": [1]})
-        self.assertEqual(JSON.dump({"a": "é"}), '{\n  "a": "é"\n}\n')
-        self.assertEqual(JSONC.load('{"a": 1, // c\n}'), {"a": 1})
-        self.assertEqual(LINES.load("a\nb\n"), ["a", "b"])
-        self.assertEqual(LINES.dump(["a", "b"]), "a\nb\n")
-        self.assertEqual(TEXT.load("x"), TEXT.dump("x"))
+        self.assertEqual(JsonFile.load('{"a": [1]}'), {"a": [1]})
+        self.assertEqual(JsonFile.dump({"a": "é"}), '{\n  "a": "é"\n}\n')
+        self.assertEqual(JsoncFile.load('{"a": 1, // c\n}'), {"a": 1})
+        self.assertEqual(LinesFile.load("a\nb\n"), ["a", "b"])
+        self.assertEqual(LinesFile.dump(["a", "b"]), "a\nb\n")
+        self.assertEqual(TextFile.load("x"), TextFile.dump("x"))
 
     def test_empty_is_a_fresh_value_that_dumps_and_loads_back(self):
-        self.assertEqual((JSON.empty(), JSONC.empty(), LINES.empty(), TEXT.empty()), ({}, {}, [], ""))
+        self.assertEqual((JsonFile.empty(), JsoncFile.empty(), LinesFile.empty(), TextFile.empty()),
+                         ({}, {}, [], ""))
         # A new object each call: a transform that mutates it cannot leak into the next update.
-        for codec in (JSON, JSONC, LINES):
-            with self.subTest(codec=codec):
-                self.assertIsNot(codec.empty(), codec.empty())
-        self.assertEqual(JSON.load(JSON.dump(JSON.empty())), {})
+        for kind in (JsonFile, JsoncFile, LinesFile):
+            with self.subTest(kind=kind):
+                self.assertIsNot(kind.empty(), kind.empty())
+        self.assertEqual(JsonFile.load(JsonFile.dump(JsonFile.empty())), {})
 
-    def test_object_codecs_reject_other_json(self):
-        for codec in (JSON, JSONC):
-            with self.subTest(codec=codec), self.assertRaises(ValueError):
-                codec.load("[]")
+    def test_object_files_reject_other_json(self):
+        for kind in (JsonFile, JsoncFile):
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                kind.load("[]")
+
+    def test_the_class_is_the_format(self):
+        # One path, two programs: the file's class decides what it accepts.
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "settings.json"
+            path.write_text('{"a": 1, // set by hand\n}')
+            self.assertEqual(JsoncFile(path).read(), {"a": 1})
+            with self.assertRaises(ValueError):
+                JsonFile(path).read()
+        self.assertNotEqual(JsonFile(path), JsoncFile(path))
+        self.assertEqual(JsonFile(path), JsonFile(path))
+
+    def test_a_config_file_needs_a_format(self):
+        with self.assertRaises(TypeError):
+            ConfigFile(Path("x"))  # type: ignore[abstract]
 
 
 class FilesReportingTests(TestCase):
@@ -333,35 +349,35 @@ class FilesUpdateTests(TestCase):
         self.files = Files("20261107-120000", backup=True)
         self.dst = self.dir / "settings.json"
 
-    def test_missing_file_starts_from_the_codecs_empty_value(self):
-        changed = self.files.update(self.dst, JSON, lambda value: {**value, "a": 1})
+    def test_missing_file_starts_from_the_formats_empty_value(self):
+        changed = self.files.update(JsonFile(self.dst), lambda value: {**value, "a": 1})
         self.assertTrue(changed)
-        self.assertEqual(JSON.load(self.dst.read_text()), {"a": 1})
+        self.assertEqual(JsonFile(self.dst).read(), {"a": 1})
 
     def test_equal_value_is_not_written_even_if_formatted_differently(self):
         self.dst.write_text('{"a":1}')
-        changed = self.files.update(self.dst, JSON, lambda value: dict(value))
+        changed = self.files.update(JsonFile(self.dst), lambda value: dict(value))
         self.assertFalse(changed)
         self.assertEqual(self.dst.read_text(), '{"a":1}')
         self.assertEqual(self.files.changed, [])
 
     def test_changed_value_is_backed_up_and_recorded(self):
         self.dst.write_text('{"a": 1}')
-        self.files.update(self.dst, JSON, lambda value: {**value, "a": 2})
+        self.files.update(JsonFile(self.dst), lambda value: {**value, "a": 2})
         self.assertEqual(self.dir.joinpath("settings.json.bak-20261107-120000").read_text(), '{"a": 1}')
         self.assertEqual(self.files.changed, [self.dst])
 
     def test_errors_from_load_or_transform_propagate_and_nothing_is_written(self):
         self.dst.write_text("[]")
         with self.assertRaises(ValueError):
-            self.files.update(self.dst, JSON, lambda value: value)
+            self.files.update(JsonFile(self.dst), lambda value: value)
 
         def reject(value: dict) -> dict:
             raise ValueError("no")
 
         self.dst.write_text("{}")
         with self.assertRaises(ValueError):
-            self.files.update(self.dst, JSON, reject)
+            self.files.update(JsonFile(self.dst), reject)
         self.assertEqual(self.dst.read_text(), "{}")
 
 

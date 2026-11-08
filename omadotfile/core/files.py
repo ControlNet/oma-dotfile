@@ -14,7 +14,7 @@ import shutil
 from typing import TypeVar
 
 from omadotfile.console import info, item, warn
-from omadotfile.core.codec import Codec
+from omadotfile.core.config_file import ConfigFile
 
 T = TypeVar("T")
 
@@ -90,18 +90,20 @@ class Files:
         self.changed.append(dst)
         return True
 
-    def update(self, dst: Path, codec: Codec[T], transform: Callable[[T], T], *,
+    def update(self, file: ConfigFile[T], transform: Callable[[T], T], *,
                backup: bool = True, mode: int | None = None) -> bool:
-        """Apply transform to dst's value (codec.empty() when dst is missing); write if it changed.
+        """Apply transform to file's value (empty() when it is missing); write if it changed.
 
-        The comparison is between values, so a file that only differs in formatting is left
-        alone. Errors from reading, codec.load or transform propagate and nothing is written.
+        load, dump and empty are the ones of file's format. The comparison is between values,
+        so a file that only differs in formatting is left alone. Errors from reading, load or
+        transform propagate and nothing is written.
         """
-        value = codec.load(dst.read_text(encoding="utf-8")) if dst.exists() else codec.empty()
+        exists = file.path.exists()
+        value = file.read() if exists else file.empty()
         result = transform(value)
-        if dst.exists() and result == value:
+        if exists and result == value:
             return False
-        return self.write_text(dst, codec.dump(result), backup=backup, mode=mode)
+        return self.write_text(file.path, file.dump(result), backup=backup, mode=mode)
 
     def copy(self, src: Path, dst: Path, *, backup: bool = True) -> bool:
         """Copy src to dst unless dst already has the same content."""

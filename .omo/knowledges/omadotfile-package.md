@@ -53,8 +53,10 @@ Things worth knowing when changing it:
   A file with an `--oauth` variant is `FileSpec(..., oauth=True)` and the agent overrides
   `install_oauth_file`.
 - A config the installer edits rather than replaces goes through
-  `ctx.files.update(dst, codec, transform)`: `Codec` (`core/codec.py`) loads, dumps and gives
-  `empty()` for a missing file; `transform` is a pure function (bind arguments with `functools.partial`). The function
+  `ctx.files.update(JsoncFile(dst), transform)`: the file's class (`core/config_file.py`:
+  `JsonFile`, `JsoncFile`, `LinesFile`, `TextFile`) is its format, and gives `load`, `dump`
+  and `empty()` for a missing file. Pick the class by what the program reading the file
+  accepts (Claude's settings.json is `JsonFile`, OMO Native's is `JsoncFile`), not by suffix; `transform` is a pure function (bind arguments with `functools.partial`). The function
   doing it is wrapped in `@warns_on(OSError, ValueError, message="...{dst}...({error})")`
   (`core/errors.py`) instead of a try/except; pure helpers just raise.
 - An action that stops early raises `Skip("message")` (`core/errors.py`) and is decorated
@@ -90,8 +92,8 @@ Things worth knowing when changing it:
 - A new agent is `class X(Agent, key="key", label="Name", executable="cli")` (all three
   keywords are required; pyright reports a missing one); add an instance to the `AGENTS`
   tuple in `cli.py`, whose order is the report order. Declaring the class registers nothing.
-- Protocol vs ABC: a Protocol where implementations share no code (`Step`, `Codec`); an ABC
-  where they share a template method (`Component`/`Agent`). Pyright does not see attributes a
+- Protocol vs ABC: a Protocol where implementations share no code (`Step`); an ABC
+  where they share a template method or data (`Component`/`Agent`, `ConfigFile`). Pyright does not see attributes a
   class decorator sets, so a decorator cannot make a class satisfy a Protocol.
 - A function that needs only some services takes them as leading positional-only parameters
   under `@inject` (`def f(files: Files, runner: Runner, /, dst: Path)`; callers still pass `ctx`).

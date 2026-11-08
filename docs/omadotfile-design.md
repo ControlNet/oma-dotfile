@@ -111,13 +111,14 @@ class Files:
     def replace_tree(self, src: Path, dst: Path) -> None
     def copy_items(self, src: Path, dst: Path) -> None
     def retire(self, path: Path) -> None       # today's rename_path_if_exists
-    def update(self, dst: Path, codec: Codec[T], transform: Callable[[T], T], *, default: T,
+    def update(self, file: ConfigFile[T], transform: Callable[[T], T], *,
                backup: bool = True, mode: int | None = None) -> bool
 ```
 
-`update` is the read-modify-write every merged config goes through: it loads dst with a
-`Codec` (`core/codec.py`: `JSON`, `JSONC`, `LINES`, `TEXT`; `Codec[T]` is a Protocol with
-`load` and `dump`), applies a pure `transform`, and writes only when the value changed. A
+`update` is the read-modify-write every merged config goes through: it loads the file in its
+format (`core/config_file.py`: `JsonFile`, `JsoncFile`, `LinesFile`, `TextFile`, subclasses of
+the generic ABC `ConfigFile[T]`), applies a pure `transform`, and writes only when the value
+changed. A
 transform is usually a module-level function with its fixed arguments bound by
 `functools.partial`, e.g. `partial(with_extension_disabled, "rules")`, or a closure built by a
 function such as `codex.config_transform(ctx, codex_dir)`.
@@ -576,3 +577,18 @@ should not go with it. It rewrites only the whole directory (not `/home/user` fo
 not `/mnt/home/u`) and leaves a home of `/` alone. Code keeps printing real paths; the Console
 does the rewriting, so no message has to remember to. pull.py's one path message (a `--repo`
 checkout without the package) does the same with its own `tilde()`.
+
+### The file's class is its format (2026-11-08)
+
+`Files.update(dst, JSONC, f)` became `Files.update(JsoncFile(dst), f)`. The `Codec` Protocol and
+its four module instances are now subclasses of a generic ABC, `ConfigFile[T]` (a frozen
+dataclass holding the path), and `update` calls the file's own `load`/`dump`/`empty`.
+
+Why on the file and not inferred: the format is not in the value's type (JSON and JSONC both
+give a `JsonObject`) nor in the name (Claude's settings.json rejects comments, OMO Native's
+accepts them), so it has to be said somewhere; it belongs with the path, which is what the
+program reading it defines. Rust or Scala would resolve a `Codec<Jsonc>` instance from a
+newtype at compile time; Python erases NewTypes, so the instance travels on the argument.
+Inferring it from a transform's annotation was rejected: runtime reflection, nothing for
+pyright to check, no lambdas, and every returned dict wrapped. With the class on the argument,
+`T` is inferred from it and pyright still rejects a transform of the wrong type.
