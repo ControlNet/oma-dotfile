@@ -10,7 +10,7 @@ from omadotfile.agents.base import Agent
 from omadotfile.console import Note, info, success, warn
 from omadotfile.constants import CODEX_DISABLED_SHARED_SKILLS, CODEX_FILES
 from omadotfile.context import Context, Options
-from omadotfile.core.config_file import LinesFile
+from omadotfile.core.codec import LINES
 from omadotfile.core.errors import warns_on
 from omadotfile.core import toml_edit
 from omadotfile.core.files import Files
@@ -248,7 +248,7 @@ def ensure_config(ctx: Context, codex_dir: Path) -> None:
 @inject
 @warns_on(OSError, message="Failed to read {dst}: {reason}")
 def update_config(files: Files, /, dst: Path, transform: Callable[[list[str]], list[str]]) -> bool:
-    return files.update(LinesFile(dst), transform)
+    return files.update(dst, LINES, transform)
 
 
 class Codex(Agent, key="codex", label="Codex", executable="codex"):

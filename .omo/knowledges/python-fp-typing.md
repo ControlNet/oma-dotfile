@@ -26,11 +26,13 @@ standard and strict mode). Useful before reaching for a Result/Option type or `s
   `Cannot instantiate abstract class` for a subclass missing a method (and Python raises at
   instantiation); a bare `raise NotImplementedError` body is never reported. Neither ABCs nor
   Protocols check that a subclass sets a `ClassVar`.
-- **Typeclass-style dispatch without passing the instance**: Python cannot resolve an instance
-  from a type the way Rust/Scala do (NewTypes are erased; `load(text)` would need dispatch on
-  its return type). Put the instance on the argument instead: a generic ABC whose subclasses
-  bind `T` and implement abstract staticmethods (`ConfigFile[T]` → `JsoncFile(path)`), and
-  `def update(file: ConfigFile[T], transform: Callable[[T], T])`. `T` is inferred from the
-  argument's class, so pyright still rejects a transform of the wrong type, and the dispatch
-  is plain method lookup. `@staticmethod @abstractmethod` with the class's TypeVar passes
-  strict mode; a frozen dataclass base gives per-class equality (`JsonFile(p) != JsoncFile(p)`).
+- **Generic Protocol "typeclass" instances** (e.g. `Codec[T]` with `load`/`dump` staticmethods,
+  module-level instances passed explicitly) infer precisely: a missing method is an
+  assignment error to `Codec[str]`, and `T` flows into `Callable[[T], T]` transforms.
+- **No automatic instance resolution in Python.** Rust/Scala pick `Codec[T]` from `T` at compile
+  time; Python erases generics, so the only automatic form reads `T` from the transform's
+  annotations at runtime (unwrapping `partial`), which needs one instance per type (JSON and
+  JSONC both give `JsonObject`), fails on unannotated lambdas, and leaves "an instance exists"
+  unchecked by pyright. Putting the format on the argument (`JsoncFile(dst)`) is either subtype
+  polymorphism (methods on the class: no longer a typeclass) or still a wrapper at each call.
+  So `files.update(dst, JSONC, f)` stays: the dictionary-passing form of a typeclass, fully checked.

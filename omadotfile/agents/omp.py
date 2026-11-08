@@ -11,7 +11,7 @@ from omadotfile.console import item, warn
 from omadotfile.constants import FileSpec, OMP_FILES, OMP_MODELS, OMP_MODELS_DST, OMP_MODELS_OAUTH
 from omadotfile.context import Context
 from omadotfile.core import yaml_merge
-from omadotfile.core.config_file import TextFile
+from omadotfile.core.codec import TEXT
 from omadotfile.core.errors import warns_on
 from omadotfile.core.files import Files
 from omadotfile.inject import env_of, inject, uses
@@ -95,7 +95,7 @@ class Omp(Agent, key="omp", label="oh-my-pi", executable="omp"):
         if spec.oauth and ctx.options.oauth:
             managed = render_oauth_config(managed)
         try:
-            ctx.files.update(TextFile(dst), partial(yaml_merge.merge, managed=managed))
+            ctx.files.update(dst, TEXT, partial(yaml_merge.merge, managed=managed))
         except ValueError as exc:
             warn(f"{dst} could not be merged ({exc}); replacing it, backup kept")
             ctx.files.write_text(dst, managed)

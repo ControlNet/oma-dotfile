@@ -20,7 +20,7 @@ from omadotfile.constants import (
     WAKATIME_MARKETPLACE,
 )
 from omadotfile.context import Context, expand_home
-from omadotfile.core.config_file import TextFile
+from omadotfile.core.codec import TEXT
 from omadotfile.core.errors import Skip, skips, warns_on
 from omadotfile.core.files import Files
 from omadotfile.core.ini import set_section_keys
@@ -90,8 +90,8 @@ def update_config(files: Files, /, path: Path, settings: dict[str, str]) -> bool
     if "api_key" in settings and path.exists():
         path.chmod(0o600)
     # No backup: only env-sourced values change, and a backup would keep the old key.
-    return files.update(TextFile(path), partial(render_config, settings=settings),
-                        backup=False, mode=0o600)
+    return files.update(path, TEXT, partial(render_config, settings=settings),
+                            backup=False, mode=0o600)
 
 
 class PluginCli(ABC):

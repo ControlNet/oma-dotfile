@@ -9,7 +9,7 @@ from omadotfile.agents.base import Agent
 from omadotfile.console import info, success
 from omadotfile.constants import TOKSCALE_MODEL_ALIASES
 from omadotfile.context import Context, Options
-from omadotfile.core.config_file import JsonFile, JsonObject
+from omadotfile.core.codec import JSON, JsonObject
 from omadotfile.core.errors import warns_on
 from omadotfile.core.files import Files
 from omadotfile.inject import files_of, options_of, repo_of, uses
@@ -45,7 +45,7 @@ def install_model_aliases(files: Files, options: Options, repo: Path, /, config_
     aliases = parse_aliases((repo / TOKSCALE_MODEL_ALIASES).read_text(encoding="utf-8"))
     dst = config_dir / "settings.json"
     existed = dst.exists()
-    if not files.update(JsonFile(dst), partial(with_aliases, aliases)):
+    if not files.update(dst, JSON, partial(with_aliases, aliases)):
         info("Tokscale model aliases already configured; skip")
         return
     if existed:

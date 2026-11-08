@@ -5,7 +5,7 @@
   "strict": [
     "omadotfile/step.py",
     "omadotfile/core/errors.py",
-    "omadotfile/core/config_file.py",
+    "omadotfile/core/codec.py",
     "omadotfile/core/yaml_merge.py",
     "omadotfile/inject.py",
     "omadotfile/console.py"

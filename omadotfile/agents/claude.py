@@ -9,7 +9,7 @@ from omadotfile.agents.base import Agent
 from omadotfile.console import item, success, warn
 from omadotfile.constants import CLAUDE_ATTRIBUTION, CLAUDE_FILES, CLAUDE_PLUGINS_DIR, COMMIT_MSG_HOOK
 from omadotfile.context import Context, expand_home
-from omadotfile.core.config_file import JsonFile, JsonObject
+from omadotfile.core.codec import JSON, JsonObject
 from omadotfile.core.errors import warns_on
 from omadotfile.core.files import IGNORED_NAMES, Files
 from omadotfile.core.proc import CommandFailed, Runner
@@ -55,8 +55,8 @@ def stage_plugin(work: Path, python: str, /, src_dir: Path) -> Path:
     _ = shutil.copytree(src_dir, staged, ignore=shutil.ignore_patterns(*IGNORED_NAMES))
     hooks = staged / "hooks" / "hooks.json"
     # The plugin's scripts import from this Python's standard library only; run them with it.
-    document = with_hook_command(JsonFile(hooks).read(), python)
-    _ = hooks.write_text(JsonFile.dump(document), encoding="utf-8")
+    document = with_hook_command(JSON.load(hooks.read_text(encoding="utf-8")), python)
+    _ = hooks.write_text(JSON.dump(document), encoding="utf-8")
     return staged
 
 
@@ -78,7 +78,7 @@ def ensure_attribution(ctx: Context, claude_dir: Path) -> None:
 @inject
 @warns_on(OSError, ValueError, message="Failed to read {dst} ({error}); leaving commit attribution unchanged")
 def update_settings(files: Files, /, dst: Path) -> bool:
-    return files.update(JsonFile(dst), without_attribution)
+    return files.update(dst, JSON, without_attribution)
 
 
 @uses(runner_of, home_of)
