@@ -18,7 +18,7 @@ from omadotfile.core.proc import CommandFailed, Runner
 from omadotfile import inject as injection
 from omadotfile.context import Options
 from omadotfile.inject import MAX_INJECTED, home_of, inject, options_of, repo_of, runner_of, uses
-from omadotfile.step import FunctionStep, Step, found_any, requires, step
+from omadotfile.step import FunctionStep, Step, either, found_any, found_executable, requires, step
 from omadotfile.console import use_console, warn
 from support import Recorder, TestCase, make_context
 
@@ -125,6 +125,24 @@ class RequiresTests(TestCase):
         self.assertEqual(calls, [])
         self.assertEqual(warnings, ["dag skipped: node and npm are required"])
         self.assertEqual(self.looked_up, ["node", "npm"])
+
+    def test_without_a_skip_message_it_stops_silently(self):
+        @requires("agy", skip=None)
+        def act(ctx) -> str:
+            return "ran"
+
+        self.assertIsNone(act(self.ctx))
+        self.assertEqual(self.console.lines, [])
+
+    def test_found_executable_is_a_predicate_over_every_name(self):
+        self.assertTrue(found_executable("node")(self.ctx))
+        self.assertFalse(found_executable("node", "npm")(self.ctx))
+        self.assertEqual(self.looked_up, ["node", "node", "npm"])
+
+    def test_either_holds_when_any_predicate_does(self):
+        missing, present = found_executable("agy"), found_executable("node")
+        self.assertTrue(either(missing, present)(self.ctx))
+        self.assertFalse(either(missing, found_any("codex"))(self.ctx))
 
 
 class RunnerTests(TestCase):

@@ -615,7 +615,8 @@ class AntigravitySkillsTests(TestCase):
         self.assertIn("skills.json", warning)
 
     def test_agy_alone_is_enough_to_install_the_shared_skills(self):
-        self.assertTrue(skills.uses_shared_skills(make_context(self.home, found=())))
+        step = skills.install_shared_skills
+        self.assertTrue(step.enabled(make_context(self.home, found=())))
         self.agy = None
-        self.assertFalse(skills.uses_shared_skills(make_context(self.home, found=())))
-        self.assertTrue(skills.uses_shared_skills(make_context(self.home, found=("codex",))))
+        self.assertFalse(step.enabled(make_context(self.home, found=())))
+        self.assertTrue(step.enabled(make_context(self.home, found=("codex",))))

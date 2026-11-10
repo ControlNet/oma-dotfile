@@ -179,7 +179,8 @@ code.
 `Step` is a Protocol, so a step is anything with those four methods: the agent classes
 inherit them from `Component` (inheritance only for the shared template method), and the two
 steps that install no files, WakaTime and shared skills, are functions made into steps by
-`@step`. `found_any(*keys)` returns the predicate closure they run under. A method that does
+`@step`. `found_any(*keys)` returns the predicate closure they run under; `found_executable`
+and `either` (`step.py`) make and combine others, as the shared skills step does for agy. A method that does
 not use `self` is a `@staticmethod` (`config_dir`, `configure`, `install_oauth_file`,
 `install_merged_file`, the codecs' `load`/`dump`), declared static in the base class too so
 overrides type-check; `title`, `enabled`, `skip_reason` and `target_dir` stay instance methods

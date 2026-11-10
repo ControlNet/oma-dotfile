@@ -62,7 +62,8 @@ Things worth knowing when changing it:
   message if the old output had them. Message texts are asserted in the tests.
 - An action that needs a CLI is decorated `@requires("npx", skip="...")` (`step.py`); its
   first parameter must be the Context. It uses `ctx.runner.which`, so tests that patch
-  `Runner.which` on the class still control it.
+  `Runner.which` on the class still control it. `skip=None` skips silently, for an optional
+  extra most machines lack (the Antigravity CLI); do not hand-write `if which(...) is None`.
 - `Runner.run`/`.json` raise `CommandFailed` (a `Skip`) on failure; there is no None result.
   An agent CLI gets `ctx.runner.pinned({"CODEX_HOME": ...})`. A caller that can go on without
   the result calls through a small `@skips` function (`PluginCli.listing`, `skills.add_skills`).
@@ -73,6 +74,8 @@ Things worth knowing when changing it:
   raise, so a call that slips past the fakes fails instead of running real `npm`/`node`.
 - A step that installs no files is a function decorated with `@step(title, when=found_any(...),
   skip=...)` (`omadotfile/step.py`); `Step` is a Protocol that agent classes also satisfy.
+  Preconditions are predicate closures: `found_any(*agents)`, `found_executable(*clis)`, and
+  `either(*predicates)` to combine them; build them once in the decorator, not per call.
 - Types: `pixi exec --spec pyright pyright` from the repo root (config in `pyrightconfig.json`)
   should report 0 errors.
 - Supported Pythons are 3.10 to 3.14 (Ubuntu 22.04 ships 3.10). Run the suite on each with

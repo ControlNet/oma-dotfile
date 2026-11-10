@@ -34,7 +34,7 @@ from omadotfile.core.files import Files
 from omadotfile.core.proc import CommandFailed, Runner
 from omadotfile.inject import env_of, home_of, inject, uses
 from omadotfile.migration import migration
-from omadotfile.step import found_any, requires, step
+from omadotfile.step import either, found_any, found_executable, requires, step
 
 SKILLS_CLI_ENV = {"DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1"}
 SKILL_COMMITS_FILE = ".oma-dotfile-skill-commits.json"
@@ -316,15 +316,6 @@ def ensure_skills(ctx: Context, legacy_skill_dirs: list[Path], claude_dir: Path 
     remove_legacy_skill_copies(legacy_skill_dirs, set[str]().union(*(result.done for result in results)))
 
 
-def agy_installed(ctx: Context) -> bool:
-    return ctx.runner.which("agy") is not None
-
-
-def uses_shared_skills(ctx: Context) -> bool:
-    """An agent installed for reads ~/.agents/skills, or the Antigravity CLI is there to be told to."""
-    return found_any("claude", *SKILL_READERS)(ctx) or agy_installed(ctx)
-
-
 def with_skills_entry(path: str, exclude: tuple[str, ...], document: JsonObject) -> JsonObject:
     """An agy skills.json with an entry for path that leaves out `exclude`; the rest is kept.
 
@@ -353,10 +344,9 @@ def update_agy_skills(files: Files, /, dst: Path, path: str) -> bool:
     return files.update(dst, JSON, partial(with_skills_entry, path, AGY_EXCLUDED_SKILLS))
 
 
+@requires("agy", skip=None)
 def ensure_agy_skills(ctx: Context) -> None:
     """Point the Antigravity CLI at ~/.agents/skills when it is installed; nothing otherwise."""
-    if not agy_installed(ctx):
-        return
     dst = ctx.home / AGY_SKILLS_CONFIG
     # Absolute: agy 1.5.4 skips a ~/ entry ("must be an absolute path"), though its docs allow one.
     path = str(ctx.shared_skills_dir)
@@ -364,7 +354,9 @@ def ensure_agy_skills(ctx: Context) -> None:
         update_agy_skills(ctx, dst, path)
 
 
-@step("Installing shared skills to ~/.agents/skills", when=uses_shared_skills,
+# The Antigravity CLI alone is enough: it is told where the shared skills are.
+@step("Installing shared skills to ~/.agents/skills",
+      when=either(found_any("claude", *SKILL_READERS), found_executable("agy")),
       skip="no agent that uses shared skills found")
 def install_shared_skills(ctx: Context) -> None:
     ensure_skills(ctx, [ctx.dirs[key] / "skills" for key in SKILL_READERS if key in ctx.found],

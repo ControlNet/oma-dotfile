@@ -2,8 +2,8 @@
 
 `Step` is a Protocol: an agent class (agents.base.Component) and a decorated function
 (FunctionStep) are both steps without sharing a base class. cli.STEPS lists them in order.
-`found_any` and `requires` are the preconditions: which agents a step is for, and which
-CLIs an action inside it needs.
+`found_any`, `found_executable` and `either` are a step's preconditions (which agents or
+CLIs it is for); `requires` gates an action inside a step on the CLIs it needs.
 """
 
 from collections.abc import Callable
@@ -76,9 +76,29 @@ def found_any(*keys: str) -> Predicate:
     return found
 
 
-def requires(*executables: str, skip: str) -> Callable[[Callable[Concatenate[Context, P], R]],
+def found_executable(*names: str) -> Predicate:
+    """A predicate that holds when every one of these CLIs is found (ctx.runner.which), in order."""
+
+    def found(ctx: Context) -> bool:
+        return all(ctx.runner.which(name) is not None for name in names)
+
+    return found
+
+
+def either(*predicates: Predicate) -> Predicate:
+    """A predicate that holds when any of these does, tried in order."""
+
+    def holds(ctx: Context) -> bool:
+        return any(predicate(ctx) for predicate in predicates)
+
+    return holds
+
+
+def requires(*executables: str, skip: str | None) -> Callable[[Callable[Concatenate[Context, P], R]],
                                                       Callable[Concatenate[Context, P], R | None]]:
     """Run the decorated action only if every executable is found; else warn `skip`, return None.
+
+    skip=None stops without a word: for an optional extra that most machines do not have.
 
     The action takes the Context first; executables are looked up the way the run finds
     them (ctx.runner.which), in order, stopping at the first one missing.
@@ -90,8 +110,9 @@ def requires(*executables: str, skip: str) -> Callable[[Callable[Concatenate[Con
     def decorate(action: Callable[Concatenate[Context, P], R]) -> Callable[Concatenate[Context, P], R | None]:
         @wraps(action)
         def checked(ctx: Context, /, *args: P.args, **kwargs: P.kwargs) -> R | None:
-            if any(ctx.runner.which(name) is None for name in executables):
-                warn(skip)
+            if not found_executable(*executables)(ctx):
+                if skip is not None:
+                    warn(skip)
                 return None
             return action(ctx, *args, **kwargs)
 
