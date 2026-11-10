@@ -545,3 +545,77 @@ class ExtraEnvTests(TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AntigravitySkillsEntryTests(TestCase):
+    """skills.json for the Antigravity CLI (agy): one entry for ~/.agents/skills."""
+
+    PATH = "/home/u/.agents/skills"
+    ENTRY = {"path": PATH, "exclude": ["skill-creator"]}
+
+    def entry(self, document: dict) -> dict:
+        return skills.with_skills_entry(self.PATH, ("skill-creator",), document)
+
+    def test_an_empty_config_gets_the_entry(self):
+        self.assertEqual(self.entry({}), {"entries": [self.ENTRY]})
+
+    def test_other_entries_and_keys_are_kept(self):
+        mine = {"path": "~/my-skills", "exclude": ["draft-.*"]}
+        inherits = [{"path": "/team/skills.json"}]
+        self.assertEqual(self.entry({"inherits": inherits, "entries": [mine]}),
+                         {"inherits": inherits, "entries": [mine, self.ENTRY]})
+
+    def test_an_existing_entry_keeps_its_own_exclusions(self):
+        existing = {"path": self.PATH, "exclude": ["herdr"], "include_only": ["a", "skill-creator"]}
+        self.assertEqual(self.entry({"entries": [existing]}),
+                         {"entries": [{**existing, "exclude": ["herdr", "skill-creator"]}]})
+
+    def test_a_config_that_has_it_is_returned_as_it_is(self):
+        document = {"entries": [dict(self.ENTRY)]}
+        self.assertEqual(self.entry(document), document)
+
+    def test_unexpected_shapes_are_refused(self):
+        for document in ({"entries": {}}, {"entries": [{"path": self.PATH, "exclude": "x"}]}):
+            with self.subTest(document=document), self.assertRaises(ValueError):
+                self.entry(document)
+
+
+class AntigravitySkillsTests(TestCase):
+    def setUp(self):
+        self.home = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.ctx = make_context(self.home)
+        self.config = self.home / ".gemini" / "config" / "skills.json"
+        self.agy: Path | None = Path("/fake/bin/agy")
+        self.enterContext(patch.object(Runner, "which", autospec=True,
+                                       side_effect=lambda runner, name: self.agy if name == "agy" else None))
+
+    def test_agy_is_pointed_at_the_shared_skills_once(self):
+        skills.ensure_agy_skills(self.ctx)
+        # An absolute path: agy 1.5.4 skips ~/ entries.
+        self.assertEqual(json.loads(self.config.read_text()),
+                         {"entries": [{"path": str(self.home / ".agents" / "skills"), "exclude": ["skill-creator"]}]})
+        self.assertEqual(len(self.console.of("item")), 1)
+
+        skills.ensure_agy_skills(self.ctx)
+        self.assertEqual(len(self.console.of("item")), 1)  # a rerun changes and lists nothing
+        self.assertEqual(self.ctx.files.changed, [self.config])
+
+    def test_without_agy_nothing_is_written_or_said(self):
+        self.agy = None
+        skills.ensure_agy_skills(self.ctx)
+        self.assertFalse(self.config.parent.exists())
+        self.assertEqual(self.console.lines, [])
+
+    def test_a_config_that_cannot_be_read_is_left_alone(self):
+        self.config.parent.mkdir(parents=True)
+        self.config.write_text("{ // mine\n}")
+        skills.ensure_agy_skills(self.ctx)
+        self.assertEqual(self.config.read_text(), "{ // mine\n}")
+        (warning,) = self.console.warnings
+        self.assertIn("skills.json", warning)
+
+    def test_agy_alone_is_enough_to_install_the_shared_skills(self):
+        self.assertTrue(skills.uses_shared_skills(make_context(self.home, found=())))
+        self.agy = None
+        self.assertFalse(skills.uses_shared_skills(make_context(self.home, found=())))
+        self.assertTrue(skills.uses_shared_skills(make_context(self.home, found=("codex",))))

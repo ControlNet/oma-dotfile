@@ -1,13 +1,15 @@
 """Shared skills: installed once into ~/.agents/skills with the skills CLI.
 
 OpenCode, Codex, OMP and OMO Native read ~/.agents/skills. Claude Code does not, so the
-skills CLI also links each skill into its skills dir when Claude Code is installed for.
+skills CLI also links each skill into its skills dir when Claude Code is installed for. The
+Antigravity CLI does not either; when it is installed, its global skills.json names the dir.
 """
 
 from collections.abc import Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
 from dataclasses import dataclass
+from functools import partial
 import json
 from pathlib import Path
 import re
@@ -15,6 +17,8 @@ import shutil
 
 from omadotfile.console import item, warn
 from omadotfile.constants import (
+    AGY_EXCLUDED_SKILLS,
+    AGY_SKILLS_CONFIG,
     ALL_SKILLS,
     CLAUDE_CODE_EXCLUDED_SKILLS,
     OWN_SKILLS_DIR,
@@ -24,6 +28,7 @@ from omadotfile.constants import (
     UPSTREAM_SKILLS,
 )
 from omadotfile.context import Context, RepoRef
+from omadotfile.core.codec import JSON, JsonObject
 from omadotfile.core.errors import skips, warns_on
 from omadotfile.core.files import Files
 from omadotfile.core.proc import CommandFailed, Runner
@@ -311,8 +316,57 @@ def ensure_skills(ctx: Context, legacy_skill_dirs: list[Path], claude_dir: Path 
     remove_legacy_skill_copies(legacy_skill_dirs, set[str]().union(*(result.done for result in results)))
 
 
-@step("Installing shared skills to ~/.agents/skills", when=found_any("claude", *SKILL_READERS),
+def agy_installed(ctx: Context) -> bool:
+    return ctx.runner.which("agy") is not None
+
+
+def uses_shared_skills(ctx: Context) -> bool:
+    """An agent installed for reads ~/.agents/skills, or the Antigravity CLI is there to be told to."""
+    return found_any("claude", *SKILL_READERS)(ctx) or agy_installed(ctx)
+
+
+def with_skills_entry(path: str, exclude: tuple[str, ...], document: JsonObject) -> JsonObject:
+    """An agy skills.json with an entry for path that leaves out `exclude`; the rest is kept.
+
+    An entry for path the user already has keeps its own exclusions and other fields.
+    """
+    entries = document.get("entries", [])
+    if not isinstance(entries, list):
+        raise ValueError("entries must be a list")
+    ours = next((entry for entry in entries if isinstance(entry, dict) and entry.get("path") == path), None)
+    if ours is None:
+        return {**document, "entries": [*entries, {"path": path, "exclude": list(exclude)}]}
+    current = ours.get("exclude", [])
+    if not isinstance(current, list):
+        raise ValueError(f"exclude of {path} must be a list")
+    missing = [name for name in exclude if name not in current]
+    if not missing:
+        return document
+    updated = {**ours, "exclude": [*current, *missing]}
+    return {**document, "entries": [updated if entry is ours else entry for entry in entries]}
+
+
+@inject
+@warns_on(OSError, ValueError,
+          message="Failed to update {dst} ({error}); the Antigravity CLI will not see the shared skills")
+def update_agy_skills(files: Files, /, dst: Path, path: str) -> bool:
+    return files.update(dst, JSON, partial(with_skills_entry, path, AGY_EXCLUDED_SKILLS))
+
+
+def ensure_agy_skills(ctx: Context) -> None:
+    """Point the Antigravity CLI at ~/.agents/skills when it is installed; nothing otherwise."""
+    if not agy_installed(ctx):
+        return
+    dst = ctx.home / AGY_SKILLS_CONFIG
+    # Absolute: agy 1.5.4 skips a ~/ entry ("must be an absolute path"), though its docs allow one.
+    path = str(ctx.shared_skills_dir)
+    with ctx.files.reporting(f"{dst} (Antigravity CLI reads {path})"):
+        update_agy_skills(ctx, dst, path)
+
+
+@step("Installing shared skills to ~/.agents/skills", when=uses_shared_skills,
       skip="no agent that uses shared skills found")
 def install_shared_skills(ctx: Context) -> None:
     ensure_skills(ctx, [ctx.dirs[key] / "skills" for key in SKILL_READERS if key in ctx.found],
                   ctx.dirs["claude"] if "claude" in ctx.found else None)
+    ensure_agy_skills(ctx)

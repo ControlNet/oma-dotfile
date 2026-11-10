@@ -27,8 +27,13 @@ Checked against agy 1.5.4 and skills CLI 1.7.6 (2026-11-10), with canary skills 
 - A canary in `~/.gemini/config/skills/` and one in a directory named by
   `~/.gemini/config/skills.json` were both listed, and `agy -p "/<skill-name>"` loaded and
   followed the skill body.
-- So one global entry `{"path": "~/.agents/skills"}` exposes every shared skill without
-  copies or links, and `npx skills update -g` keeps updating them in place.
+- So one global entry for the shared skills dir exposes every skill without copies or links,
+  and `npx skills update -g` keeps updating them in place. pull.py writes it when `agy` is
+  found (`features/skills.py: ensure_agy_skills`), excluding `skill-creator`.
+- The path must be absolute. The docs allow `~/`, but agy 1.5.4 skips such an entry and logs
+  `Failed to resolve absolute path "~/.agents/skills": ... must be an absolute path` in
+  `~/.gemini/antigravity-cli/log/cli-*.log`. Check that log when a skill silently does not load.
+- `exclude` patterns match whole skill names: excluding `x` hides `x`, not `xy`.
 
 ## Limits to remember
 

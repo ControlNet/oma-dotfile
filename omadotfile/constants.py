@@ -105,6 +105,11 @@ REMOVED_SKILLS = ("frontend-codex",)
 # Claude Code does not read ~/.agents/skills, so skills are linked into its own dir,
 # except these, which overlap what Claude Code already has.
 CLAUDE_CODE_EXCLUDED_SKILLS = ("skill-creator", "find-skills")
+# The Antigravity CLI (agy) does not read ~/.agents/skills either; an entry in its global
+# skills.json makes it read the directory in place. Its exclusions match whole skill names.
+AGY_SKILLS_CONFIG = ".gemini/config/skills.json"
+# agy's built-in agy-customizations skill already guides writing skills.
+AGY_EXCLUDED_SKILLS = ("skill-creator",)
 
 # WakaTime plugins for Codex and Claude Code. Marketplaces are added by clone URL, not by
 # owner/repo shorthand: the shorthand makes the agent CLI try SSH first, which needs working

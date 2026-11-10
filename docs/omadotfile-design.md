@@ -576,3 +576,14 @@ should not go with it. It rewrites only the whole directory (not `/home/user` fo
 not `/mnt/home/u`) and leaves a home of `/` alone. Code keeps printing real paths; the Console
 does the rewriting, so no message has to remember to. pull.py's one path message (a `--repo`
 checkout without the package) does the same with its own `tilde()`.
+
+### Antigravity CLI skills (2026-11-10)
+
+agy does not read `~/.agents/skills`, and the skills CLI's `antigravity` target installs into
+`~/.gemini/antigravity/skills`, the IDE's directory, which agy does not read either. agy does
+honor declared directories in `~/.gemini/config/skills.json`, so when `agy` is found the skills
+step adds one entry for the shared skills dir there (`ensure_agy_skills`), merged with
+`Files.update(dst, JSON, with_skills_entry)`: other entries and the user's own exclusions stay,
+and `skill-creator` is excluded (agy's built-in `agy-customizations` covers it). The path is
+absolute because agy 1.5.4 rejects `~/` there despite its docs. agy alone (no other agent found)
+is enough to run the skills step. Nothing about agy is written or printed when it is missing.

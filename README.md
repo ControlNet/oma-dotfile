@@ -67,6 +67,7 @@ working in this repo do not load it.
 | Codex | `~/.codex` | `AGENTS.md`, Gotify notifier, WakaTime plugin; `config.toml` turns off the shared `skill-creator` so Codex keeps its bundled one |
 | Claude Code | `~/.claude` | Rule `rules/oma-dotfile.md`, Gotify plugin, WakaTime plugin, links to shared skills; commit attribution off (see [Commit attribution](#commit-attribution)) |
 | Tokscale | Tokscale `settings.json` | Model aliases from `config/tokscale/model-aliases.json` |
+| Antigravity CLI | `~/.gemini/config/skills.json` | Only when `agy` is installed: an entry that makes it read the shared skills (see [Skills](#skills)) |
 | Skills | `~/.agents/skills` | See [Skills](#skills) |
 
 ## Skills
@@ -75,7 +76,10 @@ Installed with the [skills CLI](https://github.com/vercel-labs/skills) (`npx`, s
 needed) into `~/.agents/skills`, which OpenCode, OMO Native, OMP and Codex all read. Claude Code
 does not read it, so when Claude Code is found each skill is also linked into `~/.claude/skills`
 (replacing a same-named entry there), except `skill-creator` and `find-skills`, which overlap what
-Claude Code already has.
+Claude Code already has. The Antigravity CLI (`agy`) does not read it either: when `agy` is
+installed, an entry for `~/.agents/skills` is added to `~/.gemini/config/skills.json`, so it reads
+the skills in place, without copies, except `skill-creator` (its built-in `agy-customizations` skill
+already covers writing skills). Your other entries and exclusions in that file are kept.
 
 | Source | Skills |
 |---|---|
