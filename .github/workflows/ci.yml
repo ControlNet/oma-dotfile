@@ -53,8 +53,13 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: lts/*
-      - name: Install, reinstall and switch modes
-        run: python tests/integration/check_install.py
+      - name: Install, reinstall and switch modes (pull.py clones this branch, like the one-liners)
+        # On a push, a newer commit on the branch may be what gets cloned.
+        env:
+          REPO_OWNER: ${{ github.event.pull_request.head.repo.owner.login || github.repository_owner }}
+          REPO_NAME: ${{ github.event.pull_request.head.repo.name || github.event.repository.name }}
+          REPO_REV: ${{ github.head_ref || github.ref_name }}
+        run: python tests/integration/check_install.py --clone
       - name: The README's PowerShell one-liner
         if: runner.os == 'Windows'
         shell: pwsh
@@ -64,3 +69,74 @@ jobs:
         run: |
           (Get-Content -Raw pull.py) | python - --repo . --all
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  install-agents:
+    # Every agent CLI installed from its official source, so the steps that run them are not
+    # skipped. Latest versions on purpose, like the weekly run: upstream changes show up here.
+    name: install with agents (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.10", "3.14"]
+    defaults:
+      run:
+        shell: bash
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: lts/*  # omo-ai needs Node 24 or newer
+      - uses: oven-sh/setup-bun@v2  # oh-my-pi runs on Bun
+      - name: Agent CLIs from npm and Bun
+        run: |
+          npm install -g @anthropic-ai/claude-code @openai/codex opencode-ai omo-ai
+          bun install -g @oh-my-pi/pi-coding-agent
+          bun pm bin -g >> "$GITHUB_PATH"
+      - name: Herdr from its release
+        run: |
+          mkdir -p "$RUNNER_TEMP/herdr"
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64) asset=herdr-linux-x86_64 ;;
+            Linux-ARM64) asset=herdr-linux-aarch64 ;;
+            macOS-X64) asset=herdr-macos-x86_64 ;;
+            macOS-ARM64) asset=herdr-macos-aarch64 ;;
+            Windows-X64) asset=herdr-windows-x86_64.zip ;;
+          esac
+          gh release download --repo herdrdev/herdr --pattern "$asset" --dir "$RUNNER_TEMP/herdr"
+          cd "$RUNNER_TEMP/herdr"
+          if [ "$RUNNER_OS" = Windows ]; then
+            unzip -q "$asset"
+            dirname "$(cygpath -w "$(find "$PWD" -name herdr.exe | head -1)")" >> "$GITHUB_PATH"
+          else
+            mv "$asset" herdr && chmod +x herdr
+            echo "$PWD" >> "$GITHUB_PATH"
+          fi
+      - name: Antigravity CLI from its installer
+        if: runner.os != 'Windows'
+        run: |
+          curl -fsSL https://antigravity.google/cli/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Antigravity CLI from its installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          irm https://antigravity.google/cli/install.ps1 | iex
+          "$env:LOCALAPPDATA\agy\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+      - name: Tokscale's config dir
+        # Tokscale is detected by this dir alone; an empty one stands for a machine it ran on.
+        run: python -c "import os, sys; from pathlib import Path; from omadotfile.agents.tokscale import Tokscale; Tokscale.config_dir(os.environ, Path.home(), sys.platform).mkdir(parents=True, exist_ok=True)"
+      - name: Every CLI is on PATH
+        run: |
+          for cli in claude codex opencode omo omp herdr agy; do
+            printf '%s: ' "$cli"; "$cli" --version || exit 1
+          done
+      - name: Install, reinstall and switch modes; each CLI loads the result; hooks deliver
+        run: python tests/integration/check_install.py --agents
