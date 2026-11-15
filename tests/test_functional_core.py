@@ -5,6 +5,7 @@ from collections.abc import Mapping
 import inspect
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -147,9 +148,13 @@ class RequiresTests(TestCase):
         self.assertFalse(either(missing, found_any("codex"))(self.ctx))
 
 
+# Written with this OS's separators (\\fake\\bin\\tool on Windows), as messages show it.
+TOOL = Path("/fake/bin/tool")
+
+
 class RunnerTests(TestCase):
     def setUp(self):
-        self.enterContext(patch.object(proc, "find_executable", return_value=Path("/fake/bin/tool")))
+        self.enterContext(patch.object(proc, "find_executable", return_value=TOOL))
         self.runner = Runner({"PATH": "/usr/bin", "A": "run"}, Path("/h"))
 
     def run_with(self, **completed):
@@ -164,18 +169,18 @@ class RunnerTests(TestCase):
             self.assertEqual(pinned.json(["tool", "--json"]), [])
         env = run.call_args.kwargs["env"]
         self.assertEqual((env["A"], env["B"], env["C"]), ("pinned", "1", "2"))
-        self.assertEqual(env["PATH"], "/fake/bin:/usr/bin")
-        self.assertEqual(run.call_args.args[0], ["/fake/bin/tool", "--json"])
+        self.assertEqual(env["PATH"], os.pathsep.join([str(TOOL.parent), "/usr/bin"]))
+        self.assertEqual(run.call_args.args[0], [str(TOOL), "--json"])
 
     def test_each_failure_is_a_command_failed_with_the_old_warning_text(self):
         with self.run_with(returncode=3, stdout="", stderr="secret"), \
-                self.assertRaisesRegex(CommandFailed, r"^/fake/bin/tool x failed with exit code 3$"):
+                self.assertRaisesRegex(CommandFailed, rf"^{re.escape(str(TOOL))} x failed with exit code 3$"):
             self.runner.run(["tool", "x"])
         with self.run_with(stdout="not json", stderr=""), \
                 self.assertRaisesRegex(CommandFailed, r"^Failed to parse JSON output of tool x$"):
             self.runner.json(["tool", "x"])
         with patch.object(proc.subprocess, "run", side_effect=FileNotFoundError("no tool")), \
-                self.assertRaisesRegex(CommandFailed, r"^Failed to run /fake/bin/tool x: no tool$"):
+                self.assertRaisesRegex(CommandFailed, rf"^Failed to run {re.escape(str(TOOL))} x: no tool$"):
             self.runner.run(["tool", "x"])
 
     def test_unchecked_run_returns_a_non_zero_exit_but_still_fails_to_start(self):
@@ -183,7 +188,7 @@ class RunnerTests(TestCase):
         with self.run_with(returncode=1, stdout="", stderr=""):
             self.assertEqual(self.runner.run(["tool", "x"], check=False).returncode, 1)
         with patch.object(proc.subprocess, "run", side_effect=FileNotFoundError("no tool")), \
-                self.assertRaisesRegex(CommandFailed, r"^Failed to run /fake/bin/tool x: no tool$"):
+                self.assertRaisesRegex(CommandFailed, rf"^Failed to run {re.escape(str(TOOL))} x: no tool$"):
             self.runner.run(["tool", "x"], check=False)
 
     def test_timeout_defaults_to_the_command_timeout_and_can_be_shorter(self):

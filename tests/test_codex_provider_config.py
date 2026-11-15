@@ -1,6 +1,6 @@
 """Synthetic TOML and URLs in temporary directories; no user config is changed."""
 
-from pathlib import Path, PureWindowsPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -127,7 +127,7 @@ class TomlStructureTests(TestCase):
 @requires_tomllib
 class CodexNotifyPathTests(TestCase):
     def render_notify(self, python_bin: str, codex_dir: str) -> list:
-        lines = codex.ensure_notify([], PureWindowsPath(codex_dir) if "\\" in codex_dir else Path(codex_dir),
+        lines = codex.ensure_notify([], PureWindowsPath(codex_dir) if "\\" in codex_dir else PurePosixPath(codex_dir),
                                     python_bin)
         return tomllib.loads("\n".join(lines))["notify"]
 
@@ -147,6 +147,8 @@ class CodexSharedSkillOverrideTests(TestCase):
 
     skills_dir = Path("/home/me/.agents/skills")
     shared = str(skills_dir / "skill-creator" / "SKILL.md")
+    # As TOML: a Windows path's backslashes must be escaped.
+    quoted = toml_edit.toml_basic_string(shared)
 
     def entries(self, original: str) -> list[dict]:
         lines = codex.ensure_shared_skills_disabled(original.splitlines(), self.skills_dir)
@@ -159,12 +161,12 @@ class CodexSharedSkillOverrideTests(TestCase):
 
     @requires_tomllib
     def test_existing_entry_is_reused_and_reenabling_is_undone(self) -> None:
-        original = f'[[skills.config]]\npath = "{self.shared}"\nenabled = true # mine\n'
+        original = f'[[skills.config]]\npath = {self.quoted}\nenabled = true # mine\n'
         self.assertEqual(self.entries(original), [{"path": self.shared, "enabled": False}])
 
     @requires_tomllib
     def test_entry_without_enabled_gets_it(self) -> None:
-        original = f'[[skills.config]]\npath = "{self.shared}"\n\n[profiles.work]\nmodel = "y"\n'
+        original = f'[[skills.config]]\npath = {self.quoted}\n\n[profiles.work]\nmodel = "y"\n'
         lines = codex.ensure_shared_skills_disabled(original.splitlines(), self.skills_dir)
         saved = tomllib.loads("\n".join(lines))
         self.assertEqual(saved["skills"]["config"], [{"path": self.shared, "enabled": False}])
@@ -183,7 +185,7 @@ class CodexSharedSkillOverrideTests(TestCase):
     @requires_tomllib
     def test_entry_with_both_selectors_is_not_reused(self) -> None:
         # Codex ignores an entry naming both a path and a name, so a valid one is added.
-        original = f'[[skills.config]]\npath = "{self.shared}"\nname = "skill-creator"\nenabled = true\n'
+        original = f'[[skills.config]]\npath = {self.quoted}\nname = "skill-creator"\nenabled = true\n'
         self.assertEqual(self.entries(original), [
             {"path": self.shared, "name": "skill-creator", "enabled": True},
             {"path": self.shared, "enabled": False},
@@ -213,7 +215,7 @@ class CodexSharedSkillOverrideTests(TestCase):
 
     @requires_tomllib
     def test_sub_table_of_an_entry_is_not_mistaken_for_inline_config(self) -> None:
-        original = f'[[skills.config]]\npath = "{self.shared}"\n[skills.config.extra]\nx = 1\n'
+        original = f'[[skills.config]]\npath = {self.quoted}\n[skills.config.extra]\nx = 1\n'
         for fallback in (False, True):
             with self.subTest(fallback=fallback), \
                     patch.object(toml_edit, "tomllib", None if fallback else tomllib):
@@ -235,7 +237,7 @@ class CodexSharedSkillOverrideTests(TestCase):
 
     @requires_tomllib  # checks a safeguard that only runs with tomllib
     def test_inline_entry_that_already_disables_it_is_accepted(self) -> None:
-        original = f'[skills]\nconfig = [{{ path = "{self.shared}", enabled = false }}]\n'
+        original = f'[skills]\nconfig = [{{ path = {self.quoted}, enabled = false }}]\n'
         notes: list[str] = []
         lines = codex.ensure_shared_skills_disabled(original.splitlines(), self.skills_dir, notes.append)
         self.assertEqual(lines, original.splitlines())

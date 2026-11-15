@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextvars import Context
 import contextlib
 import io
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -119,11 +120,13 @@ class TerminalTests(TestCase):
 
 
 class HomeAsTildeTests(TestCase):
+    """Paths are written with / here and shown with this OS's separator (\\ on Windows)."""
+
     def shown(self, home: str, text: str) -> str:
         recorder = Recorder()
-        HomeAsTilde(recorder, Path(home)).emit("info", text)
+        HomeAsTilde(recorder, Path(home)).emit("info", text.replace("/", os.sep))
         (shown,) = recorder.of("info")
-        return shown
+        return shown.replace(os.sep, "/")
 
     def test_the_home_directory_is_written_as_a_tilde(self):
         self.assertEqual(self.shown("/home/u", "Installing to: /home/u/.omp/agent"), "Installing to: ~/.omp/agent")
@@ -141,5 +144,5 @@ class HomeAsTildeTests(TestCase):
 
     def test_the_level_is_kept(self):
         recorder = Recorder()
-        HomeAsTilde(recorder, Path("/home/u")).emit("warn", "/home/u/x")
-        self.assertEqual(recorder.lines, [("warn", "~/x")])
+        HomeAsTilde(recorder, Path("/home/u")).emit("warn", str(Path("/home/u/x")))
+        self.assertEqual(recorder.lines, [("warn", str(Path("~/x")))])

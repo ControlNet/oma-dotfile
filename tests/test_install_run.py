@@ -155,7 +155,7 @@ class InstallRunTests(TestCase):
     def test_the_home_directory_is_never_printed(self):
         _, printed = self.install()
         self.assertNotIn(str(self.home), printed.text)
-        self.assertIn("Installing oh-my-pi config files to: ~/.omp/agent", printed.text)
+        self.assertIn(f"Installing oh-my-pi config files to: {Path('~/.omp/agent')}", printed.text)
 
     def test_second_run_changes_nothing(self):
         first, _ = self.install("--oauth")

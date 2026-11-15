@@ -620,7 +620,7 @@ class ExtraEnvTests(TestCase):
         self.assertEqual(document, [])
         env = run.call_args.kwargs["env"]
         self.assertEqual(env["DISABLE_TELEMETRY"], "1")
-        self.assertTrue(env["PATH"].startswith("/fake/bin"))
+        self.assertTrue(env["PATH"].startswith(str(Path("/fake/bin"))))
 
 
 if __name__ == "__main__":

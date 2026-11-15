@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
@@ -377,7 +378,8 @@ class ClaudeWakatimePluginTests(TestCase):
         # Then the runner's line is the only warning.
         warnings = self.console.warnings
         self.assertEqual(len(warnings), 1)
-        self.assertRegex(warnings[0], r"/usr/bin/claude plugin install \S+ --json failed with exit code 1$")
+        self.assertRegex(warnings[0], re.escape(str(Path("/usr/bin/claude"))) +
+                         r" plugin install \S+ --json failed with exit code 1$")
         self.assertFalse(installed)
 
     def test_missing_claude_cli_skips_quietly(self) -> None:
@@ -395,7 +397,7 @@ class ClaudeWakatimePluginTests(TestCase):
 class AgentCliLookupTests(TestCase):
     def test_cli_only_in_extra_bin_dir_is_used_by_path(self) -> None:
         # Given codex installed only in an extra bin dir that a piped install's PATH lacks.
-        extra = "/home/me/.bun/bin/codex"
+        extra = str(Path("/home/me/.bun/bin/codex"))  # as `which` would return it on this OS
         fake = FakeCli({"plugin list": INSTALLED_PLUGIN_LIST})
         with tempfile.TemporaryDirectory() as tmp, \
                 patch.object(proc.subprocess, "run", fake), \
@@ -406,7 +408,7 @@ class AgentCliLookupTests(TestCase):
         # Then it finds the CLI there, calls it by path, and puts its dir on PATH for its runtime.
         self.assertTrue(installed)
         self.assertEqual(fake.executables[0], extra)
-        self.assertEqual(fake.envs[0]["PATH"].split(os.pathsep)[0], "/home/me/.bun/bin")
+        self.assertEqual(fake.envs[0]["PATH"].split(os.pathsep)[0], str(Path(extra).parent))
 
 
 class WakatimePrerequisiteTests(TestCase):
