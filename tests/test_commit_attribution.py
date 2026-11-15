@@ -108,8 +108,10 @@ class GitHookTests(TestCase):
     def path_with_only_git(self) -> str:
         git = Path(shutil.which("git") or "git").resolve()
         if WINDOWS:
-            # The dir Git for Windows puts on PATH; its git.exe adds Git's own sh for hooks.
-            return str(next(root / "cmd" for root in git.parents if (root / "cmd" / "git.exe").is_file()))
+            # The dir Git for Windows puts on PATH, plus its usr\\bin, where the sh that runs
+            # hooks lives (cmd\\git.exe does not add it when MSYSTEM is set, as under Git Bash).
+            root = next(root for root in git.parents if (root / "cmd" / "git.exe").is_file())
+            return os.pathsep.join([str(root / "cmd"), str(root / "usr" / "bin")])
         bare = Path(self.enterContext(tempfile.TemporaryDirectory()))
         (bare / "git").symlink_to(git)
         return str(bare)

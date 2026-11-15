@@ -248,9 +248,11 @@ def path_without_python(bare_bin: Path) -> str:
     """A PATH with git on it and no Python."""
     git = Path(shutil.which("git") or "git").resolve()
     if sys.platform == "win32":
-        # The dir Git for Windows puts on PATH: its git.exe adds Git's own sh for hooks, and it
-        # holds no Python. (Git's mingw64\\bin alone cannot start a hook at all.)
-        path = str(git_cmd_dir(git))
+        # The dir Git for Windows puts on PATH, plus its usr\\bin, where the sh that runs hooks
+        # lives; neither holds a Python. cmd\\git.exe adds usr\\bin itself, but not when
+        # MSYSTEM is set, as it is under Git Bash.
+        cmd = git_cmd_dir(git)
+        path = os.pathsep.join([str(cmd), str(cmd.parent / "usr" / "bin")])
     else:
         (bare_bin / "git").symlink_to(git)
         path = str(bare_bin)
