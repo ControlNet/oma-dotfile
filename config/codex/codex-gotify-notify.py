@@ -64,6 +64,7 @@ DEFAULT_DEDUP_WINDOW_SEC = 15
 DEFAULT_TUI_LOG_SCAN_BYTES = 8 * 1024 * 1024
 DEFAULT_SESSION_SCAN_BYTES = 2 * 1024 * 1024
 DEFAULT_AUTO_APPROVAL_SCAN_DEPTH = 20
+MAX_LOG_BYTES = 256 * 1024  # then the log moves to .1, as the Claude and OMP notifiers do
 def _codex_home() -> Path:
     """Mirror Codex: a non-empty CODEX_HOME wins, otherwise ~/.codex."""
     custom = os.environ.get("CODEX_HOME", "").strip()
@@ -76,6 +77,8 @@ def _log_line(message: str) -> None:
     log_file = _codex_home() / "log" / "gotify-notify.log"
     try:
         log_file.parent.mkdir(parents=True, exist_ok=True)
+        if log_file.exists() and log_file.stat().st_size >= MAX_LOG_BYTES:
+            log_file.replace(log_file.with_name(log_file.name + ".1"))
         with log_file.open("a", encoding="utf-8") as fp:
             fp.write(line)
     except OSError:

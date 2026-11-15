@@ -348,5 +348,20 @@ class MessageTextTests(TestCase):
             self.assertEqual(self.sent(self.completion("Long answer.")), "✅ Fixed foo.py.")
 
 
+class LogRotationTests(TestCase):
+    def test_a_full_log_is_rotated_before_the_next_line(self):
+        # Given a log at the 256 KiB cap.
+        home = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.enterContext(patch.dict(os.environ, {"CODEX_HOME": str(home)}))
+        log = home / "log" / "gotify-notify.log"
+        log.parent.mkdir(parents=True)
+        log.write_text("x" * notify.MAX_LOG_BYTES, encoding="utf-8")
+        # When a line is logged.
+        notify._log_line("request_error")
+        # Then the old log moved aside and the new one holds only that line.
+        self.assertEqual((home / "log" / "gotify-notify.log.1").stat().st_size, 256 * 1024)
+        self.assertRegex(log.read_text(encoding="utf-8"), r"^\S+ pid=\d+ request_error\n$")
+
+
 if __name__ == "__main__":
     unittest.main()

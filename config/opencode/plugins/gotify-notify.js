@@ -37,6 +37,7 @@ const IDLE_CONFIRM_MS = Number.isFinite(IDLE_CONFIRM_MS_RAW)
   ? Math.max(0, IDLE_CONFIRM_MS_RAW)
   : 10000;
 const DIAGNOSTIC_TOAST_WINDOW_MS = 60000;
+const MAX_LOG_BYTES = 256 * 1024; // then the log moves to .1, as the OMP and Claude notifiers do
 
 // Event notification toggles
 const NOTIFY_COMPLETE = process.env.OPENCODE_NOTIFY_COMPLETE !== "false";
@@ -75,6 +76,9 @@ async function writeDiagnostic(scope, message, detail = "") {
   try {
     const file = diagnosticLogFile();
     fs.mkdirSync(path.dirname(file), { recursive: true });
+    if (fs.existsSync(file) && fs.statSync(file).size >= MAX_LOG_BYTES) {
+      fs.renameSync(file, `${file}.1`);
+    }
     fs.appendFileSync(file, line, "utf8");
   } catch {
     // Notifier diagnostics must never break agent flow.

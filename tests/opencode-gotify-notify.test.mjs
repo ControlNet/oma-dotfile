@@ -132,3 +132,19 @@ test("a completion is sent as plain text, without markdown escapes", async () =>
 
 	assert.deepEqual(sent, ["✅ Fixed foo.py (see README) - done."]);
 });
+
+test("a full diagnostic log is rotated before the next line", async () => {
+	// Given a log at the 256 KiB cap and a Gotify server that rejects the push.
+	const log = path.join(home, ".local", "share", "opencode", "gotify-notify.log");
+	fs.mkdirSync(path.dirname(log), { recursive: true });
+	fs.writeFileSync(log, "x".repeat(256 * 1024));
+	global.fetch = async () => ({ ok: false, status: 503, statusText: "Unavailable", text: async () => "" });
+	const hooks = await GotifyNotify({ client: fakeClient(), directory: home });
+
+	// When the failure is logged.
+	await hooks["permission.ask"]({ sessionID: "ses-rotate" });
+
+	// Then the old log moved aside and the new one starts with that line.
+	assert.equal(fs.statSync(`${log}.1`).size, 256 * 1024);
+	assert.match(fs.readFileSync(log, "utf8"), /^\S+ \[gotify\] delivery HTTP 503/);
+});
