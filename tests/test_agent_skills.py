@@ -489,6 +489,15 @@ class SkipUnchangedSourceTests(AgentSkillsHarness):
         recorded = json.loads(skills.commits_path(self.ctx).read_text(encoding="utf-8"))
         self.assertNotIn(skills.install_key("anthropics/skills", names, self.AGENTS), recorded)
 
+    def test_failed_run_keeps_the_recorded_commit(self):
+        # Given a source recorded at a commit, and an offline run: no remote commit, CLI fails.
+        self.record()
+        self.replies = {self.SOURCE: CommandFailed("clone failed")}
+        self.run_install()
+        # Then the CLI left the install as it was, so its record stays for the next run.
+        recorded = json.loads(skills.commits_path(self.ctx).read_text(encoding="utf-8"))
+        self.assertEqual(recorded[skills.install_key(self.SOURCE, self.NAMES, self.AGENTS)], "a" * 40)
+
     def test_unreadable_record_reinstalls(self):
         self.commits = {self.SOURCE: "a" * 40}
         self.installed_on_disk("find-skills")

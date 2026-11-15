@@ -352,7 +352,11 @@ def ensure_skills(ctx: Context, legacy_skill_dirs: list[Path], claude_dir: Path 
             if current:
                 unchanged.append(frozenset(current))
                 return InstallResult(key, frozenset(current), commit)
-        done = add_skills(cli, source, names, agents) or frozenset()
+        done = add_skills(cli, source, names, agents)
+        if done is None:
+            # A failed run (offline, say) changed nothing, so the last record still holds.
+            warn(str(incomplete(source, names, frozenset())))
+            return InstallResult(key, frozenset(), recorded.get(key))
         if done:
             also = ", also in Claude Code" if "claude-code" in agents else ""
             item(f"{', '.join(sorted(done))} ({source}{also})")
