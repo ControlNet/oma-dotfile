@@ -216,20 +216,42 @@ def check_commit_hook(output: str) -> None:
         if "commit-msg hook not installed" not in output:
             fail("the commit-msg hook is neither installed nor reported as skipped")
         return
-    with tempfile.TemporaryDirectory() as repo:
-        def git(*args: str) -> subprocess.CompletedProcess[str]:
+    with tempfile.TemporaryDirectory() as repo, tempfile.TemporaryDirectory() as bare_bin:
+        def git(*args: str, env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess[str]:
             return subprocess.run(["git", "-C", repo, "-c", "user.name=CI", "-c", "user.email=ci@example.invalid",
-                                   *args], capture_output=True, text=True, check=False)
+                                   *args], capture_output=True, text=True, env=env, check=False)
+
+        def check_commit(subject: str, env: Mapping[str, str] | None = None) -> None:
+            result = git("commit", "-q", "--allow-empty", "-m", f"{subject}\n\n{ATTRIBUTION}", env=env)
+            if result.returncode != 0:
+                fail(f"git commit ({subject}) failed with the commit-msg hook installed: {result.stderr.strip()}")
+                return
+            message = git("log", "-1", "--format=%B").stdout
+            if ATTRIBUTION in message:
+                fail(f"the commit-msg hook kept the Claude-Session line ({subject})")
+            if subject not in message:
+                fail(f"the commit-msg hook dropped the subject line ({subject})")
+
         _ = git("init", "-q")
-        result = git("commit", "-q", "--allow-empty", "-m", f"Check the hook\n\n{ATTRIBUTION}")
-        if result.returncode != 0:
-            fail(f"git commit failed with the commit-msg hook installed: {result.stderr.strip()}")
-            return
-        message = git("log", "-1", "--format=%B").stdout
-        if ATTRIBUTION in message:
-            fail("the commit-msg hook kept the Claude-Session line")
-        if "Check the hook" not in message:
-            fail("the commit-msg hook dropped the subject line")
+        check_commit("Check the hook")
+        # A GUI client, an IDE or cron may commit with a PATH that has no Python on it (and on
+        # Windows `python3` is often only the Store's alias, which exits non-zero).
+        check_commit("Check the hook without Python on PATH", {**os.environ, "PATH": path_without_python(Path(bare_bin))})
+
+
+def path_without_python(bare_bin: Path) -> str:
+    """A PATH with git on it and no Python."""
+    git = Path(shutil.which("git") or "git").resolve()
+    if sys.platform == "win32":
+        # Git for Windows finds its own sh for hooks; its cmd dir holds git and no Python.
+        path = str(git.parent)
+    else:
+        (bare_bin / "git").symlink_to(git)
+        path = str(bare_bin)
+    for python in ("python3", "python"):
+        if shutil.which(python, path=path):
+            fail(f"{path} for the Python-less commit has {python} on it")
+    return path
 
 
 def run_cli(name: str, *args: str) -> subprocess.CompletedProcess[str] | None:
