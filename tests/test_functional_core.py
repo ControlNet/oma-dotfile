@@ -401,6 +401,18 @@ class FilesUpdateTests(TestCase):
         self.assertFalse(self.files.write_text(self.dst, "new\n"))
 
 
+class ReplaceTreeTests(TestCase):
+    def test_a_dir_where_the_source_has_a_file_is_replaced(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src, dst = Path(tmp) / "src", Path(tmp) / "dst"
+            (src).mkdir()
+            _ = (src / "hooks").write_text("file\n")
+            (dst / "hooks").mkdir(parents=True)
+            self.assertTrue(Files("20261107-120000").replace_tree(src, dst))
+            self.assertEqual((dst / "hooks").read_text(), "file\n")
+            self.assertFalse(Files("20261107-120000").replace_tree(src, dst))
+
+
 class OptionsTests(TestCase):
     def test_a_max_backups_that_is_not_a_number_keeps_the_default(self):
         for raw in ("abc", "", "0", "-2"):

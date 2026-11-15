@@ -28,7 +28,8 @@ def same_tree(left: Path, right: Path) -> bool:
     if not right.is_dir() or right.is_symlink():
         return False
     compare = filecmp.dircmp(left, right, ignore=list(IGNORED_NAMES))
-    if compare.left_only or compare.right_only or compare.funny_files:
+    # common_funny: a name that is a file on one side and a dir on the other.
+    if compare.left_only or compare.right_only or compare.common_funny or compare.funny_files:
         return False
     _, mismatch, errors = filecmp.cmpfiles(left, right, compare.common_files, shallow=False)
     if mismatch or errors:
