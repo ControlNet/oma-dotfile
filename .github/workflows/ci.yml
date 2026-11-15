@@ -70,6 +70,33 @@ jobs:
           (Get-Content -Raw pull.py) | python - --repo . --all
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+  install-home:
+    # A home path with a space and a non-ASCII letter, as in a user name. é is in the runner's
+    # code page (cp1252); a CJK name is not, which only a Windows set to that locale can show.
+    name: install in an unusual home (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+      - name: Install, reinstall and switch modes with the home in "home dir/Zoë Example"
+        shell: bash
+        run: |
+          home="$RUNNER_TEMP/home dir/Zoë Example"
+          mkdir -p "$home"
+          if [ "$RUNNER_OS" = Windows ]; then home=$(cygpath -w "$home"); fi
+          # Path.home() reads USERPROFILE on Windows; git and the rest read HOME.
+          HOME="$home" USERPROFILE="$home" python tests/integration/check_install.py
+
   install-agents:
     # Every agent CLI installed from its official source, so the steps that run them are not
     # skipped. Latest versions on purpose, like the weekly run: upstream changes show up here.
