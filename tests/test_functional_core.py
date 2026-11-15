@@ -3,8 +3,10 @@ and dependency injection (@inject by type, @uses with explicit providers)."""
 
 from collections.abc import Mapping
 import inspect
+import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -199,6 +201,15 @@ class RunnerTests(TestCase):
         self.assertFalse(hasattr(Runner, "ok"))  # stale patches of Runner.ok must fail loudly
 
 
+class RunnerOutputTests(TestCase):
+    def test_output_that_is_not_utf8_is_read_with_replacements(self):
+        # Not the locale's encoding either: on Windows that is often cp1252.
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = Runner({"PATH": os.defpath}, Path(tmp))
+            result = runner.run([sys.executable, "-c", r"import sys; sys.stdout.buffer.write(b'caf\xe9 \xe2\x9c\x93')"])
+        self.assertEqual(result.stdout, "caf� ✓")
+
+
 class InjectTests(TestCase):
     def setUp(self):
         self.ctx = make_context(Path(self.enterContext(tempfile.TemporaryDirectory())), oauth=True)
@@ -381,6 +392,21 @@ class FilesUpdateTests(TestCase):
         with self.assertRaises(ValueError):
             self.files.update(self.dst, JSON, reject)
         self.assertEqual(self.dst.read_text(), "{}")
+
+    def test_writing_over_a_file_that_is_not_utf8_backs_it_up(self):
+        self.dst.write_bytes(b"caf\xe9\n")
+        self.assertTrue(self.files.write_text(self.dst, "new\n"))
+        self.assertEqual(self.dst.read_text(), "new\n")
+        self.assertEqual(self.dir.joinpath("settings.json.bak-20261107-120000").read_bytes(), b"caf\xe9\n")
+        self.assertFalse(self.files.write_text(self.dst, "new\n"))
+
+
+class OptionsTests(TestCase):
+    def test_a_max_backups_that_is_not_a_number_keeps_the_default(self):
+        for raw in ("abc", "", "0", "-2"):
+            with self.subTest(raw=raw):
+                self.assertEqual(Options.from_env({"MAX_BACKUPS": raw}).max_backups, 1)
+        self.assertEqual(Options.from_env({"MAX_BACKUPS": " 3 "}).max_backups, 3)
 
 
 class StepTests(TestCase):

@@ -143,9 +143,12 @@ class OAuthTests(TestCase):
     def test_invalid_opencode_is_not_overwritten(self):
         dst = self.tmp / 'opencode.jsonc'
         dst.write_text('{ invalid')
-        with self.assertRaises(ValueError):
-            install_files(opencode.OpenCode(), self.context('oauth', oauth=True), self.tmp)
+        # The run warns and goes on, like every other config it cannot read.
+        with use_console(Recorder()) as printed:
+            opencode.OpenCode().install_file(self.context('oauth', oauth=True), opencode.OPENCODE_FILES[0], self.tmp)
         self.assertEqual(dst.read_text(), '{ invalid')
+        self.assertEqual(len(printed.warnings), 1)
+        self.assertIn('opencode.jsonc', printed.warnings[0])
 
     def test_omo_rewrites_model_prefix_preserving_ids(self):
         install_files(omo.OmoConfig(), self.context('oauth', oauth=True), self.tmp)

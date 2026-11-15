@@ -274,7 +274,7 @@ def ensure_config(ctx: Context, codex_dir: Path) -> None:
 
 
 @inject
-@warns_on(OSError, message="Failed to read {dst}: {reason}")
+@warns_on(OSError, ValueError, message="Failed to read {dst}: {reason}")
 def update_config(files: Files, /, dst: Path, transform: Callable[[list[str]], list[str]]) -> bool:
     return files.update(dst, LINES, transform)
 

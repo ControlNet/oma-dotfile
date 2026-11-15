@@ -91,7 +91,10 @@ class Runner:
             result = subprocess.run(
                 command,
                 capture_output=True,
-                text=True,
+                # Agent CLIs print UTF-8; the locale's encoding (cp1252 on many Windows hosts)
+                # would raise on it, and bytes that are not UTF-8 must not abort the run.
+                encoding="utf-8",
+                errors="replace",
                 env=env,
                 stdin=subprocess.DEVNULL,
                 timeout=timeout,

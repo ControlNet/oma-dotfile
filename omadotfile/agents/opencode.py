@@ -8,6 +8,7 @@ from omadotfile.agents.base import Agent
 from omadotfile.constants import (LEGACY_OPENAGENT_CONFIG_NAMES, LEGACY_OPENCODE_JSON,
                                   OPENCODE_FILES, OPENCODE_PLUGINS)
 from omadotfile.context import Context
+from omadotfile.core.errors import warns_on
 from omadotfile.core.files import Files
 from omadotfile.core.jsonc import merge_config_objects, read_jsonc_object
 from omadotfile.inject import inject
@@ -38,6 +39,13 @@ def render_oauth_config(src: Path, config_dir: Path, dst: Path) -> str:
     if has_codex:
         providers["codex"] = existing_codex
     return json.dumps(document, indent=2, ensure_ascii=False) + "\n"
+
+
+@inject
+@warns_on(OSError, ValueError, message="Failed to read {dst} ({error}: {reason}); leaving it unchanged")
+def write_oauth_config(files: Files, /, src: Path, dst: Path) -> bool:
+    """Write the --oauth opencode.jsonc; a config it cannot read is left for the user to fix."""
+    return files.write_text(dst, render_oauth_config(src, dst.parent, dst))
 
 
 @migration(since="2026-02", reason="opencode.json from before the switch to opencode.jsonc",
@@ -75,7 +83,7 @@ class OpenCode(Agent, key="opencode", label="OpenCode/OMO", executable="opencode
 
     @staticmethod
     def install_oauth_file(ctx: Context, src: Path, dst: Path) -> None:
-        ctx.files.write_text(dst, render_oauth_config(src, dst.parent, dst))
+        write_oauth_config(ctx, src, dst)
 
     @staticmethod
     def configure(ctx: Context, target: Path) -> None:

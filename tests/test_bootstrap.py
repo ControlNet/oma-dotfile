@@ -111,6 +111,14 @@ class BootstrapTests(TestCase):
         self.assertIn("fatal: no such ref", err)
         self.assertIn("Failed to clone o/n (r)", err)
 
+    def test_missing_git_is_reported_in_one_line(self):
+        with patch.object(bootstrap.subprocess, "run", side_effect=FileNotFoundError("git")), \
+                patch.object(bootstrap, "run") as run:
+            errors = errors_of(bootstrap.main, [])
+        self.assertIn("git not found", errors)
+        self.assertNotIn("Traceback", errors)
+        run.assert_not_called()
+
     def test_old_python_gets_a_clear_message(self):
         with patch.object(bootstrap.sys, "version_info", (3, 9, 0)):
             self.assertIn("needs Python 3.10", errors_of(bootstrap.main, []))

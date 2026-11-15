@@ -82,7 +82,8 @@ class Files:
                    mode: int | None = None) -> bool:
         """Write content to dst unless it is already there; `mode` applies to a new file."""
         dst.parent.mkdir(parents=True, exist_ok=True)
-        if dst.exists() and dst.read_text(encoding="utf-8") == content:
+        # Bytes, so a file that is not UTF-8 is replaced (and backed up) instead of raising.
+        if dst.exists() and dst.read_bytes() == content.encode("utf-8"):
             return False
         if backup:
             self.backup(dst)

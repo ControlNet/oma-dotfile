@@ -256,6 +256,17 @@ class CodexSharedSkillOverrideTests(TestCase):
         self.assertEqual(saved["skills"]["config"], [{"path": shared, "enabled": False}])
 
 
+class CodexUnreadableConfigTests(TestCase):
+    def test_a_config_that_is_not_utf8_is_left_alone_with_a_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / "config.toml"
+            _ = config.write_bytes(b'model = "caf\xe9"\n')
+            codex.ensure_config(make_context(Path(tmp), env=GATEWAY_ENV, stamp="latin-test"), Path(tmp))
+            self.assertEqual(config.read_bytes(), b'model = "caf\xe9"\n')
+        self.assertEqual(len(self.console.warnings), 1)
+        self.assertIn("config.toml", self.console.warnings[0])
+
+
 @requires_tomllib
 class CodexConfigFileTests(TestCase):
     """Whole ensure_config runs on files a user could have written."""

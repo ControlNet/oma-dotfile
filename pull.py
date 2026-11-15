@@ -93,10 +93,14 @@ def main(argv):
     with tempfile.TemporaryDirectory() as tmp:
         repo_dir = Path(tmp) / name
         clear_status = show_status("Cloning {}/{} ({})...".format(owner, name, rev))
-        result = subprocess.run(
-            ["git", "clone", "--depth", "1", "--branch", rev,
-             "https://github.com/{}/{}.git".format(owner, name), str(repo_dir)],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        try:
+            result = subprocess.run(
+                ["git", "clone", "--depth", "1", "--branch", rev,
+                 "https://github.com/{}/{}.git".format(owner, name), str(repo_dir)],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        except OSError:
+            clear_status()
+            fail("git not found; install Git and rerun")
         clear_status()
         if result.returncode != 0:
             print(result.stderr, file=sys.stderr)

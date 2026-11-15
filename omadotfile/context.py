@@ -41,8 +41,16 @@ class Options:
             oauth=oauth,
             install_all=install_all or env.get("INSTALL_ALL", "0") == "1",
             backup=env.get("NO_BACKUP", "0") != "1",
-            max_backups=max(1, int(env.get("MAX_BACKUPS", "1"))),
+            max_backups=backup_count(env.get("MAX_BACKUPS", "")),
         )
+
+
+def backup_count(raw: str) -> int:
+    """MAX_BACKUPS as a count of at least 1; anything else keeps the default, 1."""
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 1
 
 
 @dataclass(frozen=True)
