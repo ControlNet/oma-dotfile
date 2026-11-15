@@ -105,6 +105,15 @@ class ContentPatternTests(TestCase):
             with self.subTest(label=label):
                 self.assertIn(f"[{label}]", self.labels(f"value {token}\n"))
 
+    def test_output_survives_a_legacy_code_page(self) -> None:
+        # Windows encodes piped output as cp1252, which has no ▸ or ✓.
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "sample.txt").write_text(FAKE_SECRET_LINE, encoding="utf-8")
+            result = subprocess.run([sys.executable, str(SCANNER), "path", tmp], capture_output=True,
+                                    timeout=60, env={**os.environ, "TERM": "dumb", "PYTHONIOENCODING": "cp1252"})
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn(b"[Password Assignment]", result.stdout)
+
     def test_names_references_and_counts_are_not_secrets(self) -> None:
         for line in ("password = None", "max_tokens: 128000000000000000", "api_key = settings.API_KEY_NAME",
                      'token = "${GITHUB_TOKEN}"', "token_count = 1234567890123456",

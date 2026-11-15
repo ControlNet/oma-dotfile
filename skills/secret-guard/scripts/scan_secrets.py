@@ -333,6 +333,11 @@ def audit_gitignore() -> int:
 
 
 def main() -> int:
+    # Piped output on Windows uses the ANSI code page (cp1252 for English), which has no
+    # ▸, ✓ or ✗; print those as ? rather than stop with UnicodeEncodeError.
+    for stream in (sys.stdout, sys.stderr):
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(errors="replace")
     mode = sys.argv[1] if len(sys.argv) > 1 else "staged"
     target = sys.argv[2] if len(sys.argv) > 2 else ""
 
