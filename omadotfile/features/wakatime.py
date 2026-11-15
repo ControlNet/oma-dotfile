@@ -240,8 +240,10 @@ def ensure_plugins(ctx: Context) -> None:
     for key in ("codex", "claude"):
         if key in ctx.found:
             ctx.dirs[key].mkdir(parents=True, exist_ok=True)
-    installed = [ensure_plugin(CodexPlugins(ctx.runner, ctx.dirs["codex"])),
-                 ensure_plugin(ClaudePlugins(ctx.runner, ctx.dirs["claude"]))]
+    # Only the agents installed for: a Codex-less machine gets no "codex not found" warning.
+    plugins = {"codex": CodexPlugins, "claude": ClaudePlugins}
+    installed = [ensure_plugin(make(ctx.runner, ctx.dirs[key])) for key, make in plugins.items()
+                 if key in ctx.found]
     if any(installed) and ctx.runner.on_path("node") is None:
         warn("node not found on PATH; the WakaTime plugin hooks require it")
 

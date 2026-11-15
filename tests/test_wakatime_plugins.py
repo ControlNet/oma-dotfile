@@ -419,6 +419,14 @@ class WakatimePrerequisiteTests(TestCase):
         # Then the shared WakaTime prerequisites are not reported at all.
         config_path.assert_not_called()
 
+    def test_only_the_agents_installed_for_get_a_plugin(self) -> None:
+        # Given a machine with Claude Code but no Codex.
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(wakatime, "ensure_plugin", return_value=True) as ensure:
+            wakatime.ensure_plugins(make_context(Path(tmp), found={"claude"}))
+        # Then Codex's plugin is not tried, so no "codex not found" warning is printed.
+        self.assertEqual([type(call.args[0]) for call in ensure.call_args_list], [wakatime.ClaudePlugins])
+
 
 class NodeWarningTests(TestCase):
     """The plugin hooks run `node` from the user's PATH; the run's env PATH stands for it."""
