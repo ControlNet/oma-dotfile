@@ -210,7 +210,9 @@ class RunnerOutputTests(TestCase):
     def test_output_that_is_not_utf8_is_read_with_replacements(self):
         # Not the locale's encoding either: on Windows that is often cp1252.
         with tempfile.TemporaryDirectory() as tmp:
-            runner = Runner({"PATH": os.defpath}, Path(tmp))
+            # Python 3.10 on Windows cannot start without SYSTEMROOT: it fails to get random bytes.
+            env = {"PATH": os.defpath, **{key: os.environ[key] for key in ("SYSTEMROOT",) if key in os.environ}}
+            runner = Runner(env, Path(tmp))
             result = runner.run([sys.executable, "-c", r"import sys; sys.stdout.buffer.write(b'caf\xe9 \xe2\x9c\x93')"])
         self.assertEqual(result.stdout, "caf� ✓")
 

@@ -8,6 +8,7 @@ import test from "node:test";
 // Module constants read the environment at import, so set it first.
 const home = fs.mkdtempSync(path.join(os.tmpdir(), "opencode-gotify-"));
 process.env.HOME = home; // diagnostics go to ~/.local/share/opencode
+process.env.USERPROFILE = home; // os.homedir() on Windows
 process.env.GOTIFY_URL = "https://gotify.example.invalid";
 process.env.GOTIFY_TOKEN_FOR_OPENCODE = "test-only-fake-token";
 process.env.OPENCODE_NOTIFY_IDLE_CONFIRM_MS = "0";

@@ -11,6 +11,7 @@ import OmpWakatimeSync, { cliCandidates } from "../config/omp/extensions/omp-wak
 
 const MANAGED_ENV = [
 	"HOME",
+	"USERPROFILE", // os.homedir() on Windows
 	"PATH",
 	"WAKATIME_HOME",
 	"OMP_WAKATIME_SYNC",
@@ -36,6 +37,7 @@ function setup(t) {
 	});
 	for (const name of MANAGED_ENV) delete process.env[name];
 	process.env.HOME = path.join(tmp, "home");
+	process.env.USERPROFILE = process.env.HOME;
 	process.env.PATH = path.join(tmp, "empty-bin");
 	process.env.OMP_WAKATIME_LOG_FILE = path.join(tmp, "sync.log");
 	fs.mkdirSync(process.env.HOME, { recursive: true });
@@ -63,6 +65,20 @@ function spawnCount() {
 	return logLines().filter((line) => line.includes(" sync_spawn ")).length;
 }
 
+const WINDOWS = process.platform === "win32";
+const CLI_NAME = WINDOWS ? "wakatime-cli.exe" : "wakatime-cli";
+
+// The stand-in is a shell script, which Windows cannot start as a program; there the test
+// checks which cli was spawned instead of what it was given.
+async function assertSynced(cli, argsOut) {
+	if (WINDOWS) {
+		assert.ok(logLines().some((line) => line.includes(" sync_spawn ") && line.includes(`cli=${cli}`)), logLines().join("\n"));
+		return;
+	}
+	await waitForFile(argsOut);
+	assert.equal(fs.readFileSync(argsOut, "utf8").trim(), "--sync-ai-activity");
+}
+
 async function waitForFile(file, timeoutMs = 3000) {
 	const deadline = Date.now() + timeoutMs;
 	while (Date.now() < deadline) {
@@ -79,8 +95,7 @@ test("completed agent run starts a detached wakatime-cli AI sync", async (t) => 
 
 	await load().get("agent_end")({ willContinue: false }, {});
 
-	await waitForFile(argsOut);
-	assert.equal(fs.readFileSync(argsOut, "utf8").trim(), "--sync-ai-activity");
+	await assertSynced(process.env.OMP_WAKATIME_CLI, argsOut);
 	assert.equal(spawnCount(), 1);
 });
 
@@ -165,26 +180,28 @@ test("cli lookup prefers the WakaTime resources dir, then PATH", (t) => {
 	const candidates = cliCandidates();
 	const platformName = cliCandidates.platformBinaryName();
 	assert.deepEqual(candidates, [
-		path.join(wakatimeHome, ".wakatime", "wakatime-cli"),
+		path.join(wakatimeHome, ".wakatime", CLI_NAME),
 		path.join(wakatimeHome, ".wakatime", platformName),
-		path.join(home, ".wakatime", "wakatime-cli"),
+		path.join(home, ".wakatime", CLI_NAME),
 		path.join(home, ".wakatime", platformName),
-		path.join(pathBin, process.platform === "win32" ? "wakatime-cli.exe" : "wakatime-cli"),
+		path.join(pathBin, CLI_NAME),
 	]);
 });
 
 test("cli found under ~/.wakatime is used without any override", async (t) => {
 	const tmp = setup(t);
 	const argsOut = path.join(tmp, "args.txt");
-	fakeCli(path.join(process.env.HOME, ".wakatime", cliCandidates.platformBinaryName()), argsOut);
+	const cli = fakeCli(path.join(process.env.HOME, ".wakatime", cliCandidates.platformBinaryName()), argsOut);
 
 	await load().get("session_shutdown")({}, {});
 
-	await waitForFile(argsOut);
+	await assertSynced(cli, argsOut);
 	assert.equal(spawnCount(), 1);
 });
 
-test("a non-executable candidate does not shadow a working cli later in the search", async (t) => {
+test("a non-executable candidate does not shadow a working cli later in the search", {
+	skip: WINDOWS && "Windows has no execute bit to tell a program from a plain file",
+}, async (t) => {
 	const tmp = setup(t);
 	const argsOut = path.join(tmp, "args.txt");
 	// Given a plain file where the WakaTime resources dir would hold the cli.
