@@ -10,6 +10,7 @@ import os
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from pathlib import Path
+import re
 import shutil
 from typing import TypeVar
 
@@ -64,10 +65,14 @@ class Files:
         self.prune(path)
 
     def prune(self, path: Path) -> None:
-        """Keep only the newest `keep` backups of path."""
+        """Keep only the newest `keep` backups of path; backups named by hand are left alone."""
         # Order by the fixed-width stamp in the name: copy2 keeps the source's mtime, so a
         # config restored with an old mtime would otherwise make the newest backup look oldest.
-        backups = sorted(path.parent.glob(f"{path.name}.bak-*"), key=lambda p: p.name)
+        # Only names this class writes count (retire adds `-<pid>` on a clash): a hand-made
+        # `.bak-mine` would sort after every stamp and get the backup just taken pruned.
+        ours = re.compile(rf"{re.escape(path.name)}\.bak-\d{{8}}-\d{{6}}(?:-\d+)?")
+        backups = sorted((p for p in path.parent.glob(f"{path.name}.bak-*") if ours.fullmatch(p.name)),
+                         key=lambda p: p.name)
         while len(backups) > self.keep:
             oldest = backups.pop(0)
             oldest.unlink()

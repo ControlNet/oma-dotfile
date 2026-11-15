@@ -60,6 +60,18 @@ class BackupPolicyTests(TestCase):
         self.assertEqual([p.read_text(encoding="utf-8") for p in self.backups(self.dst)],
                          ["restored config\n"])
 
+    def test_pruning_leaves_backups_the_user_named(self):
+        # A hand-made backup sorts after the stamps; it is neither pruned nor counted.
+        mine = self.dst.with_name(f"{self.dst.name}.bak-mine")
+        _ = mine.write_text("my copy\n", encoding="utf-8")
+        _ = self.src.write_text("new\n", encoding="utf-8")
+        _ = self.dst.write_text("local edit\n", encoding="utf-8")
+
+        self.files.copy(self.src, self.dst)
+
+        self.assertEqual({p.name: p.read_text(encoding="utf-8") for p in self.backups(self.dst)},
+                         {mine.name: "my copy\n", f"{self.dst.name}.bak-{STAMP}": "local edit\n"})
+
     def test_managed_plugin_file_is_replaced_without_backup(self):
         _ = self.src.write_text("plugin v2\n", encoding="utf-8")
         _ = self.dst.write_text("plugin v1\n", encoding="utf-8")
