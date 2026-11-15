@@ -20,6 +20,43 @@ ROOT = Path(__file__).resolve().parents[1]
 STAMP = "20260908-120000"
 T = TypeVar("T")
 
+WINDOWS = sys.platform == "win32"
+
+
+def write_cli(path: Path, script: str = "") -> Path:
+    """A stand-in CLI named path.name in path.parent that PATH lookups find; returns its path.
+
+    Running it runs `script` (Python source) with this interpreter; an empty script exits 0.
+    Windows ignores shebangs and only finds names with a PATHEXT extension, so there the CLI
+    is `<name>.cmd`, which runs `<name>.py` beside it.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not WINDOWS:
+        _ = path.write_text(f"#!{sys.executable}\n{script}", encoding="utf-8")
+        path.chmod(0o755)
+        return path
+    source = path.with_name(f"{path.name}.py")
+    _ = source.write_text(script, encoding="utf-8")
+    return forward_cli(path, f'"{sys.executable}" "%~dp0{source.name}"')
+
+
+def link_cli(path: Path, target: str) -> Path:
+    """A CLI named path.name that runs the real executable `target`; returns its path."""
+    if not WINDOWS:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.symlink_to(target)
+        return path
+    return forward_cli(path, f'"{target}"')
+
+
+def forward_cli(path: Path, command: str) -> Path:
+    """`<path>.cmd`, which runs command with the arguments it was given and returns its exit code."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    cmd = path.with_name(f"{path.name}.cmd")
+    _ = cmd.write_text(f"@{command} %*\r\n", encoding="utf-8")
+    return cmd
+
+
 # Tests that parse the TOML the installer wrote need a real parser; Python 3.10 has none.
 # The installer's own no-tomllib path is covered by test_pull_toml_fallback on every version.
 requires_tomllib = unittest.skipIf(tomllib is None, "needs tomllib (Python 3.11+) to check the TOML")

@@ -15,7 +15,7 @@ from omadotfile.core.proc import Runner
 from omadotfile.features import wakatime
 from omadotfile.features.wakatime import ClaudePlugins, CodexPlugins, ensure_plugin
 from omadotfile.console import use_console
-from support import Recorder, TestCase, make_context
+from support import Recorder, TestCase, make_context, write_cli
 
 EMPTY_PLUGIN_LIST = {"installed": [], "available": []}
 INSTALLED_PLUGIN_LIST = {
@@ -468,9 +468,7 @@ NO_NODE = "node not found on PATH; the WakaTime plugin hooks require it"
 
 def make_node(path: Path) -> None:
     """A stand-in `node` that `which` accepts; it is never run."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    _ = path.write_text("#!/bin/sh\n", encoding="utf-8")
-    path.chmod(0o755)
+    _ = write_cli(path)
 
 
 # Test-only fake credentials; they never reach a WakaTime server.

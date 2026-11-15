@@ -18,14 +18,12 @@ from omadotfile.constants import LEGACY_OMO_CONFIG_NAMES, LEGACY_OPENAGENT_CONFI
 from omadotfile.core import proc
 from omadotfile.features import skills, wakatime
 from omadotfile.console import use_console
-from support import ROOT, Recorder, TestCase
+from support import ROOT, Recorder, TestCase, write_cli
 
 
-def make_executable(path: Path) -> None:
-    """Create a stand-in agent CLI that `which` will accept."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    _ = path.write_text("#!/bin/sh\n", encoding="utf-8")
-    path.chmod(0o755)
+def make_executable(path: Path) -> Path:
+    """Create a stand-in agent CLI that `which` will accept; the path `which` will return."""
+    return write_cli(path)
 
 
 class AgentDetectionTests(TestCase):
@@ -42,24 +40,24 @@ class AgentDetectionTests(TestCase):
 
     def test_path_executable_is_detected(self) -> None:
         # Given only codex on PATH.
-        make_executable(self.bin / "codex")
+        stub = make_executable(self.bin / "codex")
         # When each agent is resolved.
         codex = proc.find_executable("codex", self.env, self.home)
         opencode = proc.find_executable("opencode", self.env, self.home)
         # Then only codex resolves.
-        self.assertEqual(codex, self.bin / "codex")
+        self.assertEqual(codex, stub)
         self.assertIsNone(opencode)
 
     def test_the_run_env_path_wins_over_the_process_path(self) -> None:
         # Given codex on the process PATH only.
         process_bin = self.tmp / "process-bin"
-        make_executable(process_bin / "codex")
+        stub = make_executable(process_bin / "codex")
         with patch.dict(os.environ, {"PATH": str(process_bin)}):
             # Then neither lookup sees it, and an env without PATH gets os.defpath, not os.environ.
             self.assertIsNone(proc.find_executable("codex", self.env, self.home))
             self.assertIsNone(proc.on_path("codex", {}))
             # And it is found once the run's env lists it.
-            self.assertEqual(proc.on_path("codex", {"PATH": str(process_bin)}), process_bin / "codex")
+            self.assertEqual(proc.on_path("codex", {"PATH": str(process_bin)}), stub)
 
     def test_on_path_skips_the_per_user_bin_dirs(self) -> None:
         # Given node only under nvm, where detection looks but a hook's `env node` does not.
@@ -80,22 +78,22 @@ class AgentDetectionTests(TestCase):
                          ".nvm/versions/node/v24.11.1/bin/codex"):
             with self.subTest(relative=relative), tempfile.TemporaryDirectory() as tmp:
                 home = Path(tmp)
-                make_executable(home / relative)
+                stub = make_executable(home / relative)
                 # When the agent is resolved.
                 found = proc.find_executable(Path(relative).name, self.env, home)
                 # Then the known install location is searched too.
-                self.assertEqual(found, home / relative)
+                self.assertEqual(found, stub)
 
     def test_newest_nvm_node_wins(self) -> None:
         # Given the same CLI under several nvm versions; string order would pick v20 and
         # put v9 after v10.
-        for version in ("v9.11.2", "v10.0.0", "v20.13.1", "v24.11.1"):
-            make_executable(self.home / f".nvm/versions/node/{version}/bin/codex")
+        stubs = {version: make_executable(self.home / f".nvm/versions/node/{version}/bin/codex")
+                 for version in ("v9.11.2", "v10.0.0", "v20.13.1", "v24.11.1")}
         found = proc.find_executable("codex", self.env, self.home)
         nvm_dirs = [Path(d).parent.name for d in proc.extra_bin_search_path(self.home).split(os.pathsep)
                     if ".nvm" in d]
         # Then the newest install is used, as a fresh nvm shell would.
-        self.assertEqual(found, self.home / ".nvm/versions/node/v24.11.1/bin/codex")
+        self.assertEqual(found, stubs["v24.11.1"])
         self.assertEqual(nvm_dirs, ["v24.11.1", "v20.13.1", "v10.0.0", "v9.11.2"])
 
     def test_detect_targets_reads_every_agent(self) -> None:

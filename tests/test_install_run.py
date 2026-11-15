@@ -19,15 +19,15 @@ from unittest.mock import patch
 from omadotfile import cli
 from omadotfile.context import Context
 from omadotfile.features import skills
-from support import ROOT, Recorder, TestCase
+from support import ROOT, WINDOWS, Recorder, TestCase, link_cli, write_cli
 
-# Each stand-in records its argv in $STUB_LOG and its state in marker files.
-STUB_PRELUDE = f"""#!{sys.executable}
-import json, os, sys
+# Each stand-in records its argv in $STUB_LOG and its state in marker files. The stem drops
+# the .py of the script a Windows stand-in runs (see support.write_cli).
+STUB_PRELUDE = """import json, os, sys
 from pathlib import Path
 args = sys.argv[1:]
 with open(os.environ["STUB_LOG"], "a") as log:
-    log.write(json.dumps([Path(sys.argv[0]).name, *args]) + "\\n")
+    log.write(json.dumps([Path(sys.argv[0]).stem, *args]) + "\\n")
 """
 
 CODEX_STUB = STUB_PRELUDE + textwrap.dedent("""
@@ -68,7 +68,7 @@ NPX_STUB = STUB_PRELUDE + textwrap.dedent("""
     lock_path = Path(os.environ["XDG_STATE_HOME"]) / "skills" / ".skill-lock.json"
     lock = json.loads(lock_path.read_text()) if lock_path.exists() else {"skills": {}}
     for name in names:
-        dirs = [Path.home() / ".agents" / "skills"]
+        dirs = [Path(os.environ["HOME"]) / ".agents" / "skills"]
         if "claude-code" in agents:
             dirs.append(Path(os.environ["CLAUDE_CONFIG_DIR"]) / "skills")
         for directory in dirs:
@@ -94,13 +94,11 @@ class InstallRunTests(TestCase):
         bin_dir = self.root / "bin"
         bin_dir.mkdir()
         for name, script in (("codex", CODEX_STUB), ("claude", CLAUDE_STUB), ("npx", NPX_STUB)):
-            (bin_dir / name).write_text(script)
-            (bin_dir / name).chmod(0o755)
+            _ = write_cli(bin_dir / name, script)
         for name in ("opencode", "omo", "omp"):
-            (bin_dir / name).write_text("#!/bin/sh\n")
-            (bin_dir / name).chmod(0o755)
-        for name in ("git", "python3"):
-            (bin_dir / name).symlink_to(shutil.which(name))
+            _ = write_cli(bin_dir / name)
+        _ = link_cli(bin_dir / "git", shutil.which("git") or "git")
+        _ = link_cli(bin_dir / "python3", sys.executable)
         (self.home / ".config" / "tokscale").mkdir(parents=True)
         self.log = self.root / "stub.log"
         self.env = {
@@ -115,6 +113,12 @@ class InstallRunTests(TestCase):
             "GITHUB_PERSONAL_ACCESS_TOKEN": "test-pat",
             "WAKATIME_API_KEY": "test-wakatime-key",
         }
+        if WINDOWS:
+            # Python and cmd.exe need these to start; PATHEXT is how `which` finds the .cmd
+            # stand-ins; USERPROFILE is where Path.home() looks.
+            self.env |= {key: os.environ[key] for key in ("SYSTEMROOT", "COMSPEC", "PATHEXT", "TEMP", "TMP")
+                         if key in os.environ}
+            self.env["USERPROFILE"] = str(self.home)
         # The installer reads only the env passed to main; the process env is the sandbox too,
         # so anything that read os.environ instead would still not reach the real machine.
         self.enterContext(patch.dict(os.environ, self.env, clear=True))
@@ -184,7 +188,7 @@ class InstallRunTests(TestCase):
 
     def test_failing_agent_clis_are_warned_about_and_the_install_goes_on(self):
         for name in ("codex", "claude", "npx"):
-            (self.root / "bin" / name).write_text(FAILING_STUB)
+            _ = write_cli(self.root / "bin" / name, FAILING_STUB)
 
         _, printed = self.install()
 
