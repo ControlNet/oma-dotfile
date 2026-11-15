@@ -20,6 +20,7 @@ import argparse
 from collections.abc import Iterator, Mapping
 import hashlib
 import http.server
+import io
 import json
 import os
 from pathlib import Path
@@ -105,8 +106,9 @@ def install(*args: str) -> str:
             fail(f"{label} warned with every agent installed: {line}")
         elif line.startswith("[WARN]"):
             print(f"::warning::{label}: {line}", flush=True)
-    if options.clone and "Cloning " not in output:
-        fail(f"{label} did not clone the repository")
+    # Only a --repo checkout is named; pull.py's temporary clone is not.
+    if options.clone and "Using repository: " in output:
+        fail(f"{label} used a local checkout instead of cloning")
     if options.agents:
         check_detected(output, label)
     return output
@@ -377,6 +379,10 @@ def main() -> int:
     parser.add_argument("--agents", action="store_true", help="every agent CLI is installed on this machine")
     parser.add_argument("--clone", action="store_true", help="let pull.py clone the repo instead of --repo")
     _ = parser.parse_args(namespace=options)
+    # The CLIs print characters a Windows code page lacks; a log line is not worth a crash.
+    for stream in (sys.stdout, sys.stderr):
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(errors="replace")
     if not os.environ.get("CI"):
         print("Refusing to run: this writes to the real home directory; set CI=1 on a disposable machine.")
         return 2
