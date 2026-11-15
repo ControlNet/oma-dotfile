@@ -160,15 +160,15 @@ function formatErrorNotification(error) {
   );
 
   if (errorName && errorMessage) {
-    return `❌ ${escapeMarkdown(errorName)}: ${escapeMarkdown(errorMessage)}`;
+    return `❌ ${errorName}: ${errorMessage}`;
   }
 
   if (errorMessage) {
-    return `❌ ${escapeMarkdown(errorMessage)}`;
+    return `❌ ${errorMessage}`;
   }
 
   if (errorName) {
-    return `❌ ${escapeMarkdown(errorName)}`;
+    return `❌ ${errorName}`;
   }
 
   return "❌ Session encountered an error";
@@ -182,23 +182,6 @@ function extractAssistantText(msg) {
       .map((p) => p.text)
       .join("")
   );
-}
-
-function escapeMarkdown(s) {
-  const text = String(s ?? "");
-  const escapeSet = new Set([
-    "\\", "`", "*", "_", "~",
-    "[", "]", "(", ")",
-    "#", "+", "-", ".", "!",
-    ">", "|", "{", "}"
-  ]);
-
-  let out = "";
-  for (const ch of text) {
-    if (escapeSet.has(ch)) out += "\\" + ch;
-    else out += ch;
-  }
-  return out;
 }
 
 function toNonEmptyString(value) {
@@ -823,7 +806,7 @@ export const GotifyNotify = async ({ client, directory, worktree, project }) => 
       // The lookup and summary take time; skip if a new turn has started since.
       if (state?.cancelled) return;
       // Mark sent only on success, so a message Gotify rejected is retried on the next idle.
-      if (await gotifyPush(await notifyTitleForSession(sessionID), "✅ " + escapeMarkdown(body), reportDiagnostic)) {
+      if (await gotifyPush(await notifyTitleForSession(sessionID), "✅ " + body, reportDiagnostic)) {
         lastSent.set(sessionID, msgID);
       }
     }
@@ -904,7 +887,7 @@ export const GotifyNotify = async ({ client, directory, worktree, project }) => 
          if (input?.tool === "question" && NOTIFY_QUESTION) {
            const firstQuestion = output?.args?.questions?.[0];
            const questionText = firstQuestion?.question || firstQuestion?.header || "Question";
-            await gotifyPush(await notifyTitleForSession(input?.sessionID), "❓ " + escapeMarkdown(preview(questionText, HEAD, TAIL)), reportDiagnostic);
+            await gotifyPush(await notifyTitleForSession(input?.sessionID), "❓ " + preview(questionText, HEAD, TAIL), reportDiagnostic);
          }
        },
     };

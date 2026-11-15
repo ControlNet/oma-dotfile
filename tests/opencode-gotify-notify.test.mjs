@@ -116,3 +116,19 @@ test("a turn that starts while a completion is being prepared cancels it", async
 	// Then the previous turn's completion is not pushed.
 	assert.deepEqual(sent, []);
 });
+
+test("a completion is sent as plain text, without markdown escapes", async () => {
+	// Gotify shows plain text unless told otherwise, so escaping would show as backslashes.
+	const sent = [];
+	global.fetch = okFetch(sent);
+	const client = fakeClient();
+	client.session.messages = async () => ({
+		data: [{ info: { id: "msg-2", role: "assistant" }, parts: [{ type: "text", text: "Fixed foo.py (see README) - done." }] }],
+	});
+	const hooks = await GotifyNotify({ client, directory: home });
+
+	await hooks.event({ event: { type: "session.idle", properties: { sessionID: "ses-plain" } } });
+	await waitFor(() => sent.length === 1);
+
+	assert.deepEqual(sent, ["✅ Fixed foo.py (see README) - done."]);
+});

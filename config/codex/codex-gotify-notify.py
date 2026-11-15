@@ -241,36 +241,6 @@ def _preview(text: str, head: int, tail: int) -> str:
     return f"{normalized[:head]}...{normalized[-tail:]}"
 
 
-def _escape_markdown(text: str) -> str:
-    escape_set = {
-        "\\",
-        "`",
-        "*",
-        "_",
-        "~",
-        "[",
-        "]",
-        "(",
-        ")",
-        "#",
-        "+",
-        "-",
-        ".",
-        "!",
-        ">",
-        "|",
-        "{",
-        "}",
-    }
-    out = []
-    for ch in str(text):
-        if ch in escape_set:
-            out.append("\\" + ch)
-        else:
-            out.append(ch)
-    return "".join(out)
-
-
 def _parse_int(raw: str, fallback: int) -> int:
     try:
         return int(raw)
@@ -1242,14 +1212,14 @@ def _extract_message(payload: dict[str, object], include_prompt: bool) -> tuple[
             assistant = _payload_last_assistant_message(payload)
             if assistant:
                 preview = _preview(assistant, head, tail)
-                return "✅ " + _escape_markdown(preview), assistant
+                return "✅ " + preview, assistant
             if include_prompt:
                 prompts = _payload_input_messages(payload)
                 if prompts:
                     last_prompt = _extract_text_candidate(prompts[-1])
                     if last_prompt:
                         preview = _preview(last_prompt, head, tail)
-                        return "✅ " + _escape_markdown(preview), last_prompt
+                        return "✅ " + preview, last_prompt
             return "✅ Agent turn completed", ""
         return "", ""
 
@@ -1261,14 +1231,14 @@ def _extract_message(payload: dict[str, object], include_prompt: bool) -> tuple[
         question_text = _extract_text_candidate(_payload_get(payload, "tool_input", "args") or payload)
         if question_text:
             body = _preview(question_text, head, tail)
-            return "❓ " + _escape_markdown(body), ""
+            return "❓ " + body, ""
         return "❓ Question", ""
 
     if include_prompt:
         prompt = _extract_text_candidate(_payload_get(payload, "prompt") or _payload_input_messages(payload))
         if prompt:
             preview = _preview(prompt, head, tail)
-            return "✅ " + _escape_markdown(preview), ""
+            return "✅ " + preview, ""
 
     return "", ""
 
@@ -1426,7 +1396,7 @@ def main() -> int:
         _log_line(f"summarizer_attempt input_chars={len(summarize_source)}")
         summary = _summarize_with_llm(summarize_source)
         if summary:
-            message = "✅ " + _escape_markdown(summary)
+            message = "✅ " + summary
             _log_line("summarizer_applied")
         else:
             _log_line("summarizer_failed fallback=preview")

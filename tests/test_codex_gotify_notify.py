@@ -297,5 +297,44 @@ class CodexHomeTests(TestCase):
             self.assertEqual(notify._tui_log_path(), custom)
 
 
+class MessageTextTests(TestCase):
+    """What a completion says; the source scans, summarizer and delivery are mocked."""
+
+    def setUp(self):
+        self.enterContext(patch.dict(os.environ, {
+            "GOTIFY_URL": "https://gotify.invalid",
+            "GOTIFY_TOKEN_FOR_CODEX": "synthetic-test-only-not-a-credential",
+        }, clear=True))
+        self.enterContext(patch.object(notify, "_log_line"))
+        self.enterContext(patch.object(notify, "_is_codex_acp_process_tree", return_value=False))
+        self.enterContext(patch.object(notify, "_thread_source_flags", return_value={}))
+        self.enterContext(patch.object(notify, "_should_send", return_value=True))
+        self.push = self.enterContext(patch.object(notify, "_push_gotify"))
+        self.enterContext(patch.object(
+            notify.urllib.request, "urlopen",
+            side_effect=AssertionError("Network access is forbidden in this test"),
+        ))
+
+    def completion(self, assistant: str, prompt: str = "Fix the parser.") -> dict:
+        return {"type": "agent-turn-complete", "thread-id": "synthetic-thread",
+                "input-messages": [prompt], "last-assistant-message": assistant}
+
+    def sent(self, payload: dict) -> str:
+        with patch.object(sys, "argv", [str(SCRIPT), json.dumps(payload)]):
+            self.assertEqual(notify.main(), 0)
+        self.push.assert_called_once()
+        return self.push.call_args.args[3]
+
+    def test_a_preview_is_sent_as_plain_text(self):
+        # Gotify shows plain text unless told otherwise, so escaping shows as backslashes.
+        with patch.object(notify, "_summarize_with_llm", return_value=""):
+            message = self.sent(self.completion("Fixed foo.py (see README) - 3 tests pass."))
+        self.assertEqual(message, "✅ Fixed foo.py (see README) - 3 tests pass.")
+
+    def test_a_summary_is_sent_as_plain_text(self):
+        with patch.object(notify, "_summarize_with_llm", return_value="Fixed foo.py."):
+            self.assertEqual(self.sent(self.completion("Long answer.")), "✅ Fixed foo.py.")
+
+
 if __name__ == "__main__":
     unittest.main()
