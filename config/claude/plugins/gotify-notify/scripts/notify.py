@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 import hashlib
 import json
 import os
@@ -121,7 +122,9 @@ def claim(key: str) -> bool:
     path = state_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(path, timeout=2) as database:
+        # The connection's own `with` commits but does not close; an open file cannot be
+        # removed or replaced on Windows.
+        with closing(sqlite3.connect(path, timeout=2)) as database, database:
             database.execute(
                 "CREATE TABLE IF NOT EXISTS notifications "
                 "(key TEXT PRIMARY KEY, state TEXT NOT NULL, created_at INTEGER NOT NULL)"
@@ -149,7 +152,7 @@ def finish(key: str, sent: bool) -> None:
     if dedup_window() <= 0:
         return
     try:
-        with sqlite3.connect(state_path(), timeout=2) as database:
+        with closing(sqlite3.connect(state_path(), timeout=2)) as database, database:
             if sent:
                 database.execute(
                     "UPDATE notifications SET state = 'sent', created_at = ? WHERE key = ?",

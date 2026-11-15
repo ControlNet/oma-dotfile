@@ -38,6 +38,8 @@ class RecapNotificationTests(TestCase):
         self.enterContext(patch.dict(os.environ, {
             "GOTIFY_URL": "https://gotify.invalid",
             "GOTIFY_TOKEN_FOR_CODEX": "synthetic-test-only-not-a-credential",
+            # Not the real ~/.codex; with the env cleared, Windows has no home to fall back to.
+            "CODEX_HOME": self.enterContext(tempfile.TemporaryDirectory()),
         }, clear=True))
         self.log = self.enterContext(patch.object(notify, "_log_line"))
         self.process_scan = self.enterContext(
@@ -313,6 +315,8 @@ class MessageTextTests(TestCase):
         self.enterContext(patch.dict(os.environ, {
             "GOTIFY_URL": "https://gotify.invalid",
             "GOTIFY_TOKEN_FOR_CODEX": "synthetic-test-only-not-a-credential",
+            # Not the real ~/.codex; with the env cleared, Windows has no home to fall back to.
+            "CODEX_HOME": self.enterContext(tempfile.TemporaryDirectory()),
         }, clear=True))
         self.enterContext(patch.object(notify, "_log_line"))
         self.enterContext(patch.object(notify, "_is_codex_acp_process_tree", return_value=False))
