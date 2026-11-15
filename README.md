@@ -76,7 +76,11 @@ Installed with the [skills CLI](https://github.com/vercel-labs/skills) (`npx`, s
 needed) into `~/.agents/skills`, which OpenCode, OMO Native, OMP and Codex all read. Claude Code
 does not read it, so when Claude Code is found each skill is also linked into `~/.claude/skills`
 (replacing a same-named entry there), except `skill-creator` and `find-skills`, which overlap what
-Claude Code already has. The Antigravity CLI (`agy`) does not read it either: when `agy` is
+Claude Code already has. If you uploaded CCFA-Skills to claude.ai, the upload syncs into Claude Code
+as the plugin `ccfa-skills@synced`, so every `ccf-*` skill would show twice; once the linked copies
+are in place, that plugin is disabled in Claude Code (`claude plugin disable ccfa-skills@synced`,
+undo with `claude plugin enable ccfa-skills@synced`). The upload stays usable on claude.ai, and
+nothing happens when Claude Code does not list the plugin. The Antigravity CLI (`agy`) does not read it either: when `agy` is
 installed, an entry for `~/.agents/skills` is added to `~/.gemini/config/skills.json`, so it reads
 the skills in place, without copies, except `skill-creator` (its built-in `agy-customizations` skill
 already covers writing skills). Your other entries and exclusions in that file are kept.

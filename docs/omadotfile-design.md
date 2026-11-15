@@ -588,3 +588,13 @@ step adds one entry for the shared skills dir there (`ensure_agy_skills`), merge
 and `skill-creator` is excluded (agy's built-in `agy-customizations` covers it). The path is
 absolute because agy 1.5.4 rejects `~/` there despite its docs. agy alone (no other agent found)
 is enough to run the skills step. Nothing about agy is written or printed when it is missing.
+
+### Synced CCFA-Skills plugin (2026-11-15)
+
+A CCFA-Skills upload on claude.ai syncs into Claude Code as `ccfa-skills@synced`, duplicating the
+`ccf-*` skills the skills step links from `~/.agents/skills`. `CLAUDE_SYNCED_DUPLICATES` maps a
+skills source to such a plugin id; after a run that linked that source into Claude Code,
+`disable_synced_plugin` runs `claude plugin disable <id>` if Claude Code lists the plugin and
+settings.json does not already turn it off. A generic rule (disable any synced plugin whose
+skill names are linked) was rejected: an upload can be a newer or edited version. A source that
+was not linked keeps its plugin, so Claude Code is never left without the skills.

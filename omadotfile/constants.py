@@ -88,14 +88,20 @@ OMO_HERDR_DAG_VERSION = "1.7.0"
 # each skill in ~/.agents/.skill-lock.json, so `npx skills update -g` refreshes them too.
 SKILLS_CLI_VERSION = "1.7.6"
 ALL_SKILLS = "*"  # every skill the source has, including ones added upstream later
+CCFA_SKILLS_SOURCE = "mikubaka88/CCFA-Skills"
 UPSTREAM_SKILLS = {
     "vercel-labs/skills": ("find-skills",),
     "vercel-labs/agent-skills": ("web-design-guidelines",),
     "anthropics/skills": ("frontend-design", "skill-creator"),
     "nextlevelbuilder/ui-ux-pro-max-skill": ("ui-ux-pro-max",),
-    "mikubaka88/CCFA-Skills": (ALL_SKILLS,),
+    CCFA_SKILLS_SOURCE: (ALL_SKILLS,),
     "herdrdev/herdr": ("herdr",),
 }
+# A skills source uploaded to claude.ai syncs into Claude Code as a plugin with this id. Once
+# the same skills are linked from ~/.agents/skills, which keeps them current, the plugin is
+# disabled in Claude Code so each skill shows once; the upload stays on claude.ai. Only these
+# ids are touched, and only when Claude Code lists them.
+CLAUDE_SYNCED_DUPLICATES = {CCFA_SKILLS_SOURCE: "ccfa-skills@synced"}
 OWN_SKILLS_DIR = "skills"  # this repo's own skills, one dir with a SKILL.md each
 # Old name -> the skill that replaced it; the old copy goes once the new one is installed.
 RETIRED_SKILLS = {"frontend-claude": "frontend-design"}

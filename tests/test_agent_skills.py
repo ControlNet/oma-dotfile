@@ -276,6 +276,66 @@ class ClaudeCodeSkillTests(AgentSkillsHarness):
             self.assertNotIn("CLAUDE_CONFIG_DIR", call.args[0].pin)
 
 
+class SyncedCcfaPluginTests(AgentSkillsHarness):
+    """The CCFA-Skills plugin synced from a claude.ai upload duplicates the linked CCFA skills."""
+
+    PLUGIN = "ccfa-skills@synced"
+
+    def setUp(self):
+        super().setUp()
+        self.claude = self.tmp / "claude"
+        self.plugins: object = [{"id": "claude-code-wakatime@wakatime", "scope": "user", "enabled": True},
+                                {"id": self.PLUGIN, "scope": "synced", "enabled": False}]
+        self.replies["mikubaka88/CCFA-Skills"] = cli_reply(installed=("ccf-common", "ccf-paper-writer"))
+
+    def reply(self, runner, command):
+        if command[:3] == ["claude", "plugin", "list"]:
+            if isinstance(self.plugins, Exception):
+                raise self.plugins
+            return self.plugins
+        return super().reply(runner, command)
+
+    def install(self, claude: bool = True) -> Recorder:
+        with use_console(Recorder()) as printed:
+            skills.ensure_skills(self.ctx, self.legacy, self.claude if claude else None)
+        return printed
+
+    def disables(self) -> list[list[str]]:
+        return [call.args[1] for call in self.remove.call_args_list if call.args[1][:3] == ["claude", "plugin", "disable"]]
+
+    def test_the_synced_plugin_is_disabled_once_the_ccfa_skills_are_linked(self):
+        printed = self.install()
+        self.assertEqual(self.disables(), [["claude", "plugin", "disable", self.PLUGIN]])
+        self.assertIn(self.PLUGIN, " ".join(printed.of("item")))
+        disable = next(call for call in self.remove.call_args_list if call.args[1][:3] == ["claude", "plugin", "disable"])
+        self.assertEqual(disable.args[0].pin["CLAUDE_CONFIG_DIR"], str(self.claude))
+
+    def test_without_the_plugin_nothing_is_disabled(self):
+        self.plugins = [{"id": "claude-code-wakatime@wakatime", "scope": "user", "enabled": True}]
+        printed = self.install()
+        self.assertEqual(self.disables(), [])
+        self.assertNotIn(self.PLUGIN, printed.text)
+
+    def test_a_plugin_already_disabled_in_settings_is_left_alone(self):
+        self.claude.mkdir(parents=True)
+        (self.claude / "settings.json").write_text(json.dumps({"enabledPlugins": {self.PLUGIN: False}}))
+        printed = self.install()
+        self.assertEqual(self.disables(), [])
+        self.assertNotIn(self.PLUGIN, printed.text)
+
+    def test_nothing_is_disabled_unless_the_ccfa_skills_were_linked(self):
+        self.install(claude=False)  # not linked into Claude Code at all
+        self.replies["mikubaka88/CCFA-Skills"] = CommandFailed("clone failed")
+        self.install()  # the CCFA run failed, so the plugin is all Claude Code would have
+        self.assertEqual(self.disables(), [])
+
+    def test_a_failed_listing_is_warned_about_and_nothing_is_disabled(self):
+        self.plugins = CommandFailed("claude plugin list --json failed with exit code 1")
+        printed = self.install()
+        self.assertEqual(self.disables(), [])
+        self.assertIn("claude plugin list --json failed with exit code 1", printed.warnings)
+
+
 class RemovedSkillTests(AgentSkillsHarness):
     """Skills dropped from this repo are uninstalled from ~/.agents/skills."""
 

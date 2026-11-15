@@ -21,6 +21,7 @@ from omadotfile.constants import (
     AGY_SKILLS_CONFIG,
     ALL_SKILLS,
     CLAUDE_CODE_EXCLUDED_SKILLS,
+    CLAUDE_SYNCED_DUPLICATES,
     OWN_SKILLS_DIR,
     REMOVED_SKILLS,
     RETIRED_SKILLS,
@@ -264,6 +265,54 @@ def add_skills(cli: Runner, source: str, names: tuple[str, ...], agents: tuple[s
     return frozenset(installed_skill_names(cli.json(add_command(source, names, agents))))
 
 
+def plugin_ids(document: object) -> set[str]:
+    """The plugin ids in a `claude plugin list --json` reply; anything else lists none."""
+    if not isinstance(document, list):
+        return set()
+    return {entry["id"] for entry in document if isinstance(entry, dict) and isinstance(entry.get("id"), str)}
+
+
+def disabled_in(settings: Path, plugin_id: str) -> bool:
+    """Whether Claude Code's settings.json already turns plugin_id off.
+
+    `claude plugin list --json` cannot tell: it reports a synced plugin as not enabled
+    while it is still loaded.
+    """
+    try:
+        enabled = JSON.load(settings.read_text(encoding="utf-8")).get("enabledPlugins", {})
+    except (OSError, ValueError):
+        return False
+    return isinstance(enabled, dict) and enabled.get(plugin_id) is False
+
+
+@requires("claude", skip=None)
+@skips
+def disable_synced_plugin(ctx: Context, cli: Runner, claude_dir: Path, plugin_id: str, source: str) -> None:
+    """Disable plugin_id, the claude.ai upload of source, if Claude Code lists it.
+
+    One already off in settings.json is left alone and not listed again.
+    """
+    if disabled_in(claude_dir / "settings.json", plugin_id):
+        return
+    if plugin_id not in plugin_ids(cli.json(["claude", "plugin", "list", "--json"])):
+        return
+    cli.run(["claude", "plugin", "disable", plugin_id])
+    item(f"disabled {plugin_id} (synced from claude.ai; {source} is linked from ~/.agents/skills)")
+
+
+def disable_synced_duplicates(ctx: Context, cli: Runner, claude_dir: Path,
+                              runs: Iterable[tuple[Install, InstallResult]]) -> None:
+    """Disable the synced plugins whose source this install just linked into Claude Code.
+
+    A source that was not linked (excluded, failed) keeps its plugin, so Claude Code is never
+    left without those skills.
+    """
+    for (source, _, agents), result in runs:
+        plugin_id = CLAUDE_SYNCED_DUPLICATES.get(source)
+        if plugin_id is not None and "claude-code" in agents and result.done:
+            disable_synced_plugin(ctx, cli, claude_dir, plugin_id, source)
+
+
 def unchanged_summary(unchanged: list[frozenset[str]]) -> str:
     """One line for every source left as it was: '26 skills from 8 sources unchanged'."""
     skill_count, source_count = sum(len(names) for names in unchanged), len(unchanged)
@@ -313,6 +362,8 @@ def ensure_skills(ctx: Context, legacy_skill_dirs: list[Path], claude_dir: Path 
     if unchanged:
         item(unchanged_summary(unchanged))
     write_commits(ctx, recorded_commits(results))
+    if claude_dir is not None:
+        disable_synced_duplicates(ctx, cli, claude_dir, zip(installs, results))
     remove_legacy_skill_copies(legacy_skill_dirs, set[str]().union(*(result.done for result in results)))
 
 
