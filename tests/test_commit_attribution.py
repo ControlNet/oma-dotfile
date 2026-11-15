@@ -172,6 +172,30 @@ class HookBehaviourTests(TestCase):
         self.assertEqual(message.read_text(encoding="utf-8"),
                          "Fix the thing\n\nBody line.\nCo-Authored-By: Alice <alice@example.com>\n")
 
+    def run_hook(self, content: bytes) -> tuple[int, bytes]:
+        message = Path(self.enterContext(tempfile.TemporaryDirectory())) / "COMMIT_EDITMSG"
+        _ = message.write_bytes(content)
+        result = subprocess.run([str(HOOK), str(message)], capture_output=True)
+        return result.returncode, message.read_bytes()
+
+    def test_a_message_without_attribution_is_left_byte_for_byte(self):
+        # Form feed, U+2028, NEL, CRLF and trailing blank lines are the user's to keep.
+        content = "Subject\r\n\r\nform\ffeed, line sep, next\u0085line\n\n\n".encode("utf-8")
+        self.assertEqual(self.run_hook(content), (0, content))
+
+    def test_bytes_that_are_not_utf8_pass_through(self):
+        # `git commit -v` puts the staged diff below the scissors line; it may be in any encoding.
+        scissors = b"# ------------------------ >8 ------------------------\n"
+        diff = b"+caf\xe9\n+Co-Authored-By: Claude <noreply@anthropic.com>\n"
+        content = (b"Caf\xe9 fix\n\nCo-Authored-By: Claude Opus <noreply@anthropic.com>\n\n"
+                   + scissors + diff)
+        self.assertEqual(self.run_hook(content), (0, b"Caf\xe9 fix\n" + scissors + diff))
+
+    def test_a_missing_message_file_does_not_block_the_commit(self):
+        missing = Path(self.enterContext(tempfile.TemporaryDirectory())) / "absent"
+        result = subprocess.run([str(HOOK), str(missing)], capture_output=True)
+        self.assertEqual(result.returncode, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

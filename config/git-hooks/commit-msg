@@ -1,34 +1,48 @@
 #!/usr/bin/env python3
+"""Drop Claude Code attribution lines from a commit message.
+
+Installed into the global core.hooksPath, so it runs for every commit on the machine. It
+must never block one: any error leaves the message as it is and exits 0. It works on bytes,
+since the message (and the diff `git commit -v` adds below the scissors line) may be in any
+encoding, and it rewrites the file only when it dropped a line.
+"""
 
 from pathlib import Path
 import re
 import sys
 
-path = Path(sys.argv[1])
-lines = path.read_text().splitlines()
-
-patterns = [
-    re.compile(
-        r"^Co-Authored-By:\s*Claude\b.*<[^>]*anthropic\.com>\s*$",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"^🤖?\s*Generated with \[Claude Code\].*$",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"^Claude-Session:\s*https://claude\.ai/code/session_.*$",
-        re.IGNORECASE,
-    ),
+PATTERNS = [
+    re.compile(rb"^Co-Authored-By:\s*Claude\b.*<[^>]*anthropic\.com>\s*$", re.IGNORECASE),
+    re.compile(rb"^(?:\xf0\x9f\xa4\x96)?\s*Generated with \[Claude Code\].*$", re.IGNORECASE),
+    re.compile(rb"^Claude-Session:\s*https://claude\.ai/code/session_.*$", re.IGNORECASE),
 ]
+# `git commit -v`: git drops this line and everything below it.
+SCISSORS = re.compile(rb"^\S* -+ >8 -+\r?$")
 
-lines = [
-    line
-    for line in lines
-    if not any(pattern.match(line) for pattern in patterns)
-]
 
-while lines and not lines[-1].strip():
-    lines.pop()
+def strip_attribution(content: bytes) -> bytes:
+    lines = content.split(b"\n")
+    end = next((idx for idx, line in enumerate(lines) if SCISSORS.match(line)), len(lines))
+    message = [line for line in lines[:end] if not any(pattern.match(line) for pattern in PATTERNS)]
+    if len(message) == end:
+        return content
+    while message and not message[-1].strip():
+        message.pop()
+    rest = lines[end:] if end < len(lines) else [b""]
+    return b"\n".join([*message, *rest])
 
-path.write_text("\n".join(lines) + "\n")
+
+def main(argv: list[str]) -> int:
+    try:
+        path = Path(argv[1])
+        content = path.read_bytes()
+        stripped = strip_attribution(content)
+        if stripped != content:
+            path.write_bytes(stripped)
+    except Exception as error:  # never block a commit
+        print(f"commit-msg: attribution not stripped ({type(error).__name__})", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
