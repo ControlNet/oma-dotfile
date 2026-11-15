@@ -222,12 +222,40 @@ def provider_edit(options: Options, env: Mapping[str, str], /) -> Callable[[list
     return partial(ensure_api_provider, codex_base_url=codex_base_url)
 
 
-def config_transform(ctx: Context, codex_dir: Path, note: Note = warn) -> Callable[[list[str]], list[str]]:
+Edit = Callable[[list[str]], list[str]]
+
+
+def kept_valid(edit: Edit, what: str, note: Note = warn) -> Edit:
+    """`edit`, dropped (and noted) when it would break a config.toml that parsed before.
+
+    The line editors cannot see every TOML shape, e.g. a provider written as an inline
+    table, where appending its [table] would declare it twice and Codex would not start.
+    """
+
+    def apply(lines: list[str]) -> list[str]:
+        new_lines = edit(lines)
+        if toml_edit.parses(lines) is True and not toml_edit.parses(new_lines):
+            note(f"Could not set {what} in Codex config.toml without breaking it; set it by hand")
+            return lines
+        return new_lines
+
+    return apply
+
+
+def without_bom(lines: list[str]) -> list[str]:
+    """Lines without a leading byte order mark, which hides the first line's table header."""
+    if lines and lines[0].startswith("﻿"):
+        return [lines[0][1:], *lines[1:]]
+    return lines
+
+
+def config_transform(ctx: Context, codex_dir: Path, note: Note = warn) -> Edit:
     """The edit this run makes to config.toml's lines: notify, shared skills, then provider."""
-    set_provider = provider_edit(ctx)
+    set_notify = kept_valid(partial(ensure_notify, codex_dir=codex_dir, python_bin=ctx.python), "notify", note)
+    set_provider = kept_valid(provider_edit(ctx), "the model provider", note)
 
     def configure(lines: list[str]) -> list[str]:
-        lines = ensure_notify(lines, codex_dir, ctx.python)
+        lines = set_notify(without_bom(lines))
         lines = ensure_shared_skills_disabled(lines, ctx.shared_skills_dir, note)
         return set_provider(lines)
 

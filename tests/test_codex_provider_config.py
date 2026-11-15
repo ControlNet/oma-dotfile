@@ -256,5 +256,38 @@ class CodexSharedSkillOverrideTests(TestCase):
         self.assertEqual(saved["skills"]["config"], [{"path": shared, "enabled": False}])
 
 
+@requires_tomllib
+class CodexConfigFileTests(TestCase):
+    """Whole ensure_config runs on files a user could have written."""
+
+    def install(self, original: str) -> dict:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / "config.toml"
+            _ = config.write_text(original, encoding="utf-8")
+            codex.ensure_config(make_context(Path(tmp), env=GATEWAY_ENV, stamp="file-test"), Path(tmp))
+            return tomllib.loads(config.read_text(encoding="utf-8"))
+
+    def test_an_inline_provider_is_kept_and_the_user_told(self) -> None:
+        # Appending [model_providers.codex_api] would declare it twice: Codex could not start.
+        for original in ('[model_providers]\ncodex_api = { name = "mine", base_url = "http://x" }\n',
+                         'model_providers.codex_api.name = "mine"\n'):
+            with self.subTest(original=original):
+                saved = self.install(original)
+                self.assertEqual(saved["model_providers"]["codex_api"]["name"], "mine")
+                self.assertIn("notify", saved)
+                self.assertEqual(len(self.console.warnings), 1)
+                self.assertIn("by hand", self.console.warnings[0])
+                self.console.lines.clear()
+
+    def test_a_byte_order_mark_does_not_push_notify_into_a_table(self) -> None:
+        saved = self.install('﻿[features]\nx = true\n')
+        self.assertEqual(saved["features"], {"x": True})
+        self.assertEqual(saved["model_provider"], "codex_api")
+        self.assertIn("notify", saved)
+
+    def test_a_line_separator_inside_a_string_stays_in_it(self) -> None:
+        self.assertEqual(self.install('instructions = "a b\u0085c"\n')["instructions"], "a b\u0085c")
+
+
 if __name__ == "__main__":
     unittest.main()

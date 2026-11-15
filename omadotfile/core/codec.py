@@ -7,6 +7,7 @@ is a small class of staticmethods, and the module constants below are the instan
 """
 
 import json
+import re
 from typing import Any, Protocol, TypeVar, cast
 
 from omadotfile.core.jsonc import loads_jsonc_object
@@ -71,7 +72,10 @@ class JsoncObjectCodec:
 class LinesCodec:
     @staticmethod
     def load(text: str) -> list[str]:
-        return text.splitlines()
+        """Lines split at \\n (and \\r\\n) only: str.splitlines also breaks at U+2028, U+0085
+        and form feeds, which may sit inside a string value."""
+        lines = re.split(r"\r?\n", text)
+        return lines[:-1] if lines[-1] == "" else lines
 
     @staticmethod
     def dump(value: list[str]) -> str:
