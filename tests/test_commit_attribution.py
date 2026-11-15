@@ -109,8 +109,7 @@ class GitHookTests(TestCase):
         git = Path(shutil.which("git") or "git").resolve()
         if WINDOWS:
             # The dir Git for Windows puts on PATH; its git.exe adds Git's own sh for hooks.
-            root = git.parents[2] if git.parent.name == "bin" else git.parent.parent
-            return str(root / "cmd")
+            return str(next(root / "cmd" for root in git.parents if (root / "cmd" / "git.exe").is_file()))
         bare = Path(self.enterContext(tempfile.TemporaryDirectory()))
         (bare / "git").symlink_to(git)
         return str(bare)

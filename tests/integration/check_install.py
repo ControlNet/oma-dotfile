@@ -240,9 +240,8 @@ def check_commit_hook(output: str) -> None:
 
 
 def git_cmd_dir(git: Path) -> Path:
-    """Git for Windows' cmd dir, from its git.exe in cmd, mingw64\\bin or usr\\bin."""
-    root = git.parents[2] if git.parent.name == "bin" else git.parent.parent
-    return root / "cmd"
+    """Git for Windows' cmd dir, from any of its git.exe (cmd, bin, mingw64\\bin)."""
+    return next((root / "cmd" for root in git.parents if (root / "cmd" / "git.exe").is_file()), git.parent)
 
 
 def path_without_python(bare_bin: Path) -> str:
@@ -255,6 +254,8 @@ def path_without_python(bare_bin: Path) -> str:
     else:
         (bare_bin / "git").symlink_to(git)
         path = str(bare_bin)
+    if not shutil.which("git", path=path):
+        fail(f"{path} for the Python-less commit has no git on it")
     for python in ("python3", "python"):
         if shutil.which(python, path=path):
             fail(f"{path} for the Python-less commit has {python} on it")
@@ -356,8 +357,8 @@ class GotifyStandIn(http.server.ThreadingHTTPServer):
         return f"http://127.0.0.1:{self.server_address[1]}"
 
 
-def run_hook(what: str, command: list[str], gotify: GotifyStandIn, payload: str | None = None) -> None:
-    """Run an installed hook the way its agent does and expect one message at the stand-in."""
+def run_hook(what: str, command: list[str], gotify: GotifyStandIn, expected: str, payload: str | None = None) -> None:
+    """Run an installed hook the way its agent does and expect one message, with `expected` in it."""
     executable = Path(command[0])
     # The agents start hooks without a shell, so a bare `python3` would depend on PATH.
     if not executable.is_absolute() or not executable.is_file():
@@ -373,8 +374,12 @@ def run_hook(what: str, command: list[str], gotify: GotifyStandIn, payload: str 
     sent = gotify.messages[before:]
     if [(path, key) for path, key, _ in sent] != [("/message", GOTIFY_TEST_TOKEN)]:
         fail(f"{what} posted {sent} instead of one message")
-    else:
-        print(f"{what} posted: {sent[0][2]}", flush=True)
+        return
+    text = str(sent[0][2].get("message"))
+    if expected not in text:
+        fail(f"{what} posted {text!r}, without {expected!r}")
+    # ascii(): the log shows each character as sent, not as the code page can print it.
+    print(f"{what} posted: {ascii(sent[0][2])}", flush=True)
 
 
 def check_notify_hooks() -> None:
@@ -385,7 +390,7 @@ def check_notify_hooks() -> None:
         hooks = json.loads((plugin / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
         hook = hooks["Stop"][0]["hooks"][0]
         command = [hook["command"], *(arg.replace("${CLAUDE_PLUGIN_ROOT}", str(plugin)) for arg in hook.get("args", []))]
-        run_hook("the Claude Code Stop hook", command, gotify, json.dumps({
+        run_hook("the Claude Code Stop hook", command, gotify, "Response finished: CI checked the Stop hook.", json.dumps({
             "hook_event_name": "Stop", "session_id": "ci-session", "prompt_id": "ci-prompt",
             "cwd": str(ROOT), "last_assistant_message": "CI checked the Stop hook."}))
 
@@ -398,7 +403,8 @@ def check_notify_hooks() -> None:
         notify = json.loads(line.removeprefix("notify = "))
         run_hook("the Codex notify command", [*notify, json.dumps({
             "type": "agent-turn-complete", "thread-id": "ci-thread", "input-messages": ["check"],
-            "last-assistant-message": "CI checked the notify command."})], gotify)
+            "last-assistant-message": "CI checked the notify command."})], gotify,
+            "\u2705 CI checked the notify command.")
     finally:
         gotify.shutdown()
 
