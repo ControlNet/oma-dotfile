@@ -73,6 +73,41 @@ class MergeTests(TestCase):
             """)
         self.assertEqual(yaml_merge.merge(existing, managed), managed)
 
+    def test_comments_and_blank_lines_in_a_mapping_keep_the_users_keys(self):
+        existing = yaml("""
+            modelRoles:
+              # mine
+              default: custom/x
+
+              extra: custom/y
+            # about the theme
+            theme:
+              dark: old
+            """)
+        managed = yaml("""
+            modelRoles:
+              default: codex_api/a
+              slow: codex_api/b
+            theme:
+              dark: titanium
+            """)
+        self.assertEqual(yaml_merge.merge(existing, managed), yaml("""
+            modelRoles:
+              # mine
+              default: codex_api/a
+
+              extra: custom/y
+              slow: codex_api/b
+            # about the theme
+            theme:
+              dark: titanium
+            """))
+
+    def test_comments_before_the_first_key_are_kept(self):
+        existing = "# my notes\n\ntheme:\n  dark: old\n"
+        self.assertEqual(yaml_merge.merge(existing, "theme:\n  dark: titanium\n"),
+                         "# my notes\n\ntheme:\n  dark: titanium\n")
+
     def test_existing_order_is_kept_and_new_keys_go_last(self):
         existing = yaml("""
             b: 1
