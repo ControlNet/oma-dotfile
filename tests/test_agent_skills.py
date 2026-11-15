@@ -168,6 +168,17 @@ class EnsureAgentSkillsTests(AgentSkillsHarness):
         self.assertEqual(not_installed.read_text(encoding="utf-8"), "kept\n")
         self.assertIn("ui-ux-pro-max", output)
 
+    def test_an_agent_skills_dir_linked_to_the_shared_dir_is_left_alone(self):
+        # Given codex/skills is a symlink to ~/.agents/skills, where the CLI installs.
+        self.legacy[1].parent.mkdir(parents=True)
+        self.shared.mkdir(parents=True)
+        self.legacy[1].symlink_to(self.shared, target_is_directory=True)
+        installed = write_skill(self.shared, "find-skills")
+        self.replies = {"vercel-labs/skills": cli_reply(installed=("find-skills",))}
+        self.run_install()
+        # Then the shared copy is not removed through the link.
+        self.assertTrue(installed.is_file())
+
     def test_whole_repo_source_reports_what_it_installed(self):
         self.replies = {"mikubaka88/CCFA-Skills": cli_reply(installed=("ccf-common", "ccf-paper-writer"))}
         output = self.run_install()

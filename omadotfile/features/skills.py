@@ -210,13 +210,16 @@ def legacy_copy_names(installed: set[str]) -> list[str]:
 
 @migration(since="2026-11", reason="per-agent skill copies from before ~/.agents/skills",
            remove_by="2027-11")
-def remove_legacy_skill_copies(skill_dirs: list[Path], installed: set[str]) -> None:
-    """Remove per-agent copies of skills that are now installed in ~/.agents/skills.
+def remove_legacy_skill_copies(skill_dirs: list[Path], installed: set[str], shared: Path) -> None:
+    """Remove per-agent copies of skills that are now installed in `shared` (~/.agents/skills).
 
     Agents read both places, so a leftover copy would load twice. Only names that were
     just installed (or retired in favour of one) and skills this repo dropped are touched.
+    An agent dir that is `shared` itself, through a symlink, holds no copies: it is skipped.
     """
-    for path in (skill_dir / name for skill_dir in skill_dirs for name in legacy_copy_names(installed)):
+    shared = shared.resolve()
+    agent_dirs = [skill_dir for skill_dir in skill_dirs if skill_dir.resolve() != shared]
+    for path in (skill_dir / name for skill_dir in agent_dirs for name in legacy_copy_names(installed)):
         if path.is_symlink() or path.is_file():
             path.unlink()
         elif path.is_dir():
@@ -364,7 +367,8 @@ def ensure_skills(ctx: Context, legacy_skill_dirs: list[Path], claude_dir: Path 
     write_commits(ctx, recorded_commits(results))
     if claude_dir is not None:
         disable_synced_duplicates(ctx, cli, claude_dir, zip(installs, results))
-    remove_legacy_skill_copies(legacy_skill_dirs, set[str]().union(*(result.done for result in results)))
+    remove_legacy_skill_copies(legacy_skill_dirs, set[str]().union(*(result.done for result in results)),
+                               ctx.shared_skills_dir)
 
 
 def with_skills_entry(path: str, exclude: tuple[str, ...], document: JsonObject) -> JsonObject:
