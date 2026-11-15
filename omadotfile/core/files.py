@@ -84,15 +84,17 @@ class Files:
         """Write content to dst unless it is already there; `mode` applies to a new file."""
         dst.parent.mkdir(parents=True, exist_ok=True)
         # Bytes, so a file that is not UTF-8 is replaced (and backed up) instead of raising.
+        # Written with newline="\n" so the bytes match on Windows too, where text mode
+        # would write \r\n and every run would rewrite (and back up) the file.
         if dst.exists() and dst.read_bytes() == content.encode("utf-8"):
             return False
         if backup:
             self.backup(dst)
         if mode is None:
-            _ = dst.write_text(content, encoding="utf-8")
+            _ = dst.write_text(content, encoding="utf-8", newline="\n")
         else:
             fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
                 _ = handle.write(content)
         self.changed.append(dst)
         return True

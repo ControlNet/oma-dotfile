@@ -117,6 +117,17 @@ def compare(before: Mapping[str, str], after: Mapping[str, str], what: str) -> N
         fail(f"{what} changed {path}")
 
 
+def check_quiet(output: str, what: str) -> None:
+    """A run lists only what it changed, so a rerun lists nothing but unchanged summaries.
+
+    This also catches a file rewritten with the same bytes, which a snapshot cannot see
+    (each rewrite of a user file also leaves a backup).
+    """
+    for line in output.splitlines():
+        if re.match(r" {9}- ", line) and not line.endswith(" unchanged"):
+            fail(f"{what} changed something:{line[8:]}")
+
+
 def check_expected_files() -> None:
     for key, names in EXPECTED.items():
         for name in names:
@@ -192,14 +203,14 @@ def main() -> int:
     check_parses()
     check_skills()
     check_commit_hook(first)
-    install()
+    check_quiet(install(), "a second gateway install")
     compare(gateway, snapshot(), "a second gateway install")
 
     install("--oauth")
     oauth = snapshot()
     check_expected_files()
     check_parses()
-    install("--oauth")
+    check_quiet(install("--oauth"), "a second --oauth install")
     compare(oauth, snapshot(), "a second --oauth install")
 
     install()

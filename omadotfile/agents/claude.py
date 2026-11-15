@@ -56,7 +56,7 @@ def stage_plugin(work: Path, python: str, /, src_dir: Path) -> Path:
     hooks = staged / "hooks" / "hooks.json"
     # The plugin's scripts import from this Python's standard library only; run them with it.
     document = with_hook_command(JSON.load(hooks.read_text(encoding="utf-8")), python)
-    _ = hooks.write_text(JSON.dump(document), encoding="utf-8")
+    _ = hooks.write_text(JSON.dump(document), encoding="utf-8", newline="\n")
     return staged
 
 
