@@ -76,7 +76,7 @@ CLAUDE_PLUGINS_DIR = "config/claude/plugins"  # each plugin dir goes to <config>
 # Empty strings hide Claude Code's own commit and PR attribution.
 CLAUDE_ATTRIBUTION = {"commit": "", "pr": ""}
 # Drops Claude attribution lines from every commit; installed into the global core.hooksPath.
-COMMIT_MSG_HOOK = "config/git-hooks/commit-msg"
+COMMIT_MSG_HOOK = "config/git-hooks/commit-msg.py"
 
 TOKSCALE_MODEL_ALIASES = "config/tokscale/model-aliases.json"
 

@@ -119,13 +119,16 @@ already covers writing skills). Your other entries and exclusions in that file a
 When Claude Code is found, commits and PRs carry no Claude attribution:
 
 - `settings.json` gets `"attribution": {"commit": "", "pr": ""}`; other settings are kept.
-- `config/git-hooks/commit-msg` goes into the global `core.hooksPath` dir, which is set to
+- `config/git-hooks/commit-msg.py` goes into the global `core.hooksPath` dir, which is set to
   `~/.config/git/hooks` when unset. It drops `Co-Authored-By: Claude …@anthropic.com`,
   `Generated with [Claude Code]` and `Claude-Session:` lines, including ones an agent writes into the
-  message itself. A different `commit-msg` there is backed up first.
+  message itself. The `commit-msg` hook there is a small sh script that runs it with the Python
+  that ran the installer, so a commit made with no `python3` on `PATH` (a GUI client, the Windows
+  Store alias) still goes through; if that Python is gone, the hook says so and lets the commit
+  through. A different `commit-msg` there is backed up first.
   - With `core.hooksPath` set, git skips each repo's own `.git/hooks`. With git-lfs, run
     `git lfs install` once so its hooks go into that dir too.
-  - A relative `core.hooksPath` is left alone, and nothing is installed when `python3` is not on `PATH`.
+  - A relative `core.hooksPath` is left alone.
   - Repos that set their own `core.hooksPath` (such as husky) do not use this hook.
 
 ## OMP Gotify notifications

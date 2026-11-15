@@ -30,7 +30,7 @@ config/                    what gets installed, one dir per agent laid out like 
   codex/                   codex-gotify-notify.py
   claude/                  plugins/ (each one installed as a skill dir)
   tokscale/                model-aliases.json
-  git-hooks/               commit-msg
+  git-hooks/               commit-msg.py
 skills/                    this repo's own skills, installed with the skills CLI
 omadotfile/
   __init__.py
@@ -510,7 +510,7 @@ what it needs from the Context or as a parameter:
 
 - PATH lookups use the run's env: `find_executable(name, env, home)` (PATH, then per-user bin
   dirs) to find an agent CLI, `on_path(name, env)` (PATH only) for what a hook's shebang will
-  find (`python3` for the commit-msg hook, `node` for the WakaTime hooks). An env without PATH
+  find (`node` for the WakaTime hooks; the commit-msg hook runs `ctx.python` instead). An env without PATH
   gets `os.defpath`; `shutil.which(path=None)` would have fallen back to `os.environ`.
 - git runs through `ctx.runner`: `Runner.run` gained `check=False` (`git config --get` exits 1
   for an unset key) and a per-call `timeout` (`git ls-remote` keeps 30 s). A missing git now

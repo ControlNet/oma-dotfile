@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Drop Claude Code attribution lines from a commit message.
 
-Installed into the global core.hooksPath, so it runs for every commit on the machine. It
+Installed into the global core.hooksPath and run by the commit-msg sh wrapper the installer
+writes next to it, so it runs for every commit on the machine. It
 must never block one: any error leaves the message as it is and exits 0. It works on bytes,
 since the message (and the diff `git commit -v` adds below the scissors line) may be in any
 encoding, and it rewrites the file only when it dropped a line.

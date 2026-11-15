@@ -239,12 +239,19 @@ def check_commit_hook(output: str) -> None:
         check_commit("Check the hook without Python on PATH", {**os.environ, "PATH": path_without_python(Path(bare_bin))})
 
 
+def git_cmd_dir(git: Path) -> Path:
+    """Git for Windows' cmd dir, from its git.exe in cmd, mingw64\\bin or usr\\bin."""
+    root = git.parents[2] if git.parent.name == "bin" else git.parent.parent
+    return root / "cmd"
+
+
 def path_without_python(bare_bin: Path) -> str:
     """A PATH with git on it and no Python."""
     git = Path(shutil.which("git") or "git").resolve()
     if sys.platform == "win32":
-        # Git for Windows finds its own sh for hooks; its cmd dir holds git and no Python.
-        path = str(git.parent)
+        # The dir Git for Windows puts on PATH: its git.exe adds Git's own sh for hooks, and it
+        # holds no Python. (Git's mingw64\\bin alone cannot start a hook at all.)
+        path = str(git_cmd_dir(git))
     else:
         (bare_bin / "git").symlink_to(git)
         path = str(bare_bin)

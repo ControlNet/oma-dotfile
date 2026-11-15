@@ -102,26 +102,51 @@ def global_hooks_dir(runner: Runner, home: Path, /) -> Path | None:
     return hooks_dir
 
 
+def sh_quoted(value: str) -> str:
+    return "'" + value.replace("'", "'\\''") + "'"
+
+
+def commit_msg_wrapper(python: str, script: Path) -> str:
+    """The commit-msg hook git runs: the script, run by this Python, never blocking a commit.
+
+    Not `#!/usr/bin/env python3`: a GUI client, an IDE or cron may commit with no python3 on
+    PATH, and on Windows python3 is often only the Store's alias, which exits non-zero; git
+    refuses the commit either way. Paths are written with / for Git for Windows' sh.
+    """
+    return f"""#!/bin/sh
+# Installed by oma-dotfile: drops Claude attribution lines with the script below, run by the
+# Python that installed it. It never blocks a commit.
+python={sh_quoted(Path(python).as_posix())}
+script={sh_quoted(script.as_posix())}
+if [ ! -f "$python" ] || [ ! -f "$script" ]; then
+    echo "oma-dotfile commit-msg hook: $python or $script is missing; rerun pull.py" >&2
+    exit 0
+fi
+"$python" "$script" "$@" || :
+exit 0
+"""
+
+
 def ensure_commit_msg_hook(ctx: Context) -> None:
     """Install the commit-msg hook that drops Claude attribution lines from every commit.
 
     Git has no global hooks dir unless core.hooksPath is set, so it is set to
-    ~/.config/git/hooks when missing; an existing value is kept and used.
+    ~/.config/git/hooks when missing; an existing value is kept and used. The hook is a sh
+    wrapper (commit_msg_wrapper) around commit-msg.py, a name git never runs as a hook.
     """
     src = ctx.repo / COMMIT_MSG_HOOK
     if not src.is_file():
         warn(f"Source file not found: {src}")
         return
-    if ctx.runner.on_path("python3") is None:
-        # The hook runs through `#!/usr/bin/env python3`; without it every commit would fail.
-        warn("python3 not found on PATH; commit-msg hook not installed")
-        return
     hooks_dir = global_hooks_dir(ctx)
     if hooks_dir is None:
         return
+    script = hooks_dir / src.name
     dst = hooks_dir / "commit-msg"
-    if ctx.files.copy(src, dst):
-        item(f"{dst} (drops Claude attribution lines)")
+    if ctx.files.copy(src, script):
+        item(f"{script} (drops Claude attribution lines)")
+    if ctx.files.write_text(dst, commit_msg_wrapper(ctx.python, script)):
+        item(f"{dst} (runs {src.name} with {ctx.python})")
     dst.chmod(dst.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 

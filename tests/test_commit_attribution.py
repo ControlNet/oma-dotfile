@@ -7,6 +7,7 @@ directories. Git runs for real, but against a temporary global config and HOME.
 import json
 import os
 from pathlib import Path
+import shutil
 import stat
 import subprocess
 import sys
@@ -20,7 +21,8 @@ from omadotfile.core.proc import Runner
 from omadotfile.console import use_console
 from support import ROOT, WINDOWS, Recorder, TestCase, make_context
 
-HOOK = ROOT / "config" / "git-hooks" / "commit-msg"
+HOOK = ROOT / "config" / "git-hooks" / "commit-msg.py"
+ATTRIBUTION = "Claude-Session: https://claude.ai/code/session_example"
 
 
 def quiet(function, *args):
@@ -87,10 +89,31 @@ class GitHookTests(TestCase):
         self.enterContext(patch.dict(os.environ, env))
         os.environ.pop("XDG_CONFIG_HOME", None)
 
-    def install(self) -> str:
+    def install(self, python: str = sys.executable) -> str:
         # A fresh context per run, like each install run, with the env it would snapshot.
-        ctx = make_context(self.home, env=dict(os.environ), backup=True, stamp="test")
+        ctx = make_context(self.home, env=dict(os.environ), backup=True, stamp="test", python=python)
         return quiet(claude.ensure_commit_msg_hook, ctx)
+
+    def commit(self, path: str | None = None) -> tuple[subprocess.CompletedProcess[str], str]:
+        """Commit in a new repo through the installed hook; the result and the message kept."""
+        repo = self.enterContext(tempfile.TemporaryDirectory())
+        env = dict(os.environ) if path is None else {**os.environ, "PATH": path}
+        git = ["git", "-C", repo, "-c", "user.name=T", "-c", "user.email=t@example.invalid"]
+        subprocess.run([*git, "init", "-q"], check=True)
+        result = subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", f"Subject\n\n{ATTRIBUTION}"],
+                                capture_output=True, text=True, env=env)
+        message = subprocess.run([*git, "log", "-1", "--format=%B"], capture_output=True, text=True).stdout
+        return result, message
+
+    def path_with_only_git(self) -> str:
+        git = Path(shutil.which("git") or "git").resolve()
+        if WINDOWS:
+            # The dir Git for Windows puts on PATH; its git.exe adds Git's own sh for hooks.
+            root = git.parents[2] if git.parent.name == "bin" else git.parent.parent
+            return str(root / "cmd")
+        bare = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (bare / "git").symlink_to(git)
+        return str(bare)
 
     def hooks_path(self) -> str:
         return subprocess.run(["git", "config", "--global", "--get", "core.hooksPath"],
@@ -100,7 +123,14 @@ class GitHookTests(TestCase):
         subprocess.run(["git", "config", "--global", "core.hooksPath", value], check=True)
 
     def assert_installed(self, hook: Path) -> None:
-        self.assertEqual(hook.read_bytes(), HOOK.read_bytes())
+        # The hook git runs is a sh wrapper; the Python script next to it does the work.
+        script = hook.with_name("commit-msg.py")
+        self.assertEqual(script.read_bytes(), HOOK.read_bytes())
+        wrapper = hook.read_text(encoding="utf-8")
+        self.assertTrue(wrapper.startswith("#!/bin/sh\n"))
+        self.assertIn(f"'{Path(sys.executable).as_posix()}'", wrapper)
+        self.assertIn(f"'{script.as_posix()}'", wrapper)
+        self.assertNotIn(b"\r", hook.read_bytes())  # Git's sh on Windows reads CRLF as part of the command
         if not WINDOWS:  # no execute bit there; Git for Windows runs the hook through sh
             self.assertTrue(hook.stat().st_mode & stat.S_IXUSR)
 
@@ -145,13 +175,24 @@ class GitHookTests(TestCase):
         self.assertFalse((self.home / ".githooks").exists())
         self.assertIn(".githooks", output)
 
-    def test_without_python3_the_hook_is_not_installed(self):
-        # The hook runs through `#!/usr/bin/env python3`; without it every commit would fail.
+    def test_a_commit_goes_through_without_python_on_path(self):
+        # A GUI client, an IDE or cron may commit with no python3 on PATH, and on Windows
+        # python3 is often only the Store's alias; the hook runs the Python that installed it.
         with patch.object(Runner, "on_path", return_value=None):
-            output = self.install()
-        self.assertEqual(self.hooks_path(), "")
-        self.assertFalse((self.home / ".config").exists())
-        self.assertIn("python3", output)
+            self.install()
+        result, message = self.commit(self.path_with_only_git())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(message.strip(), "Subject")
+
+    def test_a_missing_interpreter_never_blocks_a_commit(self):
+        # Quotes and spaces in the path survive the wrapper's quoting.
+        gone = str(self.home / "it's gone" / "python")
+        self.install(python=gone)
+        result, message = self.commit()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(ATTRIBUTION, message)
+        self.assertIn("rerun pull.py", result.stderr)
+        self.assertIn(Path(gone).as_posix(), result.stderr)
 
     def test_without_git_nothing_happens(self):
         with patch.object(proc.subprocess, "run", side_effect=FileNotFoundError("git")):
@@ -160,7 +201,6 @@ class GitHookTests(TestCase):
         self.assertIn("git", output)
 
 
-@unittest.skipIf(sys.platform == "win32", "the hook runs through its python3 shebang")
 class HookBehaviourTests(TestCase):
     def test_claude_attribution_lines_are_dropped_and_the_rest_kept(self):
         message = Path(self.enterContext(tempfile.TemporaryDirectory())) / "COMMIT_EDITMSG"
@@ -169,14 +209,14 @@ class HookBehaviourTests(TestCase):
             "Co-Authored-By: Claude Opus <noreply@anthropic.com>\n"
             "🤖 Generated with [Claude Code](https://claude.com/claude-code)\n"
             "Claude-Session: https://claude.ai/code/session_example\n\n", encoding="utf-8")
-        subprocess.run([str(HOOK), str(message)], check=True)
+        subprocess.run([sys.executable, str(HOOK), str(message)], check=True)
         self.assertEqual(message.read_text(encoding="utf-8"),
                          "Fix the thing\n\nBody line.\nCo-Authored-By: Alice <alice@example.com>\n")
 
     def run_hook(self, content: bytes) -> tuple[int, bytes]:
         message = Path(self.enterContext(tempfile.TemporaryDirectory())) / "COMMIT_EDITMSG"
         _ = message.write_bytes(content)
-        result = subprocess.run([str(HOOK), str(message)], capture_output=True)
+        result = subprocess.run([sys.executable, str(HOOK), str(message)], capture_output=True)
         return result.returncode, message.read_bytes()
 
     def test_a_message_without_attribution_is_left_byte_for_byte(self):
@@ -194,7 +234,7 @@ class HookBehaviourTests(TestCase):
 
     def test_a_missing_message_file_does_not_block_the_commit(self):
         missing = Path(self.enterContext(tempfile.TemporaryDirectory())) / "absent"
-        result = subprocess.run([str(HOOK), str(missing)], capture_output=True)
+        result = subprocess.run([sys.executable, str(HOOK), str(missing)], capture_output=True)
         self.assertEqual(result.returncode, 0)
 
 

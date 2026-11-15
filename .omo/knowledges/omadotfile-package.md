@@ -42,7 +42,7 @@ config dir). Older notes use the root names from before 2026-11-07:
 | `codex-gotify-notify.py` | `config/codex/codex-gotify-notify.py` |
 | `claude-plugins/` | `config/claude/plugins/` |
 | `tokscale_model_alias.json` | `config/tokscale/model-aliases.json` |
-| `git-hooks/commit-msg` | `config/git-hooks/commit-msg` |
+| `git-hooks/commit-msg` | `config/git-hooks/commit-msg.py` |
 
 Things worth knowing when changing it:
 
