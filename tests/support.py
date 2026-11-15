@@ -95,6 +95,12 @@ class TestCase(unittest.TestCase):
         with use_console(Recorder()) as self.console:
             return super().run(result)
 
+    def assertMode(self, path: Path, mode: int) -> None:
+        """path's permission bits are mode. Windows keeps only a read-only flag, so there is
+        nothing to compare there."""
+        if not WINDOWS:
+            self.assertEqual(path.stat().st_mode & 0o777, mode)
+
     if sys.version_info < (3, 11):
         def enterContext(self, cm: AbstractContextManager[T]) -> T:
             result = cm.__enter__()

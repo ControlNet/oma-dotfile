@@ -498,7 +498,7 @@ class WakatimeConfigTests(TestCase):
         # Then a [settings] section holds both values and only the owner can read it.
         self.assertEqual(self.cfg.read_text(encoding="utf-8"),
                          f"[settings]\napi_url = {FAKE_URL}\napi_key = {FAKE_KEY}\n")
-        self.assertEqual(self.cfg.stat().st_mode & 0o777, 0o600)
+        self.assertMode(self.cfg, 0o600)
         # And the key is never printed.
         self.assertNotIn(FAKE_KEY, printed.text)
 
@@ -532,7 +532,7 @@ class WakatimeConfigTests(TestCase):
             ".* = https://other.example.invalid|other-key\n",
         )
         # And a readable file becomes owner-only once it holds the key, with no backup.
-        self.assertEqual(self.cfg.stat().st_mode & 0o777, 0o600)
+        self.assertMode(self.cfg, 0o600)
         self.assertEqual(list(self.tmp.glob(".wakatime.cfg.bak-*")), [])
 
     def test_key_only_leaves_api_url_alone(self) -> None:
@@ -549,7 +549,7 @@ class WakatimeConfigTests(TestCase):
         self.cfg.chmod(0o644)
         self.ensure(WAKATIME_API_URL=FAKE_URL)
         # Then its mode is left as the user set it.
-        self.assertEqual(self.cfg.stat().st_mode & 0o777, 0o644)
+        self.assertMode(self.cfg, 0o644)
 
     def test_missing_settings_section_is_appended(self) -> None:
         self.cfg.write_text("[git]\nsubmodules_disabled = true\n", encoding="utf-8")
@@ -572,7 +572,7 @@ class WakatimeConfigTests(TestCase):
         self.cfg.chmod(0o644)
         self.ensure(WAKATIME_API_URL=FAKE_URL, WAKATIME_API_KEY=FAKE_KEY)
         # Then rerunning makes it owner-only even though its content does not change.
-        self.assertEqual(self.cfg.stat().st_mode & 0o777, 0o600)
+        self.assertMode(self.cfg, 0o600)
 
     def test_line_break_in_value_is_rejected(self) -> None:
         # Given a value that would inject another INI line.

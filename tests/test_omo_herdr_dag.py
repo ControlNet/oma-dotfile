@@ -36,7 +36,8 @@ def write_tree(root: Path, files: dict[str, str]) -> None:
     for name, text in files.items():
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        # LF on Windows too, as the packed files have.
+        path.write_text(text, encoding="utf-8", newline="\n")
 
 
 def write_tgz(path: Path, members: dict[str, str]) -> Path:
@@ -197,7 +198,7 @@ class EnsureTests(TestCase):
         self.assertEqual(pack[:3], ["npm", "pack", f"omo-herdr-dag@{OMO_HERDR_DAG_VERSION}"])
         (install,) = self.installs()
         self.assertEqual(install[0], "node")
-        self.assertTrue(install[1].endswith("package/bin/omo-herdr-dag.mjs"))
+        self.assertEqual(Path(install[1]).parts[-3:], ("package", "bin", "omo-herdr-dag.mjs"))
         self.assertEqual(install[2:], ["install", "--agent-dir", str(self.agent)])
         self.assertNotIn("--lang", install)
         self.assertEqual(self.pins, [{"OMO_CODING_AGENT_DIR": str(self.agent)}] * 2)

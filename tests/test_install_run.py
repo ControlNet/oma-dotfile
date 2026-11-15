@@ -194,7 +194,9 @@ class InstallRunTests(TestCase):
 
         self.assertTrue([line for line in printed.of("info") if line.startswith("[9/9] ")])
         self.assertIn("Installation complete!", printed.of("success"))
-        warnings = [line.replace(str(self.root / "bin"), "BIN") for line in printed.warnings]
+        # BIN/codex for <bin>/codex, and for <bin>\\codex.CMD as `which` reports it on Windows.
+        stand_in = re.compile(re.escape(str(self.root / "bin")) + r"[\\/]([\w-]+)(?:\.cmd)?\b", re.IGNORECASE)
+        warnings = [stand_in.sub(r"BIN/\1", line) for line in printed.warnings]
         wakatime = "https://github.com/wakatime"
         skill_warnings = [line for line in warnings if "npx" in line or "installed from" in line]
         self.assertEqual([line for line in warnings if line not in skill_warnings

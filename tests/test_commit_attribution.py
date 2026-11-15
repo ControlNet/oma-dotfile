@@ -18,7 +18,7 @@ from omadotfile.agents import claude
 from omadotfile.core import proc
 from omadotfile.core.proc import Runner
 from omadotfile.console import use_console
-from support import ROOT, Recorder, TestCase, make_context
+from support import ROOT, WINDOWS, Recorder, TestCase, make_context
 
 HOOK = ROOT / "config" / "git-hooks" / "commit-msg"
 
@@ -101,7 +101,8 @@ class GitHookTests(TestCase):
 
     def assert_installed(self, hook: Path) -> None:
         self.assertEqual(hook.read_bytes(), HOOK.read_bytes())
-        self.assertTrue(hook.stat().st_mode & stat.S_IXUSR)
+        if not WINDOWS:  # no execute bit there; Git for Windows runs the hook through sh
+            self.assertTrue(hook.stat().st_mode & stat.S_IXUSR)
 
     def test_unset_hooks_path_is_set_to_the_default_dir(self):
         default = self.home / ".config" / "git" / "hooks"
