@@ -195,7 +195,10 @@ def git(*args: str) -> tuple[int, str]:
         r = subprocess.run(
             ["git", *args],
             capture_output=True,
-            text=True,
+            # Git prints paths as UTF-8. The locale's encoding (cp1252 on Windows) would
+            # garble non-ASCII names, `git show` would not find them, and they went unscanned.
+            encoding="utf-8",
+            errors="surrogateescape",
             timeout=30,
         )
         return r.returncode, r.stdout.strip()
