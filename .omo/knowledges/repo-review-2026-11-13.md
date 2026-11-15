@@ -3,8 +3,13 @@
 Read-only deep review of the installer package, `pull.py`, the commit-msg hook, the Gotify
 notifiers (Codex, Claude Code, OpenCode, OMP), the OMP WakaTime sync, the env-remover plugin and
 the secret-guard scanner. Python suite: 367 tests pass; `node --test tests/*.test.mjs`: 36 pass.
-Nothing was fixed in this pass. Reproductions ran in throwaway dirs and repos with
-`GIT_CONFIG_GLOBAL` pointed at a scratch file.
+Reproductions ran in throwaway dirs and repos with `GIT_CONFIG_GLOBAL` pointed at a scratch file.
+
+**Status (2026-11-15):** items 1–11 and the lower ones up to "`_json_post` does not catch
+UnicodeDecodeError" are fixed, each with a regression test (`git log --grep` the item's subject;
+Python 399 tests, node 38). Still open by choice: the triple `_thread_source_flags` scan, unpruned
+OpenCode Maps, the pinned `sys.executable`, the gateway `codex` provider kept after `--oauth`, and
+OMP `gpt-6-astra`. A machine gets the fixes only after rerunning `pull.py`.
 
 ## Findings, most severe first
 
