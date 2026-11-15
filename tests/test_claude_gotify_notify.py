@@ -193,7 +193,7 @@ class PluginInstallTests(TestCase):
             unrelated.parent.mkdir(parents=True)
             unrelated.write_text("Synthetic user skill", encoding="utf-8")
             ctx = make_context(Path(directory) / "home", repo=ROOT, work=Path(directory) / "work")
-            with use_console(Recorder()):
+            with use_console(Recorder()) as recorder:
                 claude.install_plugins(ctx, target)
                 claude.install_plugins(ctx, target)
             plugin = target / "skills" / "gotify-notify"
@@ -211,8 +211,9 @@ class PluginInstallTests(TestCase):
                     self.assertEqual(handler["command"], sys.executable)
                     self.assertEqual(handler["args"], ["${CLAUDE_PLUGIN_ROOT}/scripts/notify.py"])
             self.assertTrue((plugin / "scripts" / "notify.py").is_file())
-            # The second install found the plugin unchanged and wrote nothing.
+            # The second install found the plugin unchanged, wrote nothing and said nothing.
             self.assertEqual(ctx.files.changed, [plugin])
+            self.assertEqual(recorder.of("success"), [f"Installed Claude Code plugin: {plugin}"])
             self.assertFalse(list(plugin.rglob("__pycache__")))
 
 if __name__ == "__main__":

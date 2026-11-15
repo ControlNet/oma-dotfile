@@ -5,6 +5,7 @@ the lines themselves. When tomllib is there it checks values and results; withou
 scanners do the same job for the common cases.
 """
 
+from itertools import takewhile
 import json
 import re
 
@@ -216,7 +217,11 @@ def replace_toml_section(lines: list[str], section_name: str, section_lines: lis
         return [*lines, *section_lines]
 
     section_end = next((idx for idx in headers if idx > section_start), len(lines))
-    return [*lines[:section_start], *section_lines, *lines[section_end:]]
+    # Keep the blank lines that separate it from the next table (Codex appends its own tables).
+    separator = list(takewhile(lambda line: not line.strip(), reversed(lines[section_start:section_end])))
+    if section_lines and not section_lines[-1].strip():
+        separator = []
+    return [*lines[:section_start], *section_lines, *separator, *lines[section_end:]]
 
 
 def toml_basic_string(value: str) -> str:

@@ -41,8 +41,8 @@ def install_plugin(ctx: Context, src_dir: Path, dst_dir: Path) -> None:
     staged = stage_plugin(ctx, src_dir)
     if staged is None:
         return
-    ctx.files.replace_tree(staged, dst_dir)
-    success(f"Installed Claude Code plugin: {dst_dir}")
+    if ctx.files.replace_tree(staged, dst_dir):
+        success(f"Installed Claude Code plugin: {dst_dir}")
 
 
 @uses(work_of, python_of)

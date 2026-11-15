@@ -59,6 +59,15 @@ class TomlFallbackTests(TestCase):
         self.assertEqual(toml_edit.replace_toml_section(lines, "real", ["[real]", "y = 2"]),
                          ['x = """', "[fake]", '"""', "[real]", "y = 2"])
 
+    def test_a_replaced_section_keeps_the_blank_line_before_the_next(self) -> None:
+        # Given a section followed by a blank line and a table another tool appended.
+        lines = ["[real]", "y = 1", "", "[plugins.x]", "enabled = true"]
+        # When the section is replaced, the separator stays and the result is stable.
+        replaced = toml_edit.replace_toml_section(lines, "real", ["[real]", "y = 1"])
+        self.assertEqual(replaced, lines)
+        self.assertEqual(toml_edit.replace_toml_section(lines, "real", ["[real]", "y = 2"]),
+                         ["[real]", "y = 2", "", "[plugins.x]", "enabled = true"])
+
     def test_multiline_string_may_end_with_extra_quotes(self) -> None:
         # Given multiline strings ending in four and five quotes (one and two in the content).
         for ending in ('""""', '"""""', "''''", "'''''"):
