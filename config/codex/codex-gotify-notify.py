@@ -319,7 +319,7 @@ def _json_post(
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout_sec) as response:
-            payload = response.read().decode("utf-8")
+            payload = response.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as exc:
         try:
             detail = exc.read().decode("utf-8", errors="replace")
@@ -1398,6 +1398,12 @@ def main() -> int:
         _log_line(f"run_skip reason=no_message event={event_type}")
         return 0
 
+    # Before summarizing: a repeat of this event is dropped without an LLM call, and the key is
+    # the event's own text, which (unlike a summary) is the same each time.
+    if not _should_send(payload, message):
+        _log_line("run_skip reason=dedup")
+        return 0
+
     if summarize_source:
         _log_line(f"summarizer_attempt input_chars={len(summarize_source)}")
         summary = _summarize_with_llm(summarize_source)
@@ -1415,9 +1421,6 @@ def main() -> int:
     )
     if max_chars <= 0:
         max_chars = DEFAULT_MAX_CHARS
-    if not _should_send(payload, message):
-        _log_line("run_skip reason=dedup")
-        return 0
     title = _build_notify_title("Codex", payload)
     message = _truncate(message, max_chars)
 

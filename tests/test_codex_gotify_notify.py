@@ -103,6 +103,15 @@ class RecapNotificationTests(TestCase):
         self.summary.assert_called_once()
         self.push.assert_called_once()
 
+    def test_a_duplicate_event_is_dropped_before_it_is_summarized(self):
+        # Given the same event was just sent: the summarizer may word it differently each time,
+        # so the check must key on the event's own text and run first.
+        self.dedup.return_value = False
+        self.run_event("Summarize our conversation.", assistant="Investigation complete.")
+        self.assertIn("Investigation complete.", self.dedup.call_args.args[1])
+        self.summary.assert_not_called()
+        self.push.assert_not_called()
+
     def test_quoted_recap_prompt_still_notifies(self):
         self.run_event("Explain this internal prompt:\n" + RECAP_PROMPT)
         self.push.assert_called_once()
