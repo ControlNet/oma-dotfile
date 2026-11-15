@@ -12,7 +12,7 @@ from contextvars import ContextVar
 from pathlib import Path
 import re
 import sys
-from typing import Literal, Protocol, TypeVar
+from typing import Literal, Protocol, TextIO, TypeVar
 
 # Where a config transform reports what it could not do: `warn` in a run, `list.append` in a
 # test. Passing it keeps the transform free of print calls of its own.
@@ -77,9 +77,23 @@ class Terminal:
             # Flush first: stdout is block-buffered when piped, stderr is not, so without
             # this a warning overtakes the line it belongs to.
             sys.stdout.flush()
-            print(PREFIXES[level] + text, file=sys.stderr, flush=True)
+            self.write(sys.stderr, PREFIXES[level] + text)
+            sys.stderr.flush()
         else:
-            print(PREFIXES[level] + text)
+            self.write(sys.stdout, PREFIXES[level] + text)
+
+    @staticmethod
+    def write(stream: TextIO, text: str) -> None:
+        """Print text, with `?` for what the stream's encoding lacks.
+
+        Windows encodes redirected output with the ANSI code page (cp1252 for English), which
+        has no box-drawing characters; a strict stream would end the run at the banner.
+        """
+        try:
+            print(text, file=stream)
+        except UnicodeEncodeError:
+            encoding = stream.encoding or "ascii"
+            print(text.encode(encoding, errors="replace").decode(encoding), file=stream)
 
 
 class HomeAsTilde:

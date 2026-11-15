@@ -108,6 +108,15 @@ class TerminalTests(TestCase):
             terminal.emit("success", "done")
         self.assertIn("done", out.getvalue())
 
+    def test_characters_the_stream_cannot_encode_are_replaced(self):
+        # Windows encodes redirected output as cp1252, which has no box-drawing characters.
+        for redirect, level in ((contextlib.redirect_stdout, "text"), (contextlib.redirect_stderr, "warn")):
+            stream = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+            with redirect(stream):
+                Terminal().emit(level, "╔═╗ café")
+            stream.flush()
+            self.assertIn(b"??? caf\xe9", stream.buffer.getvalue())
+
 
 class HomeAsTildeTests(TestCase):
     def shown(self, home: str, text: str) -> str:
