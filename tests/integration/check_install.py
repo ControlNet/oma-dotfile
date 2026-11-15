@@ -127,8 +127,10 @@ def config_dir(key: str) -> Path:
 
 
 def hooks_dir() -> Path | None:
+    # Git prints UTF-8; text=True would decode with the Windows code page and garble a home
+    # such as "Zoë Example" (the installer's Runner decodes UTF-8 too).
     result = subprocess.run(["git", "config", "--global", "--type=path", "--get", "core.hooksPath"],
-                            capture_output=True, text=True, check=False)
+                            capture_output=True, encoding="utf-8", errors="replace", check=False)
     return Path(result.stdout.strip()) if result.returncode == 0 and result.stdout.strip() else None
 
 
@@ -219,7 +221,8 @@ def check_commit_hook(output: str) -> None:
     with tempfile.TemporaryDirectory() as repo, tempfile.TemporaryDirectory() as bare_bin:
         def git(*args: str, env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess[str]:
             return subprocess.run(["git", "-C", repo, "-c", "user.name=CI", "-c", "user.email=ci@example.invalid",
-                                   *args], capture_output=True, text=True, env=env, check=False)
+                                   *args], capture_output=True, encoding="utf-8", errors="replace", env=env,
+                                  check=False)
 
         def check_commit(subject: str, env: Mapping[str, str] | None = None) -> None:
             result = git("commit", "-q", "--allow-empty", "-m", f"{subject}\n\n{ATTRIBUTION}", env=env)
