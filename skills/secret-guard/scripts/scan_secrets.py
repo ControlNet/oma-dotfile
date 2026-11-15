@@ -61,6 +61,16 @@ SENSITIVE_FILES = [
 ]
 
 # ── Content patterns: (label, regex) ────────────────────────────────
+
+# What follows a password/secret name: `=` or `:` (after an optional closing quote, as in
+# JSON), then either a quoted value of 8+ characters that is not a reference such as
+# "${VAR}", or an unquoted token of 16+ characters holding a letter and a digit, so that
+# names (settings.API_KEY_NAME), None and plain counts do not match.
+ASSIGNED_VALUE = (
+    r"""["']?\s*[=:]\s*"""
+    r"""(?:["'](?![$<{%])[^\s"']{8,}["']"""
+    r"""|(?![$<{%])(?=[\w\-./+=]*\d)(?=[\w\-./+=]*[A-Za-z])[\w\-./+=]{16,})"""
+)
 # Tuned for high signal: require specific prefixes, formats, or entropy.
 
 CONTENT_PATTERNS = [
@@ -94,7 +104,7 @@ CONTENT_PATTERNS = [
     ("Stripe Secret Key", r"sk_live_[A-Za-z0-9]{24,}"),
     ("Stripe Restricted Key", r"rk_live_[A-Za-z0-9]{24,}"),
     # Twilio
-    ("Twilio API Key", r"SK[a-f0-9]{32}"),
+    ("Twilio API Key", r"\bSK[a-f0-9]{32}\b"),
     # SendGrid
     ("SendGrid API Key", r"SG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}"),
     # Private keys
@@ -109,14 +119,9 @@ CONTENT_PATTERNS = [
     # Database connection strings
     ("Database URL", r"(?:postgres|mysql|mongodb|redis|amqp|mssql)://[^\s'\"]{10,}"),
     # Generic assignments
-    (
-        "Password Assignment",
-        r"""(?:password|passwd|pwd)\s*[=:]\s*["'][^\s"']{8,}["']""",
-    ),
-    (
-        "Secret Assignment",
-        r"""(?:secret|token|api_key|apikey|api[-_]?secret)\s*[=:]\s*["'][^\s"']{8,}["']""",
-    ),
+    # Any case (OPENAI_API_KEY), quoted or not (.env, shell, YAML, INI, JSON keys).
+    ("Password Assignment", r"(?i)(?:password|passwd|pwd)\b" + ASSIGNED_VALUE),
+    ("Secret Assignment", r"(?i)(?:secret|token|api[-_]?key|apikey|api[-_]?secret)\b" + ASSIGNED_VALUE),
     (
         "Authorization Header",
         r"Authorization:\s*(?:Bearer|Basic|Token)\s+[A-Za-z0-9_.+/=\-]{20,}",
@@ -147,7 +152,12 @@ CONTENT_PATTERNS = [
     # AI providers
     ("OpenAI API Key (legacy)", r"sk-[A-Za-z0-9]{20}T3BlbkFJ[A-Za-z0-9]{20}"),
     ("OpenAI API Key (project)", r"sk-proj-[A-Za-z0-9_\-]{40,}"),
+    ("OpenAI API Key (service account)", r"sk-(?:svcacct|admin)-[A-Za-z0-9_\-]{40,}"),
     ("Anthropic API Key", r"sk-ant-[A-Za-z0-9_\-]{80,}"),
+    ("Hugging Face Token", r"\bhf_[A-Za-z0-9]{34,}\b"),
+    # Other services
+    ("Notion Token", r"\b(?:ntn_[A-Za-z0-9]{40,}|secret_[A-Za-z0-9]{43})\b"),
+    ("WakaTime API Key", r"\bwaka_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"),
 ]
 
 # Pre-compile for performance

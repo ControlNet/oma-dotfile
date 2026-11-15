@@ -72,5 +72,46 @@ class StagedScanTests(TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
 
 
+def fake(prefix: str, body: str, repeat: int) -> str:
+    """A test-only, non-functional token of a provider's shape, assembled at run time so no
+    token-shaped literal sits in the repo (GitHub push protection rejects those)."""
+    return prefix + body * repeat
+
+
+class ContentPatternTests(TestCase):
+    """Lines a scan must flag or pass; all values are fake and assembled at run time."""
+
+    def labels(self, text: str) -> str:
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "sample.txt").write_text(text, encoding="utf-8")
+            result = subprocess.run([sys.executable, str(SCANNER), "path", tmp], capture_output=True,
+                                    text=True, timeout=60, env={**os.environ, "TERM": "dumb"})
+        return result.stdout
+
+    def test_assignments_are_found_in_any_case_and_without_quotes(self) -> None:
+        value = fake("", "Zq7x", 6)
+        for line in (f'OPENAI_API_KEY = "{value}"', f"export GOTIFY_TOKEN={value}",
+                     f"api_key: {value}", f"[settings]\napi_key = {value}", f'DB_PASSWORD="{value}"'):
+            with self.subTest(line=line):
+                self.assertRegex(self.labels(line + "\n"), r"\[(Secret|Password) Assignment\]")
+
+    def test_provider_tokens_are_found(self) -> None:
+        for label, token in (
+            ("Notion Token", fake("ntn" + "_", "Ab3d", 12)),
+            ("Hugging Face Token", fake("hf" + "_", "Ab3d", 9)),
+            ("WakaTime API Key", "waka" + "_" + "0a1b2c3d-0a1b-4c5d-8e9f-0a1b2c3d4e5f"),
+            ("OpenAI API Key (service account)", fake("sk" + "-svcacct-", "Ab3d", 12)),
+        ):
+            with self.subTest(label=label):
+                self.assertIn(f"[{label}]", self.labels(f"value {token}\n"))
+
+    def test_names_references_and_counts_are_not_secrets(self) -> None:
+        for line in ("password = None", "max_tokens: 128000000000000000", "api_key = settings.API_KEY_NAME",
+                     'token = "${GITHUB_TOKEN}"', "token_count = 1234567890123456",
+                     "uuid " + fake("ASK", "0a1b2c3d", 4)):
+            with self.subTest(line=line):
+                self.assertIn("No secrets detected", self.labels(line + "\n"))
+
+
 if __name__ == "__main__":
     unittest.main()

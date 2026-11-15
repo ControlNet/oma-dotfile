@@ -53,7 +53,7 @@ Patterns used by `<skill-dir>/scripts/scan_secrets.py`, where `<skill-dir>` is t
 | Slack Webhook | `hooks.slack.com/services/T.../B.../...` | |
 | Stripe Secret Key | `sk_live_[A-Za-z0-9]{24,}` | |
 | Stripe Restricted Key | `rk_live_[A-Za-z0-9]{24,}` | |
-| Twilio API Key | `SK[a-f0-9]{32}` | |
+| Twilio API Key | `\bSK[a-f0-9]{32}\b` | |
 | SendGrid API Key | `SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}` | |
 | Discord Bot Token | `[MN][A-Za-z0-9]{23,}\.....\....` | |
 | Telegram Bot Token | `[0-9]{8,}:AA[A-Za-z0-9_-]{33}` | |
@@ -64,7 +64,16 @@ Patterns used by `<skill-dir>/scripts/scan_secrets.py`, where `<skill-dir>` is t
 |-------|---------|---------|
 | OpenAI API Key (legacy) | `sk-[A-Za-z0-9]{20}T3BlbkFJ[A-Za-z0-9]{20}` | |
 | OpenAI API Key (project) | `sk-proj-[A-Za-z0-9_-]{40,}` | sk-proj-abcdef... |
+| OpenAI API Key (service account) | `sk-(svcacct\|admin)-[A-Za-z0-9_-]{40,}` | |
 | Anthropic API Key | `sk-ant-[A-Za-z0-9_-]{80,}` | |
+| Hugging Face Token | `\bhf_[A-Za-z0-9]{34,}\b` | |
+
+### Other Services
+
+| Label | Pattern | Example |
+|-------|---------|---------|
+| Notion Token | `ntn_[A-Za-z0-9]{40,}` or legacy `secret_[A-Za-z0-9]{43}` | |
+| WakaTime API Key | `waka_` + UUID | |
 
 ### Crypto / Auth
 
@@ -82,12 +91,14 @@ Patterns used by `<skill-dir>/scripts/scan_secrets.py`, where `<skill-dir>` is t
 | Label | Pattern | Example |
 |-------|---------|---------|
 | Database URL | `(postgres\|mysql\|mongodb\|redis\|amqp\|mssql)://[^\s]{10,}` | postgres://user:pass@host/db |
-| Password Assignment | `(password\|passwd\|pwd)\s*[=:]\s*\S{8,}` | password = "hunter2" |
-| Secret Assignment | `(secret\|token\|api_key\|apikey\|api[-_]?secret)\s*[=:]\s*\S{8,}` | api_key = "abc123..." |
+| Password Assignment | Any case: `(password\|passwd\|pwd)\b` + assigned value (below) | DB_PASSWORD="hunter22" |
+| Secret Assignment | Any case: `(secret\|token\|api[-_]?key\|apikey\|api[-_]?secret)\b` + assigned value | OPENAI_API_KEY=abc123... |
 | Authorization Header | `Authorization:\s*(Bearer\|Basic\|Token)\s+[A-Za-z0-9_.+/=-]{20,}` | |
 | Heroku API Key | Context-gated: requires `HEROKU_API_KEY` prefix + UUID | HEROKU_API_KEY=12345678-... |
 | Doppler Token | `dp\.st\.[A-Za-z0-9_-]{40,}` | |
 | Cloudflare API Token | `v1\.[A-Za-z0-9_-]{40,}` | |
+
+An assigned value is `=` or `:` (after an optional closing quote, as in JSON), then a quoted value of 8+ characters that is not a reference such as `"${VAR}"`, or an unquoted value of 16+ characters with a letter and a digit, so names (`settings.API_KEY_NAME`), `None` and plain counts are not reported.
 
 ## Adding Custom Patterns
 
