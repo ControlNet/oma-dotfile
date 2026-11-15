@@ -1131,10 +1131,13 @@ def _container_indicates_auto_approval(container: dict[str, object]) -> bool:
 def _approval_reviewer_prompt_seen(payload: dict[str, object]) -> bool:
     prompt_texts: list[str] = []
     for message in _payload_input_messages(payload):
-        if isinstance(message, dict):
-            role = str(message.get("role") or "").strip().lower()
-            if role not in {"developer", "system"}:
-                continue
+        # Only instructions count. Plain strings are the user's own prompts (legacy notify's
+        # input-messages), so a prompt that talks about the reviewer is not a reviewer turn.
+        if not isinstance(message, dict):
+            continue
+        role = str(message.get("role") or "").strip().lower()
+        if role not in {"developer", "system"}:
+            continue
         text = _extract_text_candidate(message)
         if text:
             prompt_texts.append(text)

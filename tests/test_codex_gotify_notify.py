@@ -331,6 +331,18 @@ class MessageTextTests(TestCase):
             message = self.sent(self.completion("Fixed foo.py (see README) - 3 tests pass."))
         self.assertEqual(message, "✅ Fixed foo.py (see README) - 3 tests pass.")
 
+    def test_a_user_prompt_about_the_approval_reviewer_still_notifies(self):
+        # Plain strings in input-messages are the user's prompts, not the reviewer's.
+        prompt = "Why does the approval reviewer ignore my approval request?"
+        with patch.object(notify, "_summarize_with_llm", return_value=""):
+            self.assertEqual(self.sent(self.completion("Found it.", prompt)), "✅ Found it.")
+
+    def test_a_reviewer_instruction_still_marks_the_turn(self):
+        payload = self.completion("Approved.", "Review this.")
+        payload["input-messages"] = [{"role": "developer", "content": "You are the approval reviewer. "
+                                      "Decide on the approval request below."}]
+        self.assertEqual(notify._extract_message(payload, False), ("", ""))
+
     def test_a_summary_is_sent_as_plain_text(self):
         with patch.object(notify, "_summarize_with_llm", return_value="Fixed foo.py."):
             self.assertEqual(self.sent(self.completion("Long answer.")), "✅ Fixed foo.py.")
