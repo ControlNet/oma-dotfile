@@ -28,15 +28,32 @@ env -i HOME="$S/home" PATH="$S/bin" GIT_CONFIG_GLOBAL="$S/gitconfig" GIT_CONFIG_
 
 ## What Windows showed
 
-- Redirected stdout/stderr (a pipe or a file, as in CI or `| Tee-Object`) use the ANSI code
-  page, cp1252 on English hosts. The banner's box-drawing characters raised
-  `UnicodeEncodeError` and ended the run before anything was installed. `Terminal.write` now
-  replaces characters the stream cannot encode. An interactive console is UTF-8 and was fine.
-- With that fixed, the real install passes on Windows: paths print as `~\.codex`, the
-  commit-msg hook (`#!/usr/bin/env python3`) runs under Git for Windows on the runner. A
-  machine whose `python3` is only the Microsoft Store alias has not been tested.
-- Most unit tests were written for POSIX and fail on Windows for test reasons: POSIX path
-  strings compared with `Path` output, raw Windows paths pasted into TOML text, stand-in CLIs
-  that rely on shebangs (Windows finds only PATHEXT names such as `.cmd`), `Path.home()`
-  reading `USERPROFILE` rather than `HOME`, Unix file modes (0o600), and SQLite state files
-  still open when a temporary dir is removed (WinError 32).
+Product bugs CI found, all fixed:
+
+- Redirected stdout/stderr (a pipe or a file, as in CI, `| Tee-Object` or an agent running a
+  script) use the ANSI code page, cp1252 on English hosts. The installer's banner and the
+  secret scanner's `▸ ✓ ✗` raised `UnicodeEncodeError`; the scanner then exited 1, which
+  reads as a finding. Both now print `?` for what the stream cannot encode.
+- `subprocess.run(text=True)` decodes with that code page too: the secret scanner garbled
+  UTF-8 file names from Git, so `git show` missed them and they went unscanned. Decode Git
+  output as UTF-8.
+- `Path.write_text` translates `\n` to `\r\n` on Windows. `Files.write_text` compares the
+  LF bytes first, so every run rewrote and backed up files such as OMP's `models.yml`. Write
+  with `newline="\n"`. The install check now fails when a rerun lists any change, since a
+  rewrite with the same bytes is invisible to a file snapshot.
+- `with sqlite3.connect(...) as db:` only commits; the connection stays open (a
+  ResourceWarning on 3.13+, a locked file on Windows). Wrap it in `contextlib.closing`.
+
+Writing tests that pass on Windows (`tests/support.py`):
+
+- Stand-in CLIs: `write_cli(path, script)` and `link_cli(path, target)`. Windows ignores
+  shebangs and `which` finds only PATHEXT names, so they become `<name>.cmd`; `which` reports
+  them as `<name>.CMD`. Node refuses to spawn `.cmd` without a shell, so Node tests that need
+  a stand-in to run check the logged spawn on Windows instead.
+- A cleared env needs `SYSTEMROOT` (Python 3.10 cannot start without it), `COMSPEC`,
+  `PATHEXT`, `TEMP`/`TMP`, and `USERPROFILE`: `Path.home()` and Node's `os.homedir()` read
+  it, not `HOME`.
+- Build expected paths with `Path(...)`/`os.sep`, quote paths put into TOML with
+  `toml_basic_string`, write fixtures that are compared as bytes with `newline="\n"`, and use
+  `TestCase.assertMode`, which checks permission bits on POSIX only.
+- An untested gap: a machine whose `python3` is only the Microsoft Store alias.
