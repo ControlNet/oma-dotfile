@@ -44,8 +44,8 @@ Rerun without `--oauth` to switch back.
 | `GITHUB_PERSONAL_ACCESS_TOKEN` | gh tools |
 | `NOTION_API_TOKEN` | notion-api skill |
 | `GOTIFY_URL`, `GOTIFY_TOKEN_FOR_OPENCODE` | Gotify |
-| `GOTIFY_TOKEN_FOR_CODEX`, `GOTIFY_TOKEN_FOR_OMP`, `GOTIFY_TOKEN_FOR_CLAUDE` | Per-agent token; defaults to `GOTIFY_TOKEN_FOR_OPENCODE` |
-| `OPENCODE_NOTIFY_TITLE`, `CODEX_NOTIFY_TITLE`, `OMP_NOTIFY_TITLE`, `CLAUDE_NOTIFY_TITLE` | Gotify title; default `<Agent> :: <project>@<hostname>` |
+| `GOTIFY_TOKEN_FOR_CODEX`, `GOTIFY_TOKEN_FOR_OMP`, `GOTIFY_TOKEN_FOR_CLAUDE`, `GOTIFY_TOKEN_FOR_AGY` | Per-agent token; defaults to `GOTIFY_TOKEN_FOR_OPENCODE` |
+| `OPENCODE_NOTIFY_TITLE`, `CODEX_NOTIFY_TITLE`, `OMP_NOTIFY_TITLE`, `CLAUDE_NOTIFY_TITLE`, `AGY_NOTIFY_TITLE` | Gotify title; default `<Agent> :: <project>@<hostname>` |
 | `GOTIFY_NOTIFY_SUMMARIZER_MODEL`, `GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT`, `GOTIFY_NOTIFY_SUMMARIZER_API_KEY` | Summarize notifications with an OpenAI-compatible API |
 | `OMP_WAKATIME_SYNC=false`, `OMP_WAKATIME_SYNC_INTERVAL_SEC` (default 120) | OMP WakaTime sync |
 | `WAKATIME_HOME` | Directory of `.wakatime.cfg` |
@@ -67,7 +67,7 @@ working in this repo do not load it.
 | Codex | `~/.codex` | `AGENTS.md`, Gotify notifier, WakaTime plugin; `config.toml` turns off the shared `skill-creator` so Codex keeps its bundled one |
 | Claude Code | `~/.claude` | Rule `rules/oma-dotfile.md`, Gotify plugin, WakaTime plugin, links to shared skills; commit attribution off (see [Commit attribution](#commit-attribution)) |
 | Tokscale | Tokscale `settings.json` | Model aliases from `config/tokscale/model-aliases.json` |
-| Antigravity CLI | `~/.gemini/config/skills.json` | Only when `agy` is installed: an entry that makes it read the shared skills (see [Skills](#skills)) |
+| Antigravity CLI | `~/.gemini/config` | Plugin `plugins/oma-dotfile` with the rules (`rules/AGENTS.md`) and a Gotify Stop hook (see [Antigravity CLI](#antigravity-cli)); an entry in `skills.json` that makes it read the shared skills (see [Skills](#skills)) |
 | Skills | `~/.agents/skills` | See [Skills](#skills) |
 
 ## Skills
@@ -142,6 +142,24 @@ Pausing or dropping a goal does not report success; subsequent ordinary turns no
 Goal suppression is restored when loading, switching, branching or navigating sessions.
 After updating the installed extension, restart OMP to load the new behavior.
 
+## Antigravity CLI
+
+agy loads every plugin in `~/.gemini/config/plugins`. The installer owns
+`plugins/oma-dotfile` and replaces it whole on every run, so edits there do not last; agy's
+own `hooks.json` and `config.json` are not touched, and `agy plugin disable oma-dotfile` stays
+in effect across reinstalls.
+
+- The rules are `config/_AGENTS.md`, as for the other agents.
+- When a turn ends, the Stop hook sends the last response to Gotify (an error or an early stop
+  is sent too; a cancelled turn is not). agy waits for its hooks, so the hook returns at once
+  and a background process sends the message. `AGY_NOTIFY_COMPLETE=false` and
+  `AGY_NOTIFY_ERROR=false` turn either kind off.
+- The hook runs the Python that ran the installer by its absolute path. On Windows the hook is
+  `scripts\gotify-notify.cmd`, which holds that path; a path the system's OEM code page cannot
+  spell gets no hook, with a warning.
+- Skills are not in the plugin: `skills.json` points agy at `~/.agents/skills`.
+- No WakaTime: agy has no WakaTime integration.
+
 ## WakaTime
 
 Set `WAKATIME_API_KEY` (and `WAKATIME_API_URL` for a self-hosted server) before running
@@ -158,3 +176,4 @@ needs an installed `wakatime-cli` v2.24.0+.
 | OMP | `~/.omp/logs/gotify-notify.log`, `~/.omp/logs/wakatime-sync.log` |
 | Codex | `~/.codex/log/gotify-notify.log` |
 | Claude Code | `~/.claude/logs/gotify-notify.log` |
+| Antigravity CLI | `~/.gemini/antigravity-cli/plugin_data/oma-dotfile/gotify-notify.log` |

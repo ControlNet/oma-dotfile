@@ -1,0 +1,11 @@
+{
+  "oma-dotfile-gotify-notify": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python3 scripts/gotify-notify.py",
+        "timeout": 10
+      }
+    ]
+  }
+}

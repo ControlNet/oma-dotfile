@@ -35,7 +35,7 @@ from omadotfile.core.files import Files
 from omadotfile.core.proc import CommandFailed, Runner
 from omadotfile.inject import env_of, home_of, inject, uses
 from omadotfile.migration import migration
-from omadotfile.step import either, found_any, found_executable, requires, step
+from omadotfile.step import found_any, requires, step
 
 SKILLS_CLI_ENV = {"DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1"}
 SKILL_COMMITS_FILE = ".oma-dotfile-skill-commits.json"
@@ -403,10 +403,11 @@ def update_agy_skills(files: Files, /, dst: Path, path: str) -> bool:
     return files.update(dst, JSON, partial(with_skills_entry, path, AGY_EXCLUDED_SKILLS))
 
 
-@requires("agy", skip=None)
 def ensure_agy_skills(ctx: Context) -> None:
-    """Point the Antigravity CLI at ~/.agents/skills when it is installed; nothing otherwise."""
-    dst = ctx.home / AGY_SKILLS_CONFIG
+    """Point the Antigravity CLI at ~/.agents/skills when it is found (or --all); nothing otherwise."""
+    if "agy" not in ctx.found:
+        return
+    dst = ctx.dirs["agy"] / AGY_SKILLS_CONFIG
     # Absolute: agy 1.5.4 skips a ~/ entry ("must be an absolute path"), though its docs allow one.
     path = str(ctx.shared_skills_dir)
     with ctx.files.reporting(f"{dst} (Antigravity CLI reads {path})"):
@@ -415,7 +416,7 @@ def ensure_agy_skills(ctx: Context) -> None:
 
 # The Antigravity CLI alone is enough: it is told where the shared skills are.
 @step("Installing shared skills to ~/.agents/skills",
-      when=either(found_any("claude", *SKILL_READERS), found_executable("agy")),
+      when=found_any("claude", "agy", *SKILL_READERS),
       skip="no agent that uses shared skills found")
 def install_shared_skills(ctx: Context) -> None:
     ensure_skills(ctx, [ctx.dirs[key] / "skills" for key in SKILL_READERS if key in ctx.found],

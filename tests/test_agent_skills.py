@@ -663,11 +663,8 @@ class AntigravitySkillsEntryTests(TestCase):
 class AntigravitySkillsTests(TestCase):
     def setUp(self):
         self.home = Path(self.enterContext(tempfile.TemporaryDirectory()))
-        self.ctx = make_context(self.home)
+        self.ctx = make_context(self.home, found=("agy",))
         self.config = self.home / ".gemini" / "config" / "skills.json"
-        self.agy: Path | None = Path("/fake/bin/agy")
-        self.enterContext(patch.object(Runner, "which", autospec=True,
-                                       side_effect=lambda runner, name: self.agy if name == "agy" else None))
 
     def test_agy_is_pointed_at_the_shared_skills_once(self):
         skills.ensure_agy_skills(self.ctx)
@@ -681,8 +678,7 @@ class AntigravitySkillsTests(TestCase):
         self.assertEqual(self.ctx.files.changed, [self.config])
 
     def test_without_agy_nothing_is_written_or_said(self):
-        self.agy = None
-        skills.ensure_agy_skills(self.ctx)
+        skills.ensure_agy_skills(make_context(self.home, found=("codex",)))
         self.assertFalse(self.config.parent.exists())
         self.assertEqual(self.console.lines, [])
 
@@ -696,7 +692,6 @@ class AntigravitySkillsTests(TestCase):
 
     def test_agy_alone_is_enough_to_install_the_shared_skills(self):
         step = skills.install_shared_skills
-        self.assertTrue(step.enabled(make_context(self.home, found=())))
-        self.agy = None
+        self.assertTrue(step.enabled(make_context(self.home, found=("agy",))))
         self.assertFalse(step.enabled(make_context(self.home, found=())))
         self.assertTrue(step.enabled(make_context(self.home, found=("codex",))))

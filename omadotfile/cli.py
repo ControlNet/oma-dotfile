@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory, gettempdir
 
+from omadotfile.agents.agy import Antigravity
 from omadotfile.agents.base import Agent
 from omadotfile.agents.claude import Claude
 from omadotfile.agents.codex import Codex
@@ -24,7 +25,7 @@ from omadotfile.step import Step
 
 # One instance per agent, in the order agents are detected and reported.
 AGENTS: dict[str, Agent] = {agent.key: agent for agent in (
-    OpenCode(), OmoNative(), Omp(), Codex(), Claude(), Tokscale(),
+    OpenCode(), OmoNative(), Omp(), Codex(), Claude(), Antigravity(), Tokscale(),
 )}
 
 # The install steps, run in this order and numbered from 1.
@@ -36,6 +37,7 @@ STEPS: tuple[Step, ...] = (
     AGENTS["codex"],
     configure_wakatime,
     AGENTS["claude"],
+    AGENTS["agy"],
     AGENTS["tokscale"],
     install_shared_skills,
 )

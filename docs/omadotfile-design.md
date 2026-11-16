@@ -180,7 +180,7 @@ code.
 inherit them from `Component` (inheritance only for the shared template method), and the two
 steps that install no files, WakaTime and shared skills, are functions made into steps by
 `@step`. `found_any(*keys)` returns the predicate closure they run under; `found_executable`
-and `either` (`step.py`) make and combine others, as the shared skills step does for agy. A method that does
+and `either` (`step.py`) make and combine others. A method that does
 not use `self` is a `@staticmethod` (`config_dir`, `configure`, `install_oauth_file`,
 `install_merged_file`, the codecs' `load`/`dump`), declared static in the base class too so
 overrides type-check; `title`, `enabled`, `skip_reason` and `target_dir` stay instance methods
@@ -190,7 +190,7 @@ because `Agent`'s versions read `self`. `@classmethod` builds instances (`Option
 ```python
 STEPS: tuple[Step, ...] = (AGENTS["opencode"], OmoConfig(), AGENTS["omo"], AGENTS["omp"],
                            AGENTS["codex"], configure_wakatime, AGENTS["claude"],
-                           AGENTS["tokscale"], install_shared_skills)
+                           AGENTS["agy"], AGENTS["tokscale"], install_shared_skills)
 ```
 
 Today's steps 2 and 5 (OpenCode files and plugins) become one step, as do 7 and 8 (Codex assets
@@ -587,7 +587,39 @@ step adds one entry for the shared skills dir there (`ensure_agy_skills`), merge
 `Files.update(dst, JSON, with_skills_entry)`: other entries and the user's own exclusions stay,
 and `skill-creator` is excluded (agy's built-in `agy-customizations` covers it). The path is
 absolute because agy 1.5.4 rejects `~/` there despite its docs. agy alone (no other agent found)
-is enough to run the skills step. Nothing about agy is written or printed when it is missing.
+is enough to run the skills step. Since agy became an agent (below), the entry follows
+`"agy" in ctx.found` like every other agent's files, so `--all` writes it too.
+
+### Antigravity CLI plugin (2026-11-16)
+
+agy (1.5.9) loads each plugin under `~/.gemini/config/plugins/` and enables it unless
+`config.json` says otherwise. A plugin carries rules (`rules/AGENTS.md`) and hooks
+(`hooks.json` at the plugin root), so `agents/agy.py` (`Antigravity`, key `agy`) installs one
+plugin, `config/agy/plugins/oma-dotfile`, staged with `config/_AGENTS.md` added as its rules and
+its hook command rendered, then put in place with `Files.replace_tree` (unchanged: untouched).
+Owning one dir keeps the installer out of agy's shared `hooks.json`, which other tools write
+to, and out of `config.json`, where `agy plugin disable` is kept. Skills stay in `skills.json`:
+they are updated in place by `npx skills update -g`, and plugin skills would be copies.
+
+The plugin's Stop hook (`scripts/gotify-notify.py`) differs from the other agents' notifiers in
+three ways, each seen with a real agy run:
+
+- agy runs hooks synchronously and reads stdout as JSON (a Stop hook may answer
+  `"decision": "continue"`). The hook prints `{}` and nothing else, and a detached copy of itself
+  (`--worker`: a new session on POSIX, `DETACHED_PROCESS` on Windows) does the network work.
+- The payload has no response text. It comes from the transcript: `transcriptPath` names
+  `transcript.jsonl`, which cuts contents over about 4 KB (`truncated_fields`), so
+  `transcript_full.jsonl` beside it wins; the response is the last `MODEL`/`PLANNER_RESPONSE`
+  with content after the last `USER_INPUT`.
+- agy runs the hook in the plugin dir, so the title's project comes from the payload's `cwd`.
+  Logs go to `PLUGIN_DATA`, which agy sets; the plugin dir is replaced on every install.
+
+The command is a shell string: `sh -c` on POSIX, `cmd /c` on Windows. On POSIX it is the quoted
+interpreter and `scripts/gotify-notify.py`. On Windows it is `scripts\gotify-notify.cmd`, with no
+quote or space, because how agy quotes the string for `cmd /c` cannot be seen (agy runs hooks
+only when logged in, so CI cannot run one); the `.cmd` quotes the interpreter, written in the
+OEM code page cmd reads batch files in. An interpreter that code page cannot spell gets no hook
+and a warning. agy has no WakaTime integration, so there is none.
 
 ### Synced CCFA-Skills plugin (2026-11-15)
 

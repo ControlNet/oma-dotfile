@@ -134,7 +134,7 @@ class AgentDetectionTests(TestCase):
         self.assertEqual(expand_home("rel", self.home), Path("rel"))
 
     def test_agents_are_listed_once_each_in_report_order(self) -> None:
-        self.assertEqual(list(cli.AGENTS), ["opencode", "omo", "omp", "codex", "claude", "tokscale"])
+        self.assertEqual(list(cli.AGENTS), ["opencode", "omo", "omp", "codex", "claude", "agy", "tokscale"])
         self.assertEqual(len(cli.AGENTS), len({type(agent) for agent in cli.AGENTS.values()}))
         codex = cli.AGENTS["codex"]
         self.assertEqual((codex.key, codex.label, codex.executable), ("codex", "Codex", "codex"))
@@ -221,6 +221,7 @@ class InstallGatingTests(TestCase):
             (self.repo / name).parent.mkdir(parents=True, exist_ok=True)
             _ = shutil.copy2(ROOT / name, self.repo / name)
         _ = shutil.copytree(ROOT / "skills", self.repo / "skills")
+        _ = shutil.copytree(ROOT / "config" / "agy", self.repo / "config" / "agy")
 
     def main(self, argv, env=None):
         with use_console(Recorder()):
@@ -431,6 +432,18 @@ class InstallGatingTests(TestCase):
         # Then the run completes without creating a single target directory.
         for name in ("get_config_dir", "get_omo_dir", "get_codex_dir",
                      "get_claude_config_dir", "get_omp_agent_dir"):
+            self.assertFalse(self.target_dir(name).exists(), name)
+        self.assertFalse((self.home / ".gemini").exists())
+
+    def test_agy_only_machine_gets_its_plugin_and_the_shared_skills(self) -> None:
+        # Given a machine with the Antigravity CLI but no other agent.
+        self.run_main(agy=True, env=GATEWAY)
+        plugin = self.home / ".gemini" / "config" / "plugins" / "oma-dotfile"
+        for name in ("plugin.json", "hooks.json", "rules/AGENTS.md", "scripts/gotify-notify.py"):
+            self.assertTrue((plugin / name).is_file(), name)
+        # The shared skills step runs for it (skills.json is covered in test_agent_skills).
+        self.agent_skills.assert_called_once()
+        for name in ("get_config_dir", "get_omo_dir", "get_codex_dir", "get_claude_config_dir", "get_omp_agent_dir"):
             self.assertFalse(self.target_dir(name).exists(), name)
 
     def test_all_flag_installs_every_target_without_detection(self) -> None:

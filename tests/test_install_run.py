@@ -95,7 +95,7 @@ class InstallRunTests(TestCase):
         bin_dir.mkdir()
         for name, script in (("codex", CODEX_STUB), ("claude", CLAUDE_STUB), ("npx", NPX_STUB)):
             _ = write_cli(bin_dir / name, script)
-        for name in ("opencode", "omo", "omp"):
+        for name in ("opencode", "omo", "omp", "agy"):
             _ = write_cli(bin_dir / name)
         _ = link_cli(bin_dir / "git", shutil.which("git") or "git")
         _ = link_cli(bin_dir / "python3", sys.executable)
@@ -141,13 +141,15 @@ class InstallRunTests(TestCase):
         # No step is skipped (console.step's skip line); a step's own optional parts may be.
         self.assertFalse([line for line in printed.warnings if line.startswith("         skipped: ")])
         self.assertIn(f"Using repository: {ROOT}", printed.of("info"))  # a checkout of its own
-        self.assertTrue([line for line in printed.of("info") if line.startswith("[9/9] ")])
+        self.assertTrue([line for line in printed.of("info") if line.startswith("[10/10] ")])
         for path in (".config/opencode/opencode.jsonc", ".config/opencode/AGENTS.md",
                      ".omo/omo.jsonc", ".omo/agent/models.json", ".omp/agent/models.yml",
                      ".codex/config.toml", ".claude/rules/oma-dotfile.md",
                      ".claude/skills/gotify-notify/hooks/hooks.json", ".claude/settings.json",
                      ".config/git/hooks/commit-msg", ".config/tokscale/settings.json",
-                     ".wakatime.cfg", ".agents/skills/github-cli/SKILL.md"):
+                     ".wakatime.cfg", ".agents/skills/github-cli/SKILL.md",
+                     ".gemini/config/skills.json", ".gemini/config/plugins/oma-dotfile/rules/AGENTS.md",
+                     ".gemini/config/plugins/oma-dotfile/hooks.json"):
             self.assertTrue((self.home / path).is_file(), path)
         self.assertTrue((self.home / ".codex" / ".stub-wakatime").exists())
         self.assertTrue((self.home / ".claude" / ".stub-wakatime").exists())
@@ -192,7 +194,7 @@ class InstallRunTests(TestCase):
 
         _, printed = self.install()
 
-        self.assertTrue([line for line in printed.of("info") if line.startswith("[9/9] ")])
+        self.assertTrue([line for line in printed.of("info") if line.startswith("[10/10] ")])
         self.assertIn("Installation complete!", printed.of("success"))
         # BIN/codex for <bin>/codex, and for <bin>\codex.CMD as `which` reports it on Windows.
         stand_in = re.compile(re.escape(str(self.root / "bin")) + r"[\\/]([\w-]+)(?:\.cmd)?\b", re.IGNORECASE)

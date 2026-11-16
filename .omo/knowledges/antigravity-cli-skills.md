@@ -1,5 +1,7 @@
 # Antigravity CLI (agy) and shared skills
 
+The plugin with the rules and the Gotify hook: `antigravity-cli-plugin.md`.
+
 Checked against agy 1.5.4 and skills CLI 1.7.6 (2026-11-10), with canary skills and
 `agy -p` in an empty directory.
 

@@ -78,6 +78,13 @@ CLAUDE_ATTRIBUTION = {"commit": "", "pr": ""}
 # Drops Claude attribution lines from every commit; installed into the global core.hooksPath.
 COMMIT_MSG_HOOK = "config/git-hooks/commit-msg.py"
 
+# The Antigravity CLI (agy) loads each plugin under <config>/plugins: this one carries the
+# shared rules (rules/AGENTS.md, added when it is installed) and the Gotify Stop hook.
+AGY_PLUGIN_DIR = "config/agy/plugins/oma-dotfile"
+AGY_PLUGIN_RULES = "rules/AGENTS.md"
+AGY_NOTIFY_SCRIPT = "scripts/gotify-notify.py"  # relative to the plugin dir, where agy runs hooks
+AGY_NOTIFY_WRAPPER = "scripts/gotify-notify.cmd"  # Windows only, written when installed
+
 TOKSCALE_MODEL_ALIASES = "config/tokscale/model-aliases.json"
 
 # Live workflow DAGs in a Herdr side pane (github.com/jc01rho/omo-herdr-dag). Bump on release.
@@ -113,7 +120,7 @@ REMOVED_SKILLS = ("frontend-codex",)
 CLAUDE_CODE_EXCLUDED_SKILLS = ("skill-creator", "find-skills")
 # The Antigravity CLI (agy) does not read ~/.agents/skills either; an entry in its global
 # skills.json makes it read the directory in place. Its exclusions match whole skill names.
-AGY_SKILLS_CONFIG = ".gemini/config/skills.json"
+AGY_SKILLS_CONFIG = "skills.json"  # under its config dir, ~/.gemini/config
 # agy's built-in agy-customizations skill already guides writing skills.
 AGY_EXCLUDED_SKILLS = ("skill-creator",)
 
