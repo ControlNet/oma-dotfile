@@ -8,7 +8,7 @@ on ubuntu/macos/windows-latest with `fail-fast: false`.
 |---|---|---|
 | `unit` | 3.10, 3.14 | `python -m unittest discover -s tests`, then `node --test "tests/*.test.mjs"` |
 | `install` | 3.10, 3.14 | `check_install.py --clone`: no agent CLIs, `--all`; pull.py clones the branch as the one-liners do. Windows also runs the README's PowerShell one-liner with `--repo .` |
-| `install-home` | 3.14 | `check_install.py` with HOME (and USERPROFILE) in `home dir/Zoë Example` |
+| `install-home` | 3.14 | `check_install.py` with HOME (and USERPROFILE) in `home dir/Zoë Example`, run by a venv inside it, so the hooks' interpreter path has both too |
 | `install-agents` | 3.10, 3.14 | every agent CLI installed, `check_install.py --agents` |
 
 ## What `tests/integration/check_install.py` checks
@@ -26,6 +26,10 @@ gateway. It refuses to run without `CI` set.
 - This repo's skills are in `~/.agents/skills` and Claude's skills dir.
 - A commit through the installed commit-msg hook loses its `Claude-Session:` line, once with
   the normal PATH and once with only git on PATH (no Python).
+- The Antigravity CLI's Stop hook, run as agy runs it (`sh -c`, or `cmd /c` on Windows, in the
+  plugin dir, `PLUGIN_DATA` set): it prints only `{}`, and its detached worker posts the
+  transcript's last response (CJK and a check mark, so the code pages are crossed) to the Gotify
+  stand-in. In every job, since agy itself never runs a hook without a login.
 
 With `--agents`:
 
@@ -37,7 +41,9 @@ With `--agents`:
   config first: `codex features list`, `opencode debug config`, `omp config list` exit
   non-zero; `omo --list-models` exits 0 but prints `Warning: ... JSON Parse error`; `claude
   plugin list --json` exits 0 with every plugin `enabled: false` when settings.json is broken,
-  so the check asserts the WakaTime and gotify-notify plugins are enabled.
+  so the check asserts the WakaTime and gotify-notify plugins are enabled. `agy plugin list
+  --json` drops `hooks` when hooks.json does not parse, so it must show the oma-dotfile plugin
+  enabled with its rules and hook; `agy plugin validate` must report notes only.
 - The installed Claude Code Stop hook and the Codex `notify` command run against a local HTTP
   stand-in for Gotify; each must post one message with the expected text, and run its
   interpreter by absolute path.
@@ -113,6 +119,9 @@ For `--agents`, install the CLIs into a prefix (`npm install -g --prefix "$S/pre
 - The real Microsoft Store `python3` alias: Windows Server runners have no Store. The hook no
   longer depends on PATH, and the Python-less commit covers the same failure.
 - `claude plugin disable ccfa-skills@synced`: needs a plugin synced from a claude.ai account.
+- agy running a hook itself, and so how it quotes the command for `cmd /c` on Windows: agy runs
+  hooks only when logged in. Checked by hand on Linux with a real turn (rules applied, message
+  delivered); the Windows command is a bare relative path to stay out of quoting.
 - Tokscale itself: only its config dir is created.
 - A Windows host in a CJK locale (code page 936 and the like) and a CJK user name.
 

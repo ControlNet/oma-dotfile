@@ -93,9 +93,15 @@ jobs:
         run: |
           home="$RUNNER_TEMP/home dir/Zoë Example"
           mkdir -p "$home"
-          if [ "$RUNNER_OS" = Windows ]; then home=$(cygpath -w "$home"); fi
+          # A Python inside that home, as a per-user install is: the hooks run it by its path.
+          python -m venv "$home/venv"
+          if [ "$RUNNER_OS" = Windows ]; then
+            home=$(cygpath -w "$home"); python="$home\\venv\\Scripts\\python.exe"
+          else
+            python="$home/venv/bin/python"
+          fi
           # Path.home() reads USERPROFILE on Windows; git and the rest read HOME.
-          HOME="$home" USERPROFILE="$home" python tests/integration/check_install.py
+          HOME="$home" USERPROFILE="$home" "$python" tests/integration/check_install.py
 
   install-agents:
     # Every agent CLI installed from its official source, so the steps that run them are not

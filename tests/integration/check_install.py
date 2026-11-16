@@ -10,7 +10,8 @@ Node's npx and git are real, so shared skills come from their upstream repos.
 Without `--agents`, `--all` installs every agent's files without its CLI. With `--agents`
 the agents are detected, every warning outside ALLOWED_WARNINGS fails (a skipped step is a
 gap in the check, not a pass), each CLI loads what was installed, and the installed
-notification hooks are run against a local stand-in for Gotify.
+notification hooks are run against a local stand-in for Gotify. The Antigravity CLI's hook
+is run either way: agy runs hooks only when logged in, so this runs it as agy would.
 
 This writes to the real home directory and the global git config, so it only runs where the
 `CI` environment variable is set (GitHub Actions sets it on its throwaway runners).
@@ -25,17 +26,19 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from omadotfile.cli import AGENTS  # noqa: E402
-from omadotfile.constants import CLAUDE_CODE_EXCLUDED_SKILLS, OWN_SKILLS_DIR  # noqa: E402
+from omadotfile.constants import AGY_NOTIFY_WRAPPER, CLAUDE_CODE_EXCLUDED_SKILLS, OWN_SKILLS_DIR  # noqa: E402
 from omadotfile.core.jsonc import loads_jsonc_object  # noqa: E402
 
 try:
@@ -62,12 +65,16 @@ EXPECTED = {
             "extensions/omp-gotify-notify.js", "extensions/omp-wakatime-sync.js"),
     "codex": ("AGENTS.md", "config.toml", "codex-gotify-notify.py"),
     "claude": ("settings.json", "rules/oma-dotfile.md"),
+    "agy": ("skills.json", "plugins/oma-dotfile/plugin.json", "plugins/oma-dotfile/hooks.json",
+            "plugins/oma-dotfile/rules/AGENTS.md", "plugins/oma-dotfile/scripts/gotify-notify.py"),
 }
+AGY_PLUGIN = "plugins/oma-dotfile"
+AGY_HOOK = "oma-dotfile-gotify-notify"
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 # Warnings that mean something the install should have done did not happen. The rest (a CLI
 # or env var this runner does not have) are shown as annotations only.
-BROKEN = re.compile(r"failed with exit code|Not installed from|Failed to |Source (file|directory) not found|could not be merged|placeholder found|does not parse")
+BROKEN = re.compile(r"failed with exit code|Not installed from|Failed to |Source (file|directory) not found|could not be merged|placeholder found|does not parse|cannot be written in code page")
 ATTRIBUTION = "Claude-Session: https://claude.ai/code/session_ci_test"
 # With --agents, the only warnings a complete install may print, each with why it is fine.
 ALLOWED_WARNINGS = {
@@ -328,8 +335,26 @@ def check_agent_clis() -> None:
         if plugin not in enabled:
             fail(f"claude plugin list does not show {plugin} enabled")
 
-    for path in (Path.home() / ".gemini" / "config" / "skills.json",
-                 config_dir("omo") / "extensions" / "omo-herdr-dag.js",
+    # Read without a login. A hooks.json or rules file agy cannot load is left out of the
+    # listing, and validate reports it as an error (and exits non-zero).
+    listed = json_in(getattr(run_cli("agy", "plugin", "list", "--json"), "stdout", ""))
+    ours = next((e for e in listed if isinstance(e, dict) and e.get("name") == "oma-dotfile"), None) \
+        if isinstance(listed, list) else None
+    if ours is None or not ours.get("enabled"):
+        fail(f"agy plugin list does not show oma-dotfile enabled: {ours}")
+    else:
+        if "AGENTS.md" not in (ours.get("rules") or []):
+            fail(f"agy does not load the plugin's rules/AGENTS.md: {ours}")
+        if AGY_HOOK not in (ours.get("hooks") or []):
+            fail(f"agy does not load the plugin's {AGY_HOOK} hook: {ours}")
+    report = json_in(getattr(run_cli("agy", "plugin", "validate", str(config_dir("agy") / AGY_PLUGIN), "--json"),
+                             "stdout", ""))
+    findings = report.get("findings", []) if isinstance(report, dict) else [f"no report: {report}"]
+    for finding in findings:
+        if not isinstance(finding, dict) or finding.get("severity") != "note":
+            fail(f"agy plugin validate: {finding}")
+
+    for path in (config_dir("omo") / "extensions" / "omo-herdr-dag.js",
                  config_dir("tokscale") / "settings.json"):
         if not path.is_file():
             fail(f"missing {path}")
@@ -414,6 +439,83 @@ def check_notify_hooks() -> None:
         gotify.shutdown()
 
 
+def agy_hook_interpreter(plugin: Path, command: str) -> str:
+    """The interpreter the agy hook runs, as written: in the command (sh), or in the wrapper
+    the command names (cmd), which cmd reads in the OEM code page."""
+    if sys.platform != "win32":
+        return shlex.split(command)[0]
+    if command != AGY_NOTIFY_WRAPPER.replace("/", "\\"):
+        fail(f"the agy hook command {command!r} is not the bare wrapper path cmd /c can run however it is quoted")
+        return ""
+    import ctypes
+    code_page = f"cp{ctypes.windll.kernel32.GetOEMCP()}"
+    wrapper = (plugin / AGY_NOTIFY_WRAPPER).read_bytes().decode(code_page)
+    match = re.search(r'^"([^"]+)" ', wrapper, re.MULTILINE)
+    return match.group(1).replace("%%", "%") if match else ""
+
+
+def check_agy_hook() -> None:
+    """The Antigravity CLI's Stop hook, run as agy runs it, delivers the turn's last response.
+
+    agy runs hooks only when logged in, so a CI runner's agy never does. This does what agy
+    does: the command through `sh -c` (`cmd /c` on Windows) in the plugin dir, the payload on
+    stdin, PLUGIN_DATA set. The hook must print only {} and leave delivery to a detached
+    worker, so the message is waited for.
+    """
+    plugin = config_dir("agy") / AGY_PLUGIN
+    try:
+        hooks = json.loads((plugin / "hooks.json").read_text(encoding="utf-8"))
+        command = hooks[AGY_HOOK]["Stop"][0]["command"]
+    except (OSError, ValueError, KeyError, IndexError, TypeError) as exc:
+        fail(f"the agy plugin has no {AGY_HOOK} Stop hook: {exc!r}")
+        return
+    interpreter = agy_hook_interpreter(plugin, command)
+    if not Path(interpreter).is_absolute() or not Path(interpreter).is_file():
+        fail(f"the agy hook runs {interpreter!r}, not an absolute path to an interpreter")
+        return
+    gotify = GotifyStandIn()
+    try:
+        with tempfile.TemporaryDirectory() as scratch:
+            # A response with characters no Windows code page has, through stdin and the file.
+            response = "CI checked the agy Stop hook: 完成 ✓"
+            logs = Path(scratch) / "brain" / "ci" / "logs"
+            logs.mkdir(parents=True)
+            rows = [{"step_index": 0, "source": "USER_EXPLICIT", "type": "USER_INPUT", "content": "check"},
+                    {"step_index": 1, "source": "MODEL", "type": "PLANNER_RESPONSE", "content": response}]
+            (logs / "transcript.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows),
+                                                   encoding="utf-8")
+            payload = {"hookEventName": "Stop", "conversationId": "ci", "terminationReason": "NO_TOOL_CALL",
+                       "fullyIdle": True, "continuationActive": False, "error": "", "cwd": str(ROOT),
+                       "workspacePaths": [str(ROOT)], "transcriptPath": str(logs / "transcript.jsonl")}
+            env = {**os.environ, "GOTIFY_URL": gotify.url, "GOTIFY_TOKEN_FOR_AGY": GOTIFY_TEST_TOKEN,
+                   "PLUGIN_ROOT": str(plugin), "PLUGIN_DATA": str(Path(scratch) / "data")}
+            shell = ["cmd", "/c", command] if sys.platform == "win32" else ["sh", "-c", command]
+            started = time.monotonic()
+            result = subprocess.run(shell, cwd=plugin, input=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                                    capture_output=True, env=env, timeout=60, check=False)
+            took = time.monotonic() - started
+            stderr = result.stderr.decode("utf-8", errors="replace").strip()
+            if result.returncode != 0 or result.stdout.strip() != b"{}":
+                fail(f"the agy hook exited with {result.returncode} and printed {result.stdout!r}: {stderr[-500:]}")
+            deadline = time.monotonic() + 30
+            while not gotify.messages and time.monotonic() < deadline:
+                time.sleep(0.2)
+            log = Path(scratch) / "data" / "gotify-notify.log"
+            if log.is_file():
+                print(f"agy hook log: {log.read_text(encoding='utf-8').strip()}", flush=True)
+        sent = gotify.messages
+        if [(path, key) for path, key, _ in sent] != [("/message", GOTIFY_TEST_TOKEN)]:
+            fail(f"the agy hook posted {sent} instead of one message")
+            return
+        text = str(sent[0][2].get("message"))
+        if text != f"Response finished: {response}":
+            fail(f"the agy hook posted {text!r}")
+        print(f"the agy hook returned in {took:.1f}s and posted: {ascii(sent[0][2])}", flush=True)
+    finally:
+        gotify.shutdown()
+        gotify.server_close()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--agents", action="store_true", help="every agent CLI is installed on this machine")
@@ -450,6 +552,7 @@ def main() -> int:
     if options.agents:
         check_agent_clis()
         check_notify_hooks()
+    check_agy_hook()
 
     if failures:
         print(f"\n{len(failures)} check(s) failed:", *failures, sep="\n  ")
