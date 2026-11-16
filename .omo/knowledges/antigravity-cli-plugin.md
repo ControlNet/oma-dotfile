@@ -46,7 +46,11 @@ are in `antigravity-cli-skills.md`. Local reference: the built-in skill
 ## Windows
 
 Not seen with a real agy: how it quotes the command for `cmd /c`. So the installed command is
-`scripts\gotify-notify.cmd` (no quote, no space) and the `.cmd` quotes the interpreter. cmd reads
-a batch file in the console code page (the OEM one, `GetOEMCP`, without a console), so the file is
-written in it; `%` is doubled. The CI install checks run the hook through `cmd /c` in the plugin
-dir with a Python inside a home named `Zoë Example`.
+`scripts\gotify-notify.cmd` (no quote, no space) and the `.cmd` quotes the interpreter.
+
+cmd reads a batch file in the console's current code page, not a fixed one: written in the OEM
+code page, `Zoë` was misread on GitHub's Windows runner ("The system
+cannot find the path specified"). So the `.cmd` is ASCII, and a path with other letters starts
+with `%USERPROFILE%`, `%LOCALAPPDATA%` and the like, which cmd expands as Unicode; `%` is
+doubled. The CI install checks run the hook through `cmd /c` in the plugin dir with a Python
+inside a home named `Zoë Example`.

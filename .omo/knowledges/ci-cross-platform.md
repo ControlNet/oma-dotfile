@@ -98,6 +98,8 @@ For `--agents`, install the CLIs into a prefix (`npm install -g --prefix "$S/pre
   that runs hooks lives; neither holds a Python). `cmd\git.exe` adds `usr\bin` itself, but not
   when `MSYSTEM` is set, as under Git Bash; without it git says "cannot spawn .../commit-msg".
   Find the cmd dir by walking up from `which git` (bash finds `Git\bin\git.exe`).
+- A batch file is read in the console's current code page, which is not the OEM one on the
+  runner: write `.cmd` files in ASCII and reach non-ASCII dirs through `%USERPROFILE%` etc.
 - GitHub push protection rejects WakaTime-key-shaped test values (`waka_<uuid>`); use a plain
   `ci-test-value-not-a-token`, which the installer accepts.
 

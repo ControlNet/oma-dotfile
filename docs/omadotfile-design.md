@@ -617,9 +617,13 @@ three ways, each seen with a real agy run:
 The command is a shell string: `sh -c` on POSIX, `cmd /c` on Windows. On POSIX it is the quoted
 interpreter and `scripts/gotify-notify.py`. On Windows it is `scripts\gotify-notify.cmd`, with no
 quote or space, because how agy quotes the string for `cmd /c` cannot be seen (agy runs hooks
-only when logged in, so CI cannot run one); the `.cmd` quotes the interpreter, written in the
-OEM code page cmd reads batch files in. An interpreter that code page cannot spell gets no hook
-and a warning. agy has no WakaTime integration, so there is none.
+only when logged in, so CI cannot run one); the `.cmd` quotes the interpreter. cmd reads a
+batch file in the console's current code page, which a parent or the user may have changed
+(`chcp`), so the `.cmd` is ASCII: a path with other letters is written from the longest of
+`%LOCALAPPDATA%`, `%APPDATA%`, `%USERPROFILE%` and the Program Files dirs that holds it, which
+cmd expands as Unicode (`cmd_path`). A first version wrote the file in the OEM code page; CI's
+Windows run in `Zoë Example` failed with "The system cannot find the path specified". An
+interpreter outside those dirs with such letters gets no hook and a warning. agy has no WakaTime integration, so there is none.
 
 ### Synced CCFA-Skills plugin (2026-11-15)
 

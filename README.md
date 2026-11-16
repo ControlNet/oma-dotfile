@@ -155,8 +155,9 @@ in effect across reinstalls.
   and a background process sends the message. `AGY_NOTIFY_COMPLETE=false` and
   `AGY_NOTIFY_ERROR=false` turn either kind off.
 - The hook runs the Python that ran the installer by its absolute path. On Windows the hook is
-  `scripts\gotify-notify.cmd`, which holds that path; a path the system's OEM code page cannot
-  spell gets no hook, with a warning.
+  `scripts\gotify-notify.cmd`, which holds that path in ASCII: letters outside ASCII are
+  written through `%USERPROFILE%`, `%LOCALAPPDATA%` and the like. A path outside those dirs
+  with such letters gets no hook, with a warning.
 - Skills are not in the plugin: `skills.json` points agy at `~/.agents/skills`.
 - No WakaTime: agy has no WakaTime integration.
 

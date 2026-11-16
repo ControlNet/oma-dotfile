@@ -71,28 +71,38 @@ class WindowsHookTests(TestCase):
 
     def setUp(self):
         self.home = Path(self.enterContext(tempfile.TemporaryDirectory()))
-        self.python = r"C:\Users\Zoë Example\100% py\python.exe"
-        self.ctx = make_context(self.home, found=("agy",), python=self.python)
         self.plugin = self.home / ".gemini" / "config" / "plugins" / "oma-dotfile"
         self.enterContext(patch.object(agy, "WINDOWS", True))
 
+    def install(self, python: str, **env: str) -> None:
+        AGENTS["agy"].run(make_context(self.home, found=("agy",), python=python, env=env))
+
+    def wrapper(self) -> str:
+        # ASCII only: cmd reads a batch file in the console's code page, which can be any.
+        return (self.plugin / "scripts" / "gotify-notify.cmd").read_bytes().decode("ascii")
+
     def test_the_command_is_one_word_and_the_wrapper_quotes_the_interpreter(self):
-        with patch.object(agy, "oem_encoding", return_value="cp850"):
-            AGENTS["agy"].run(self.ctx)
+        self.install(r"C:\Program Files\Python314\python.exe")
         hooks = json.loads((self.plugin / "hooks.json").read_text(encoding="utf-8"))
         # No quote or space, whatever agy does to it on its way to cmd /c.
         self.assertEqual(hooks["oma-dotfile-gotify-notify"]["Stop"][0]["command"], r"scripts\gotify-notify.cmd")
-        # cmd reads a batch file in the OEM code page; % would start a variable.
-        wrapper = (self.plugin / "scripts" / "gotify-notify.cmd").read_bytes().decode("cp850")
-        self.assertIn('"C:\\Users\\Zoë Example\\100%% py\\python.exe" "%~dp0gotify-notify.py"\r\n', wrapper)
-        self.assertTrue(wrapper.startswith("@echo off\r\n"))
+        self.assertEqual(self.wrapper().splitlines()[0], "@echo off")
+        self.assertIn('"C:\\Program Files\\Python314\\python.exe" "%~dp0gotify-notify.py"\r\n', self.wrapper())
 
-    def test_an_interpreter_the_code_page_cannot_spell_gets_no_hook(self):
-        ctx = make_context(self.home, found=("agy",), python=r"C:\Users\张三\python.exe")
-        with patch.object(agy, "oem_encoding", return_value="cp437"):
-            AGENTS["agy"].run(ctx)
+    def test_a_percent_sign_is_not_a_variable(self):
+        self.install(r"C:\100% py\python.exe")
+        self.assertIn('"C:\\100%% py\\python.exe"', self.wrapper())
+
+    def test_letters_outside_ascii_are_left_to_a_variable_cmd_expands(self):
+        # The longest dir that holds the interpreter wins; names are matched in any case.
+        self.install(r"C:\Users\Zoë Example\AppData\Local\Programs\100% Py\python.exe",
+                     USERPROFILE=r"C:\Users\Zoë Example", LocalAppData="C:\\Users\\zoë example\\AppData\\Local\\")
+        self.assertIn('"%LOCALAPPDATA%\\Programs\\100%% Py\\python.exe"', self.wrapper())
+
+    def test_an_interpreter_no_variable_can_name_gets_no_hook(self):
+        self.install(r"D:\张三\python.exe", USERPROFILE=r"C:\Users\张三")
         self.assertFalse((self.plugin / "hooks.json").exists())
         self.assertFalse((self.plugin / "scripts" / "gotify-notify.cmd").exists())
         self.assertTrue((self.plugin / "rules" / "AGENTS.md").is_file())
         (warning,) = self.console.warnings
-        self.assertIn("cp437", warning)
+        self.assertIn("Gotify hook is not installed", warning)

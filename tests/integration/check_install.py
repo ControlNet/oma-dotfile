@@ -440,18 +440,24 @@ def check_notify_hooks() -> None:
 
 
 def agy_hook_interpreter(plugin: Path, command: str) -> str:
-    """The interpreter the agy hook runs, as written: in the command (sh), or in the wrapper
-    the command names (cmd), which cmd reads in the OEM code page."""
+    """The interpreter the agy hook runs: in the command (sh), or in the wrapper the command
+    names (cmd), with its %VARIABLE% expanded as cmd does."""
     if sys.platform != "win32":
         return shlex.split(command)[0]
     if command != AGY_NOTIFY_WRAPPER.replace("/", "\\"):
         fail(f"the agy hook command {command!r} is not the bare wrapper path cmd /c can run however it is quoted")
         return ""
-    import ctypes
-    code_page = f"cp{ctypes.windll.kernel32.GetOEMCP()}"
-    wrapper = (plugin / AGY_NOTIFY_WRAPPER).read_bytes().decode(code_page)
+    try:
+        # ASCII: cmd reads a batch file in whatever code page the console has.
+        wrapper = (plugin / AGY_NOTIFY_WRAPPER).read_bytes().decode("ascii")
+    except UnicodeDecodeError as exc:
+        fail(f"the agy hook wrapper is not ASCII: {exc}")
+        return ""
     match = re.search(r'^"([^"]+)" ', wrapper, re.MULTILINE)
-    return match.group(1).replace("%%", "%") if match else ""
+    if match is None:
+        return ""
+    return re.sub(r"%%|%([^%]+)%", lambda m: "%" if m.group(0) == "%%" else os.environ.get(m.group(1), m.group(0)),
+                  match.group(1))
 
 
 def check_agy_hook() -> None:
