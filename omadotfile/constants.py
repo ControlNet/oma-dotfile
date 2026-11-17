@@ -101,6 +101,7 @@ UPSTREAM_SKILLS = {
     "vercel-labs/agent-skills": ("web-design-guidelines",),
     "anthropics/skills": ("frontend-design", "skill-creator"),
     "nextlevelbuilder/ui-ux-pro-max-skill": ("ui-ux-pro-max",),
+    "slidevjs/slidev": ("slidev",),
     CCFA_SKILLS_SOURCE: (ALL_SKILLS,),
     "herdrdev/herdr": ("herdr",),
 }

@@ -92,6 +92,7 @@ already covers writing skills). Your other entries and exclusions in that file a
 | `vercel-labs/agent-skills` | `web-design-guidelines` |
 | `anthropics/skills` | `frontend-design`, `skill-creator` |
 | `nextlevelbuilder/ui-ux-pro-max-skill` | `ui-ux-pro-max` |
+| `slidevjs/slidev` | `slidev` |
 | `mikubaka88/CCFA-Skills` | All of them (`ccf-*`), including ones added upstream later |
 | `herdrdev/herdr` | `herdr` |
 
