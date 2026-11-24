@@ -1,18 +1,29 @@
 ## Rules
 
-- Code/comments/identifiers in English. Reply in the user's language unless explicitly requested otherwise.
+- Code/comments/identifiers in English. Reply in the user's language, including after context compaction, unless explicitly requested otherwise.
+- Explain in plain words with a concrete example; don't use labels the user hasn't seen (R3, P1, internal IDs). When asking, give the options and a recommendation.
 - When giving terminal steps, always include copy-pastable CLI commands.
-- Never include secrets/tokens/keys in code, logs, docs, or gists. Assume public by default; use env vars and mention .gitignore/.env.local.
-- Never use `git clean` which will causes untended changes.
-- Git commits must not include any agent co-author or attribution lines (e.g. `Co-Authored-By`, session links).
-- Prefer minimal, reviewable patches; avoid large refactors unless asked.
+- Carry asked-for or approved work through to the end, including confirmed issues found along the way, and re-verify. Ask only for decisions that are the user's to make or before destructive actions.
+- A question, a proposal or a brainstorm is not a request to edit: answer it and wait. Change only what was asked, and say so before departing from an agreed design.
+- Keep designs simple: no options, defensive edge cases, compatibility shims or extra files nobody asked for. Prefer minimal, reviewable patches; avoid large refactors unless asked.
+- Before designing, check how upstream and comparable projects do it, and reuse existing code and conventions instead of adding a parallel copy.
 - For non-trivial changes: include exact verification commands (lint/test/run) and expected outcome/signals (what should pass / what to look for).
+- Before calling visual work done, look at the rendered result; for design choices, offer a few variants side by side.
+- Test-driven development is preferred.
+- Not allowed to use any dummy placeholders for source code, implementations, models, documentations, etc. If you want to use any dummy things for testing purpose, you must highlight it to user.
+- Run independent research, fixes and long tests in subagents or background jobs; wait for long jobs with a script instead of polling every turn; scale effort and subagent count to the task, not to the maximum.
+- Pull before starting work on a branch that may have new commits.
+- Commit verified changes in atomic commits and push them without asking. Work on the current branch; when asked to fix several independent issues in parallel, give each its own git worktree and branch, merge them back into the current branch, then delete those worktrees and their local and remote branches without asking.
+- Write commit messages in the Conventional Commits format (`feat: ...`, `fix: ...`).
+- Git commits must not include any agent co-author or attribution lines (e.g. `Co-Authored-By`, session links).
+- Never use `git clean` which will causes untended changes.
 - Warn before any destructive action (delete/overwrite/migration/force push).
+- Clean up containers, temporary files and processes you created; remove obsolete code when replacing it.
+- For anything written for others to read (README, technical docs, release notes, PR and issue text, papers), use the ccf-humanization skill: write like a person, direct and not defensive. Commit messages and replies to the user in chat are not included.
+- Never include secrets/tokens/keys in code, logs, docs, or gists. Assume public by default; use env vars and mention .gitignore/.env.local.
+- Anything committed, pushed or posted (files, commit messages, PRs, issues, shared links) may be public: no personal data (usernames, home paths, hostnames, emails, private project names); use `~`. The configured git author name and email on commits are fine; leave them as they are.
 - Only modify project-level AGENTS.md when explicitly asked to change project rules.
 - Use pixi or conda to manage Python environments, unless the use of Python does not involve the 3rd-party packages. Prevent installing packages to system-level Python.
 - For Python work: if the Python project requires 3rd-party packages, and the virtual Python environment is not explicitly specified or is ambiguous, ask the user to confirm (pixi/conda + env name/path). Once confirmed, persist the environment choice in project-level AGENTS.md (as an "Environment" memory block) and create/update a repo-root LSP config (pyrightconfig.json) so imports/types resolve in that environment.
-- Test-driven development is preferred.
 - When you do anything valuable and get the useful knowledge, save the knowledge in `<GIT_REPO_ROOT>/.omo/knowledges/*.md`.
-- Knowledge notes may be public: no personal data (home paths, usernames, hostnames, emails); use `~`.
 - If you need to retrieve knowledge, find it in the `<GIT_REPO_ROOT>/.omo/knowledges/*.md` and other documentations.
-- Not allowed to use any dummy placeholders for source code, implementations, models, documentations, etc. If you want to use any dummy things for testing purpose, you must highlight it to user.
