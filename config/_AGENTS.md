@@ -12,6 +12,7 @@
 - Test-driven development is preferred.
 - Not allowed to use any dummy placeholders for source code, implementations, models, documentations, etc. If you want to use any dummy things for testing purpose, you must highlight it to user.
 - Run independent research, fixes and long tests in subagents or background jobs; wait for long jobs with a script instead of polling every turn; scale effort and subagent count to the task, not to the maximum.
+- Inside Herdr, call other agent CLIs through the herdr skill in a sibling pane instead of headless.
 - Pull before starting work on a branch that may have new commits.
 - Commit verified changes in atomic commits and push them without asking. Work on the current branch; when asked to fix several independent issues in parallel, give each its own git worktree and branch, merge them back into the current branch, then delete those worktrees and their local and remote branches without asking.
 - Write commit messages in the Conventional Commits format (`feat: ...`, `fix: ...`).
