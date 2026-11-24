@@ -115,10 +115,10 @@ def locked_skill_names(ctx: Context, repo: str) -> set[str]:
             if str(entry.get("source", "")).lower() == repo.lower()}
 
 
-def removable_skills(ctx: Context, names: tuple[str, ...]) -> list[str]:
-    """Names among `names` that the lock records as installed from this repo."""
-    ours = locked_skill_names(ctx, ctx.source.slug)
-    return [name for name in names if name in ours]
+def removable_skills(ctx: Context, removed: Mapping[str, str | None]) -> list[str]:
+    """Names in `removed` that the lock records as installed from their source (None: this repo)."""
+    return [name for name, source in removed.items()
+            if name in locked_skill_names(ctx, source or ctx.source.slug)]
 
 
 def commits_path(ctx: Context) -> Path:
@@ -259,7 +259,7 @@ def incomplete(source: str, names: tuple[str, ...], done: frozenset[str]) -> str
 def uninstall(cli: Runner, names: list[str]) -> None:
     """Uninstall skills from ~/.agents/skills; a failure is warned about and the install goes on."""
     cli.run(["npx", "-y", f"skills@{SKILLS_CLI_VERSION}", "remove", *names, "-g", "-y"])
-    item(f"uninstalled {', '.join(names)} (no longer shipped by this repo)")
+    item(f"uninstalled {', '.join(names)} (no longer installed by this repo)")
 
 
 @skips

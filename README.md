@@ -89,9 +89,7 @@ already covers writing skills). Your other entries and exclusions in that file a
 |---|---|
 | This repo's `skills/` | `github-cli`, `notion-api`, `secret-guard` |
 | `vercel-labs/skills` | `find-skills` |
-| `vercel-labs/agent-skills` | `web-design-guidelines` |
 | `anthropics/skills` | `frontend-design`, `skill-creator` |
-| `nextlevelbuilder/ui-ux-pro-max-skill` | `ui-ux-pro-max` |
 | `slidevjs/slidev` | `slidev` |
 | `mikubaka88/CCFA-Skills` | All of them (`ccf-*`), including ones added upstream later |
 | `herdrdev/herdr` | `herdr` |
@@ -111,9 +109,10 @@ already covers writing skills). Your other entries and exclusions in that file a
 - To add a third-party skill, add its source to `UPSTREAM_SKILLS` in `omadotfile/constants.py` (`ALL_SKILLS` takes
   every skill in that source). To add your own,
   put it in `skills/` and push.
-- To drop one of your own, delete it from `skills/` and add its name to `REMOVED_SKILLS`. The next
-  run uninstalls it with `npx skills remove`, but only if `~/.agents/.skill-lock.json` says it came
-  from this repo; a same-named skill from elsewhere is kept. Dropped so far: `frontend-codex`.
+- To drop a skill, take it out of `skills/` or `UPSTREAM_SKILLS` and add it to `REMOVED_SKILLS` with
+  the source it came from (`None` for this repo). The next run uninstalls it with `npx skills remove`,
+  but only if `~/.agents/.skill-lock.json` says it came from that source; a same-named skill from
+  elsewhere is kept. Dropped so far: `frontend-codex`, `ui-ux-pro-max`, `web-design-guidelines`.
 
 ## Commit attribution
 

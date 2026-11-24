@@ -98,9 +98,7 @@ ALL_SKILLS = "*"  # every skill the source has, including ones added upstream la
 CCFA_SKILLS_SOURCE = "mikubaka88/CCFA-Skills"
 UPSTREAM_SKILLS = {
     "vercel-labs/skills": ("find-skills",),
-    "vercel-labs/agent-skills": ("web-design-guidelines",),
     "anthropics/skills": ("frontend-design", "skill-creator"),
-    "nextlevelbuilder/ui-ux-pro-max-skill": ("ui-ux-pro-max",),
     "slidevjs/slidev": ("slidev",),
     CCFA_SKILLS_SOURCE: (ALL_SKILLS,),
     "herdrdev/herdr": ("herdr",),
@@ -113,9 +111,14 @@ CLAUDE_SYNCED_DUPLICATES = {CCFA_SKILLS_SOURCE: "ccfa-skills@synced"}
 OWN_SKILLS_DIR = "skills"  # this repo's own skills, one dir with a SKILL.md each
 # Old name -> the skill that replaced it; the old copy goes once the new one is installed.
 RETIRED_SKILLS = {"frontend-claude": "frontend-design"}
-# Skills this repo no longer ships. They are uninstalled from ~/.agents/skills while the
-# skills CLI lock still says they came from this repo; a same-named skill from elsewhere stays.
-REMOVED_SKILLS = ("frontend-codex",)
+# Skills this repo no longer installs -> the source they came from (None: this repo, whichever
+# fork). They are uninstalled from ~/.agents/skills while the skills CLI lock still names that
+# source; a same-named skill from elsewhere stays.
+REMOVED_SKILLS: dict[str, str | None] = {
+    "frontend-codex": None,
+    "ui-ux-pro-max": "nextlevelbuilder/ui-ux-pro-max-skill",
+    "web-design-guidelines": "vercel-labs/agent-skills",
+}
 # Claude Code does not read ~/.agents/skills, so skills are linked into its own dir,
 # except these, which overlap what Claude Code already has.
 CLAUDE_CODE_EXCLUDED_SKILLS = ("skill-creator", "find-skills")

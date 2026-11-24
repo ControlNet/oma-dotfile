@@ -62,8 +62,7 @@ class SourceTests(TestCase):
 
     def test_upstream_replaces_the_retired_vendored_copies(self):
         upstream = {name for names in constants.UPSTREAM_SKILLS.values() for name in names} - {constants.ALL_SKILLS}
-        self.assertEqual(upstream, {"find-skills", "web-design-guidelines", "frontend-design",
-                                    "skill-creator", "ui-ux-pro-max", "slidev", "herdr"})
+        self.assertEqual(upstream, {"find-skills", "frontend-design", "skill-creator", "slidev", "herdr"})
         self.assertEqual(constants.RETIRED_SKILLS, {"frontend-claude": "frontend-design"})
         for name in (*upstream, "frontend-claude"):
             self.assertFalse((ROOT / "skills" / name).exists(), name)
@@ -151,12 +150,12 @@ class EnsureAgentSkillsTests(AgentSkillsHarness):
         stale = [write_skill(d, name) for d in self.legacy
                  for name in ("find-skills", "github-cli", "frontend-claude")]
         own = write_skill(self.legacy[0], "my-skill")
-        not_installed = write_skill(self.legacy[1], "ui-ux-pro-max")
-        # When the CLI installs all but ui-ux-pro-max.
+        not_installed = write_skill(self.legacy[1], "slidev")
+        # When the CLI installs all but slidev.
         self.replies = {
             "vercel-labs/skills": cli_reply(installed=("find-skills",)),
             "anthropics/skills": cli_reply(installed=("frontend-design", "skill-creator")),
-            "nextlevelbuilder/ui-ux-pro-max-skill": cli_reply(skipped=("ui-ux-pro-max",)),
+            "slidevjs/slidev": cli_reply(skipped=("slidev",)),
             REPO_SOURCE: cli_reply(installed=("github-cli",)),
         }
         output = self.run_install()
@@ -166,7 +165,7 @@ class EnsureAgentSkillsTests(AgentSkillsHarness):
         # And the user's skill and the one that failed to install are untouched.
         self.assertEqual(own.read_text(encoding="utf-8"), "kept\n")
         self.assertEqual(not_installed.read_text(encoding="utf-8"), "kept\n")
-        self.assertIn("ui-ux-pro-max", output)
+        self.assertIn("slidev", output)
 
     def test_an_agent_skills_dir_linked_to_the_shared_dir_is_left_alone(self):
         # Given codex/skills is a symlink to ~/.agents/skills, where the CLI installs.
@@ -207,11 +206,11 @@ class EnsureAgentSkillsTests(AgentSkillsHarness):
     def test_a_failing_source_is_warned_about_and_the_next_one_still_installs(self):
         failed = "BIN/npx ... failed with exit code 1"
         self.replies = {"vercel-labs/skills": CommandFailed(failed),
-                        "vercel-labs/agent-skills": cli_reply(installed=("web-design-guidelines",))}
+                        "slidevjs/slidev": cli_reply(installed=("slidev",))}
         output = self.run_install()
         self.assertIn(failed, output.splitlines())
         self.assertIn("Not installed from vercel-labs/skills: find-skills", output)
-        self.assertIn("web-design-guidelines (vercel-labs/agent-skills)", output)
+        self.assertIn("slidev (slidevjs/slidev)", output)
         self.assertEqual(len(self.cli.call_args_list), len(skills.skill_installs(
             self.repo, self.ctx.source, claude=False)))
 
@@ -265,10 +264,8 @@ class ClaudeCodeSkillTests(AgentSkillsHarness):
         both, shared = ("universal", "claude-code"), ("universal",)
         self.assertEqual(self.installs(), [
             ("vercel-labs/skills", ("find-skills",), shared),
-            ("vercel-labs/agent-skills", ("web-design-guidelines",), both),
             ("anthropics/skills", ("frontend-design",), both),
             ("anthropics/skills", ("skill-creator",), shared),
-            ("nextlevelbuilder/ui-ux-pro-max-skill", ("ui-ux-pro-max",), both),
             ("slidevjs/slidev", ("slidev",), both),
             ("mikubaka88/CCFA-Skills", (constants.ALL_SKILLS,), both),
             ("herdrdev/herdr", ("herdr",), both),
@@ -364,6 +361,16 @@ class RemovedSkillTests(AgentSkillsHarness):
                                    "frontend-codex", "-g", "-y"])
         self.assertEqual(self.remove.call_args.args[0].pin, skills.SKILLS_CLI_ENV)
         self.assertIn("frontend-codex", output)
+
+    def test_dropped_upstream_skills_are_removed_when_installed_from_their_source(self):
+        self.assertEqual(constants.REMOVED_SKILLS["ui-ux-pro-max"], "nextlevelbuilder/ui-ux-pro-max-skill")
+        self.assertEqual(constants.REMOVED_SKILLS["web-design-guidelines"], "vercel-labs/agent-skills")
+        self.write_lock({"ui-ux-pro-max": "nextlevelbuilder/ui-ux-pro-max-skill",
+                         "web-design-guidelines": "someone/else", "frontend-codex": "someone/else"})
+        output = self.run_install()
+        command = self.remove.call_args.args[1]
+        self.assertEqual(command[command.index("remove") + 1:], ["ui-ux-pro-max", "-g", "-y"])
+        self.assertIn("ui-ux-pro-max", output)
 
     def test_same_name_from_another_source_is_kept(self):
         self.write_lock({"frontend-codex": "someone/else"})
