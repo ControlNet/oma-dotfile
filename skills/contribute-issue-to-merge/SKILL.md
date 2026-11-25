@@ -19,6 +19,10 @@ Under `/goal`, the goal is met when one of the done states above holds; end the 
 with `stop condition met`, or with `stopped: <reason>` when blocked on something only the user can
 decide.
 
+Wait for CI and comments with one long blocking command (or a background job that notifies you
+when it exits), with a timeout long enough for the whole job. Do not poll with repeated status
+checks or short sleeps, and under `/goal` do not end the turn just to be woken up and check again.
+
 ## 1. Pick the work
 
 - If the user named an issue or PR, use it. For an open PR, resume from its current head, CI and
@@ -52,9 +56,12 @@ decide.
 
 ## 4. Follow until done
 
-- Watch CI and new comments with one background script, for example `gh run watch <id> --exit-status`
-  for CI and a loop over `gh pr view <n> --json state,headRefOid,comments,reviews` every few minutes
-  that exits when something changes.
+- Wait for CI with `gh run watch <id> --exit-status` or `gh pr checks <n> --watch`. Wait for
+  comments with one background script that checks
+  `gh pr view <n> --json state,headRefOid,comments,reviews` at a long interval and exits only when
+  something changes. Do not check by hand every turn.
+- When only the maintainers are left to act, stop and report (see the done states above) instead
+  of keeping a watcher running.
 - On every change, re-read all comments, reviews and inline threads, not only the newest; earlier
   requests may have been revised or withdrawn.
 - On a CI failure, read the failing step's log and decide whether the change, a test or the

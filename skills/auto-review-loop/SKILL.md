@@ -18,6 +18,11 @@ evaluator reads only the conversation):
 Under `/goal`, the goal is met when this stop condition holds; end the final status line with
 `stop condition met`, or with `stopped: <reason>` when stopping for another reason above.
 
+Wait for CI, the reviewer and workers with one long blocking command (or a background job that
+notifies you when it exits), with a timeout long enough for the whole job. Do not poll with
+repeated status checks or short sleeps, and under `/goal` do not end the turn just to be woken up
+and check again.
+
 ## Each round
 
 1. **Baseline.** Pull, note the branch and HEAD, and leave uncommitted changes that are not yours
@@ -28,6 +33,8 @@ Under `/goal`, the goal is met when this stop condition holds; end the final sta
      sibling pane with the herdr skill. Otherwise run it read-only and headless, for example
      `codex exec -m <model> -c model_reasoning_effort=high -s read-only -o <report.md> "<prompt>" < /dev/null`.
    - Use high reasoning effort, not max.
+   - Wait for it with `herdr agent wait <name> --timeout <ms>` or for the headless command to exit,
+     not by reading its screen again and again.
    - If the reviewer runs out of quota or fails, keep its partial report and finish the review
      with subagents split by area.
    - Ask for findings ranked by severity, each with file:line, trigger, consequence, evidence and
@@ -40,10 +47,12 @@ Under `/goal`, the goal is met when this stop condition holds; end the final sta
    subagent or another agent in its own worktree and branch, with a short brief: findings,
    expected behavior, files it owns, how to validate. Workers commit but do not push or merge.
    Fix small or tightly coupled findings directly. For behavior bugs, prefer a test that fails
-   before the fix and passes after.
+   before the fix and passes after. Wait for the workers' completion notices or `herdr agent wait`.
 5. **Integrate.** Read each worker's diff, not just its summary. Merge into the current branch,
    run the project's lint and tests on the merged result, commit and push.
-6. **Wait for CI** on the pushed SHA with a script. Fix failures this round caused and push again.
+6. **Wait for CI** on the pushed SHA with one blocking command, for example
+   `gh run watch <id> --exit-status`, not repeated `gh run view`. Fix failures this round caused
+   and push again.
 7. **Clean up** this round's worktrees and their local and remote branches.
 8. Print the status line. Start the next round unless the stop condition holds.
 
