@@ -54,5 +54,14 @@ Tested on a throwaway repo, with each CLI in a herdr pane, by checking the sessi
 | `$auto-review-loop ...` in a normal message | body injected | (not run) |
 | `/goal $auto-review-loop ...` (Claude: `/goal /auto-review-loop ...`) | not injected; agent read SKILL.md itself; goal achieved | `Skill` tool called; goal achieved |
 
+Bare `/goal $auto-review-loop` (Codex 0.172.0) and `/goal /auto-review-loop` (Claude Code), on
+a repo with a local remote, one planted bug and no CI: both fixed and pushed the bug, ran another
+round that found nothing, printed `... CI none at <sha>, stop condition met`, and the goal ended
+by itself (about 3 minutes each). Inside Herdr, the Claude agent started its Codex reviewer in a
+sibling pane and asked before accepting Codex's folder-trust prompt.
+
+In Codex, a prompt that starts with `$name` sent through `herdr agent prompt` can stay in the
+composer (the skill picker takes the Enter); send `enter` once more.
+
 If a goal ever does not pick up the skill, call the skill in a normal message first, then set
 `/goal` with only the stop condition.
