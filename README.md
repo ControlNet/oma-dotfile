@@ -46,6 +46,7 @@ Rerun without `--oauth` to switch back.
 | `GOTIFY_URL`, `GOTIFY_TOKEN_FOR_OPENCODE` | Gotify |
 | `GOTIFY_TOKEN_FOR_CODEX`, `GOTIFY_TOKEN_FOR_OMP`, `GOTIFY_TOKEN_FOR_CLAUDE`, `GOTIFY_TOKEN_FOR_AGY` | Per-agent token; defaults to `GOTIFY_TOKEN_FOR_OPENCODE` |
 | `OPENCODE_NOTIFY_TITLE`, `CODEX_NOTIFY_TITLE`, `OMP_NOTIFY_TITLE`, `CLAUDE_NOTIFY_TITLE`, `AGY_NOTIFY_TITLE` | Gotify title; default `<Agent> :: <project>@<hostname>` |
+| `GOTIFY_NOTIFY=0` | No Gotify notifications from that agent process, e.g. for agents another agent starts through Herdr |
 | `GOTIFY_NOTIFY_SUMMARIZER_MODEL`, `GOTIFY_NOTIFY_SUMMARIZER_ENDPOINT`, `GOTIFY_NOTIFY_SUMMARIZER_API_KEY` | Summarize notifications with an OpenAI-compatible API |
 | `OMP_WAKATIME_SYNC=false`, `OMP_WAKATIME_SYNC_INTERVAL_SEC` (default 120) | OMP WakaTime sync |
 | `WAKATIME_HOME` | Directory of `.wakatime.cfg` |

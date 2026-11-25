@@ -386,6 +386,8 @@ def main(arguments: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--dry-run", action="store_true")
     options, _ = parser.parse_known_args(arguments)
+    if not env_bool("GOTIFY_NOTIFY", True):
+        return 0
     try:
         payload = json.load(sys.stdin)
     except (OSError, json.JSONDecodeError):

@@ -145,6 +145,7 @@ class HookTests(NotifierTestCase):
     def test_nothing_is_spawned_when_nothing_would_be_sent(self):
         for raw, env in ((json.dumps(self.stop(terminationReason="USER_CANCELED")).encode(), {}),
                          (json.dumps(self.stop()).encode(), {"GOTIFY_URL": ""}),
+                         (json.dumps(self.stop()).encode(), {"GOTIFY_NOTIFY": "0"}),
                          (b"not json", {}), (b"[]", {})):
             with self.subTest(raw=raw, env=env), patch.dict(os.environ, env), \
                  patch.object(notify, "spawn_worker") as spawn:

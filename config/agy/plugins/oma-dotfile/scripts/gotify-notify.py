@@ -340,7 +340,8 @@ def main(arguments: list[str] | None = None) -> int:
     sys.stdout.flush()
     try:
         payload = read_payload(raw)
-        if payload is not None and event_message(payload) is not None and gotify_config() is not None:
+        if payload is not None and env_bool("GOTIFY_NOTIFY", True) \
+                and event_message(payload) is not None and gotify_config() is not None:
             spawn_worker(raw)
     except Exception as error:  # the hook must never fail the turn
         log("hook_error", type(error).__name__)

@@ -11,6 +11,8 @@ Environment variables:
   GOTIFY_TOKEN_FOR_CODEX (required; falls back to GOTIFY_TOKEN_FOR_OPENCODE)
 
 Optional:
+  GOTIFY_NOTIFY (default: true; 0 silences every notification from this process, e.g. for agents
+    another agent drives)
   CODEX_NOTIFY_TITLE (override default: "Codex :: <project>@<hostname>")
   CODEX_NOTIFY_MAX_CHARS (default: 280)
   CODEX_NOTIFY_HEAD (default: 50)
@@ -1320,6 +1322,9 @@ def _push_gotify(base_url: str, token: str, title: str, message: str) -> None:
 
 def main() -> int:
     _log_line("run_start")
+    if not _is_true(_env("GOTIFY_NOTIFY", "true")):
+        _log_line("run_skip reason=gotify_notify_off")
+        return 0
     payload: dict[str, object] | None = None
     if len(sys.argv) >= 2:
         payload_raw = sys.argv[-1]

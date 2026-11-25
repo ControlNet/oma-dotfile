@@ -89,6 +89,12 @@ class NotificationTests(TestCase):
             self.run_event(self.event("SubagentStop", agent_id="child"))
         self.post.assert_called_once()
 
+    def test_gotify_notify_off_silences_every_event(self):
+        with patch.dict(os.environ, {"GOTIFY_NOTIFY": "0"}):
+            self.run_event(self.event())
+            self.run_event(self.event("Notification", notification_type="permission_prompt", message="Approve"))
+        self.post.assert_not_called()
+
     def test_dedup_is_before_summary_and_separates_prompts(self):
         with patch.object(notify, "summarize", return_value="Summary") as summary:
             self.run_event(self.event())

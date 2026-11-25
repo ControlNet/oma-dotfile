@@ -100,6 +100,11 @@ class RecapNotificationTests(TestCase):
             self.assertEqual(notify.main(), 0)
         self.assert_skipped("conversation_recap")
 
+    def test_gotify_notify_off_skips_before_scans_summary_and_delivery(self):
+        with patch.dict(os.environ, {"GOTIFY_NOTIFY": "0"}):
+            self.run_event("Fix the failing test.")
+        self.assert_skipped("gotify_notify_off")
+
     def test_ordinary_completion_with_recap_output_still_notifies(self):
         self.run_event("Summarize our conversation.")
         self.summary.assert_called_once()

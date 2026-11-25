@@ -14,6 +14,7 @@ import path from "node:path";
 //   GOTIFY_TOKEN_FOR_OMP (fallback: GOTIFY_TOKEN_FOR_OPENCODE, GOTIFY_TOKEN_FOR_CODEX)
 //
 // Optional:
+//   GOTIFY_NOTIFY                     default true; 0 silences every notification from this process
 //   OMP_NOTIFY_TITLE                  override default "OMP :: <project>@<hostname>"
 //   OMP_NOTIFY_MAX_CHARS              default 280
 //   OMP_NOTIFY_HEAD                   default 50
@@ -337,6 +338,7 @@ async function pushGotify(title, message) {
 }
 
 export default function OmpGotifyNotify(pi) {
+	if (!envBool("GOTIFY_NOTIFY", true)) return;
 	const sentCache = new Map();
 	let goalStatus = null;
 	let goalTurn = false;

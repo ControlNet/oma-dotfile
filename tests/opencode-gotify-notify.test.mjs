@@ -149,3 +149,12 @@ test("a full diagnostic log is rotated before the next line", async () => {
 	assert.equal(fs.statSync(`${log}.1`).size, 256 * 1024);
 	assert.match(fs.readFileSync(log, "utf8"), /^\S+ \[gotify\] delivery HTTP 503/);
 });
+
+test("GOTIFY_NOTIFY=0 returns no hooks", async () => {
+	process.env.GOTIFY_NOTIFY = "0";
+	try {
+		assert.deepEqual(await GotifyNotify({ client: fakeClient(), directory: home }), {});
+	} finally {
+		delete process.env.GOTIFY_NOTIFY;
+	}
+});

@@ -9,6 +9,7 @@ import path from "node:path";
 //   GOTIFY_TOKEN_FOR_OPENCODE
 //
 // Optional:
+//   GOTIFY_NOTIFY                     default true; 0 silences every notification from this process
 //   OPENCODE_NOTIFY_TITLE             override default "OpenCode :: <project>@<hostname>"
 //   OPENCODE_NOTIFY_HEAD              default 50
 //   OPENCODE_NOTIFY_TAIL              default 50
@@ -598,6 +599,8 @@ async function isChildSession(client, sessionID) {
 }
 
 export const GotifyNotify = async ({ client, directory, worktree, project }) => {
+    const gotifyNotify = (process.env.GOTIFY_NOTIFY || "").trim().toLowerCase();
+    if (gotifyNotify && !["1", "true", "yes", "on"].includes(gotifyNotify)) return {};
     const defaultCwd = getOpenCodeCwd({ directory, worktree, project });
    const lastSent = new Map();
     const pendingIdleTimers = new Map();

@@ -19,6 +19,7 @@ const MANAGED_ENV = [
 	"OMP_NOTIFY_ERROR",
 	"OMP_NOTIFY_QUESTION",
 	"OMP_NOTIFY_DEDUP_WINDOW_SEC",
+	"GOTIFY_NOTIFY",
 ];
 
 function resetEnv() {
@@ -325,4 +326,12 @@ test("a subsequent goal completion cannot turn an earlier progress stop into a n
 	await runAgentEnd(harness, { messages: [assistant("stop", "Actual final result")] }, ctx);
 	assert.equal(harness.calls.length, 1);
 	assert.match(JSON.parse(harness.calls[0].options.body).message, /Actual final result/);
+});
+
+test("GOTIFY_NOTIFY=0 registers no handlers", () => {
+	resetEnv();
+	process.env.GOTIFY_NOTIFY = "0";
+	const { handlers } = createHarness();
+	assert.equal(handlers.size, 0);
+	resetEnv();
 });
