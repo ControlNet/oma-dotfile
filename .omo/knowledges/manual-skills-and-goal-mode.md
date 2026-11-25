@@ -39,5 +39,16 @@ Usage:
 /goal $auto-review-loop on the whole repo; stop after a round with no new confirmed findings and green CI
 ```
 
-If a goal does not pick up the skill, call the skill in a normal message first, then set `/goal`
-with only the stop condition.
+## Verified on 2026-11-25
+
+Tested on a throwaway repo, with each CLI in a herdr pane, by checking the session logs
+(`~/.codex/sessions/...`, `~/.claude/projects/...`) for the skill being loaded:
+
+| Test | Codex 0.170.0 | Claude Code |
+|---|---|---|
+| "Review this repository for bugs and fix what you find" | listed, not loaded | listed, no `Skill` call |
+| `$auto-review-loop ...` in a normal message | body injected | (not run) |
+| `/goal $auto-review-loop ...` (Claude: `/goal /auto-review-loop ...`) | not injected; agent read SKILL.md itself; goal achieved | `Skill` tool called; goal achieved |
+
+If a goal ever does not pick up the skill, call the skill in a normal message first, then set
+`/goal` with only the stop condition.
