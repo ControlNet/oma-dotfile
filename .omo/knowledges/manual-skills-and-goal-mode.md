@@ -17,7 +17,8 @@ Sources: the Codex skill-creator reference shipped with the CLI
 ## Why the repo's manual skills do not use it
 
 Goal mode: Codex `/goal` (enable with `codex features enable goals` if it is missing) and Claude
-Code `/goal`. No goal mode was found in agy 1.5.16's built-in skills or guide.
+Code `/goal`. agy 1.5.16 also has `/goal` ("Run until the specified goal is completely
+finished"); its guide does not document it, only its changelog mentions it.
 
 When a Codex goal objective contains `$name`, Codex does not inject the skill body the way it does
 for `$name` in an ordinary message. A session log showed the agent found the skill in the listed
@@ -59,6 +60,12 @@ a repo with a local remote, one planted bug and no CI: both fixed and pushed the
 round that found nothing, printed `... CI none at <sha>, stop condition met`, and the goal ended
 by itself (about 3 minutes each). Inside Herdr, the Claude agent started its Codex reviewer in a
 sibling pane and asked before accepting Codex's folder-trust prompt.
+
+agy 1.5.16 (Gemini 4 Neon, xhigh), same setup: an ordinary "review this repo for bugs" prompt did
+not touch either skill (they are listed); bare `/goal /auto-review-loop` read SKILL.md, started a
+Codex reviewer in a sibling Herdr pane, ran 3 rounds, pushed the fixes, ended with
+`stop condition met` and went idle. It took about 30 minutes, against about 3 for the other two.
+agy shows idle while its background tasks run, so wait for the stop line, not for idle.
 
 In Codex, a prompt that starts with `$name` sent through `herdr agent prompt` can stay in the
 composer (the skill picker takes the Enter); send `enter` once more.
