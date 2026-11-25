@@ -17,7 +17,7 @@ Sources: the Codex skill-creator reference shipped with the CLI
 ## Why the repo's manual skills do not use it
 
 Goal mode: Codex `/goal` (enable with `codex features enable goals` if it is missing) and Claude
-Code `/goal`. agy has no goal mode.
+Code `/goal`. No goal mode was found in agy 1.5.16's built-in skills or guide.
 
 When a Codex goal objective contains `$name`, Codex does not inject the skill body the way it does
 for `$name` in an ordinary message. A session log showed the agent found the skill in the listed
