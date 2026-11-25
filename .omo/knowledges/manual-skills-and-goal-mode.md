@@ -36,8 +36,12 @@ the rule survives compaction.
 Usage:
 
 ```
-/goal $auto-review-loop on the whole repo; stop after a round with no new confirmed findings and green CI
+/goal $auto-review-loop      # Codex
+/goal /auto-review-loop      # Claude Code
 ```
+
+The stop condition lives in the skill, which tells the agent to end with `stop condition met`, so
+the goal text only needs extra limits such as a path or a round cap.
 
 ## Verified on 2026-11-25
 

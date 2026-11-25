@@ -15,6 +15,10 @@ evaluator reads only the conversation):
 
 `PR #N: <state>, CI <green|red|pending> at <sha>, <k> unresolved threads, next: <action | waiting on maintainers>`
 
+Under `/goal`, the goal is met when one of the done states above holds; end the final status line
+with `stop condition met`, or with `stopped: <reason>` when blocked on something only the user can
+decide.
+
 ## 1. Pick the work
 
 - If the user named an issue or PR, use it. For an open PR, resume from its current head, CI and

@@ -5,14 +5,18 @@ description: Review a whole repository with an independent reviewer, verify each
 
 # Auto review loop
 
-Stop when a full round ends with no new confirmed findings and CI is green on the pushed commit.
-Findings already rejected, deferred or left to the user do not count as new. Also stop at the
-user's turn or time limit, or when only a decision by the user can unblock the work; say which.
+Stop when a full round ends with no new confirmed findings and CI is green on the pushed commit
+(without CI: the project's tests and lint pass). Findings already rejected, deferred or left to the
+user do not count as new. Also stop at the user's turn or time limit, or when only a decision by
+the user can unblock the work; say which.
 
 End every round with one status line, so progress is visible in the conversation (a `/goal`
 evaluator reads only the conversation):
 
-`Round N: X confirmed (Y fixed, Z deferred), W rejected, CI <green|red|pending> at <sha>`
+`Round N: X confirmed (Y fixed, Z deferred), W rejected, CI <green|red|pending|none> at <sha>`
+
+Under `/goal`, the goal is met when this stop condition holds; end the final status line with
+`stop condition met`, or with `stopped: <reason>` when stopping for another reason above.
 
 ## Each round
 
