@@ -46,6 +46,11 @@ the goal text only needs extra limits such as a path or a round cap.
 
 ## Verified on 2026-11-25
 
+These live runs are not to be repeated: each spends real agent quota and time (the agy run took
+about 30 minutes). For later skill or goal-related changes, stop at `claude plugin validate skills`,
+the repo tests and the docs, and say what runtime behavior was not re-checked.
+
+
 Tested on a throwaway repo, with each CLI in a herdr pane, by checking the session logs
 (`~/.codex/sessions/...`, `~/.claude/projects/...`) for the skill being loaded:
 
