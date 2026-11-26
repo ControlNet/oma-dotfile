@@ -97,6 +97,34 @@ plan -> pilot -> launch queue -> arm watchdog -> end the turn
 - **Recover.** Fix the cause, not the symptom: add a per-item timeout, lower the batch size or concurrency, or skip a reproducibly failing item and record it. Test the fix on the failing input, launch a successor queue, and re-arm the watchdog. Log the incident and the fix with the results.
 - **Stay within authority.** Actions that affect the machine or other users (system configuration, killing others' processes, freeing GPUs used by others) need the user's explicit consent.
 
+## On a remote server
+
+The same queue and watchdog work on a GPU workstation reached over SSH; only where each runs
+changes.
+
+- **Queue: in the server's Herdr, not a foreground SSH command.** Start it in a workspace of its
+  own (`herdr --machine <label> pane run <pane> "cd <dir> && RUN_ROOT=<dir> bash queue_<name>.sh 2>&1 | tee -a <dir>/queue_<name>.log"`;
+  the remote-gpu-run skill covers setting up `herdr --machine`). A dropped connection then
+  costs nothing, and the user can watch the queue in Herdr.
+- **Watchdog: unchanged, run on the server, owned by the local session.** Send the script over
+  SSH as a background task:
+
+  ```bash
+  ssh -o ServerAliveInterval=30 <host> "STALL_MIN=45 FAIL_GLOB='queue_*.log' FAIL_REGEX='GAVE UP' bash -s -- '^bash queue_<name>' <remote DONE file> <remote paths>" < <skill dir>/scripts/watch_queue.sh
+  ```
+
+  Exits 0-5 mean the same as locally. Exit 255 means the SSH connection dropped, not that the
+  queue failed: reconnect, glance at the queue log, and arm the watchdog again.
+- Send short commands (status, `git pull`, reading logs) over one multiplexed SSH connection
+  instead of a new login each time.
+- A `pkill -f` or `pgrep -f` pattern sent over SSH also matches the remote shell running it;
+  anchor it and send it in its own SSH call.
+- Do not rsync over a file the queue is still appending to: the queue keeps writing to the old
+  file. Copy results out under new names.
+- Provision everything before launching (models, data, packages, files the scoring step needs),
+  and run the whole pipeline, scoring included, in the pilot on the new machine: a missing
+  resource otherwise fails the last step after all the GPU work.
+
 ## Limits
 
 - The session is the only notification channel. If it ends, the queue keeps running but nothing reacts. On resume, re-arm the watchdog first, then read the queue log.
