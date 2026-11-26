@@ -32,7 +32,7 @@ done
 [ -n "$job$log" ] || usage
 [ "$until_running" = 0 ] || [ -n "$job" ] || usage
 
-ssh_opts=(-q -T -o BatchMode=yes -o ControlMaster=auto -o "ControlPath=$HOME/.ssh/cm-%C"
+ssh_opts=(-q -T -o BatchMode=yes -o ConnectTimeout=20 -o ControlMaster=auto -o "ControlPath=$HOME/.ssh/cm-%C"
           -o ControlPersist=30m -o ServerAliveInterval=30 -o ServerAliveCountMax=4)
 
 # Runs in a remote login shell, so Slurm's environment is loaded; prints key=value lines.
@@ -53,12 +53,13 @@ EOF
 field() { printf '%s\n' "$reply" | sed -n "s/^$1=//p" | head -1; }
 log_tail() {
   [ -n "$log" ] || return 0
-  ssh "${ssh_opts[@]}" "$host" bash -s <<<"log=$(printf %q "$log"); case \$log in \"~/\"*) log=\"\$HOME/\${log#\"~/\"}\" ;; esac; tail -n 5 \"\$log\"" 2>/dev/null
+  timeout 60 ssh "${ssh_opts[@]}" "$host" bash -s <<<"log=$(printf %q "$log"); case \$log in \"~/\"*) log=\"\$HOME/\${log#\"~/\"}\" ;; esac; tail -n 5 \"\$log\"" 2>/dev/null
 }
 
 failures=0
 while :; do
-  reply=$(ssh "${ssh_opts[@]}" "$host" bash -l -s <<<"$remote_script" 2>/dev/null)
+  # timeout: ConnectTimeout does not cover a ProxyCommand to a host that is down.
+  reply=$(timeout 120 ssh "${ssh_opts[@]}" "$host" bash -l -s <<<"$remote_script" 2>/dev/null)
   if [ "$(field ok)" != 1 ]; then
     failures=$((failures + 1))
     if [ "$failures" -ge 10 ]; then
