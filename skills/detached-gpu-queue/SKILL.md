@@ -125,6 +125,35 @@ changes.
   and run the whole pipeline, scoring included, in the pilot on the new machine: a missing
   resource otherwise fails the last step after all the GPU work.
 
+## On a Slurm cluster
+
+On a cluster the scheduler is the queue, and nothing runs on the login node: submit one job per
+task and watch the jobs from the local machine with the remote-gpu-run skill's `remote-watch.sh`.
+The queue script and `watch_queue.sh` are not used.
+
+- **Submit.** One `sbatch` per task, named after the task (`--job-name`). Submit the tasks that
+  depend on nothing together, so Slurm starts them as resources free up. A task that needs
+  others' results gets `--dependency=afterok:<id>[:<id>...] --kill-on-invalid-dep=yes`; without
+  the second flag it stays pending forever once an upstream job fails. Keep the skip-if-done
+  check in every job, so resubmitting a finished task does nothing.
+- **Fail loudly.** A task that cannot make progress exits non-zero, so Slurm records it as
+  `FAILED`.
+- **Watch.** Run `remote-watch.sh <host> --job <id> --log <output> --stall-min <m> --interval 60`
+  for each job as a background task of the session; all of them share one SSH connection.
+  Exit 0 means the job left the queue, whatever the outcome, so read the state it prints:
+  `COMPLETED`, `FAILED`, `TIMEOUT`, `OUT_OF_MEMORY`, `NODE_FAIL`, or `CANCELLED` (also what a
+  dependent job becomes after an upstream failure). Exit 1 is a stall, 2 an unreachable host.
+  For a job array, watch each task as `<id>_<n>`: the array ID alone returns when its first
+  task ends.
+- **Change the plan.** `sbatch` keeps a copy of the script it was given, so editing the file
+  does not change a job already submitted. Cancel the pending jobs that change (`scancel <id>`),
+  submit the new versions, and point jobs that depended on them at the new IDs
+  (`scontrol update JobId=<id> Dependency=afterok:<new id>`). `scontrol hold <id>` and
+  `scontrol release <id>` pause and resume a pending job. A job that hit `TIMEOUT`, or a
+  running job you cancel, resumes from its outputs when resubmitted.
+- Check the per-user job limits before submitting many jobs:
+  `sacctmgr show qos format=name,maxsubmitpu,maxjobspu`.
+
 ## Limits
 
 - The session is the only notification channel. If it ends, the queue keeps running but nothing reacts. On resume, re-arm the watchdog first, then read the queue log.

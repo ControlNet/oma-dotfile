@@ -35,3 +35,9 @@ clusters. Each machine's own notes are in `~/AGENTS.md` on that machine.
   was chosen over a long-running daemon: it resumes after reboots and needs no root, and
   `systemd --user` without linger does not start after a reboot. Two here-documents on one
   command both feed stdin, so the later one silently replaced the data meant for the first.
+- **Task queues on Slurm**: one job per task, independent tasks submitted together, dependent
+  ones with `--dependency=afterok:... --kill-on-invalid-dep=yes` (a dependent job of a failed
+  upstream became `CANCELLED` at once). One `remote-watch.sh --job` per job worked; with a job
+  array ID it returned when the first array task ended, so array tasks are watched as
+  `<id>_<n>`. `scontrol update JobId=<id> Dependency=...` and `scontrol hold`/`release` worked on
+  pending jobs.
