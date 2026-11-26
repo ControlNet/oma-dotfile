@@ -36,8 +36,10 @@ side. Facts about a machine live in `~/AGENTS.md` on that machine; facts about a
   facts you learn later; keep project details out of it.
 - Common rules: nothing heavy on login nodes, no agent tools on login nodes, no queue polling
   more often than once a minute, jobs that hold GPUs idle get cancelled.
-- Check free GPUs (`nvidia-smi`), use only the GPUs the project allows, and never touch other
-  users' processes, jobs, Herdr workspaces or tmux sessions.
+- Check free GPUs (`nvidia-smi`) and never touch other users' processes, jobs, Herdr
+  workspaces or tmux sessions. On a workstation, use the GPUs the user or project names; if
+  none are named, take free ones from the highest index down (3, 2, 1, 0) and pin them with
+  `CUDA_VISIBLE_DEVICES`.
 
 ## Code, data and environment
 
@@ -60,9 +62,11 @@ side. Facts about a machine live in `~/AGENTS.md` on that machine; facts about a
 
 ## GPU workstation: its Herdr server
 
-1. `herdr machine list --json`. If the host has no profile, ask the user to add one:
-   `herdr machine add <ssh-alias> --label <label>`. It may install or start Herdr on the remote
-   and ask them to confirm.
+1. `herdr machine list --json`. If the host has no profile:
+   - If `ssh <host> 'command -v herdr || ls ~/.local/bin/herdr'` finds nothing, install it there:
+     `ssh <host> 'curl -fsSL https://herdr.dev/install.sh | sh'`. Local and remote Herdr must be
+     compatible versions (`herdr --version` on both).
+   - Add the profile and tell the user: `herdr machine add <ssh-alias> --label <label>`.
 2. One workspace per run, never inside the user's own workspaces:
    `herdr --machine <label> workspace create --label <run> --cwd <remote-dir> --no-focus`, and
    read the pane from `.result.root_pane.pane_id`.
