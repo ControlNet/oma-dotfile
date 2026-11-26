@@ -37,7 +37,15 @@ clusters. Each machine's own notes are in `~/AGENTS.md` on that machine.
   command both feed stdin, so the later one silently replaced the data meant for the first.
 - **Task queues on Slurm**: one job per task, independent tasks submitted together, dependent
   ones with `--dependency=afterok:... --kill-on-invalid-dep=yes` (a dependent job of a failed
-  upstream became `CANCELLED` at once). One `remote-watch.sh --job` per job worked; with a job
-  array ID it returned when the first array task ended, so array tasks are watched as
-  `<id>_<n>`. `scontrol update JobId=<id> Dependency=...` and `scontrol hold`/`release` worked on
-  pending jobs.
+  upstream became `CANCELLED` at once). `sacct -X -j <array id>` prints one line per array task,
+  so a watcher that read only the first line returned when the first task ended; one watcher
+  per job would also mean one `sacct` call per job per minute. `remote-watch.sh` therefore takes
+  several IDs and checks them in one call. `scontrol update JobId=<id> Dependency=...` and
+  `scontrol hold`/`release` worked on pending jobs.
+- **Review fixes** (an independent agent's review, each confirmed before fixing): two users on
+  one GPU broke the comma-separated report; an old `GAVE UP` line made a re-armed watchdog fire
+  at once; a watchdog sent with `ssh ... bash -s` keeps running on the server after the local
+  ssh is killed (no tty, so no SIGHUP), so it has to be stopped with `pkill` before re-arming;
+  `srun` is not on PATH in a non-login shell on one cluster. Recorder overruns were suspected
+  but not seen: samples were exactly 60 s apart and two `nvidia-smi` calls took 0.12 s.
+  `tests/test_gpu_skills.py` covers these with stand-ins for ssh, sacct, nvidia-smi and crontab.
