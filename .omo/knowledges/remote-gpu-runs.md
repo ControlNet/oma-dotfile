@@ -28,3 +28,10 @@ clusters. Each machine's own notes are in `~/AGENTS.md` on that machine.
 - The earlier logic-llm runs used one ssh master plus the remote `herdr` CLI over ssh, and 38
   local polling loops; two hangs went unnoticed because the loops only looked for completion,
   hence the stall check in `remote-watch.sh`.
+- **SSH timeouts**: `ConnectTimeout` does not cover a `ProxyCommand`. Through a SOCKS proxy, ssh
+  to a machine that is down hung for minutes, so both skills' scripts wrap every ssh call in
+  `timeout`.
+- **GPU availability**: a per-minute cron recorder (6 readings 10 s apart, per-minute maximum)
+  was chosen over a long-running daemon: it resumes after reboots and needs no root, and
+  `systemd --user` without linger does not start after a reboot. Two here-documents on one
+  command both feed stdin, so the later one silently replaced the data meant for the first.
