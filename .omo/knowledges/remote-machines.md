@@ -1,4 +1,4 @@
-# Known machines
+# Remote GPU machines
 
 Connect with each host's alias from `~/.ssh/config`. From outside the university network the
 aliases go through a SOCKS5 proxy (`ProxyCommand nc -X 5 -x <proxy> %h %p`); a Windows-only

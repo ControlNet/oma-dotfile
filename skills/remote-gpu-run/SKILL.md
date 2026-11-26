@@ -5,11 +5,11 @@ description: Run long GPU experiments on remote machines over SSH and watch them
 
 # Remote GPU run
 
-The agent stays on the local machine and sends commands; long work runs on the remote side.
-Read [references/machines.md](references/machines.md) for the machines already known (role,
-partitions, accounts, policy) and add to it when you learn something that holds across projects.
-Project-specific facts (data paths, allowed GPUs, environment fixes) go in the project's
-AGENTS.md or `.omo/knowledges/`.
+For two kinds of machine: a GPU workstation reached over SSH, and a Slurm cluster with GPU
+nodes. The agent stays on the local machine and sends commands; long work runs on the remote
+side. Facts about a particular machine (SSH alias, role, data paths, allowed GPUs, Slurm account,
+partition and QoS, environment fixes, usage policy) belong in the project's AGENTS.md or
+`.omo/knowledges/`. Read them first and add what you learn.
 
 ## Connect
 
