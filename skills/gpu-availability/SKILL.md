@@ -24,8 +24,8 @@ Each host gets a summary line, then one line per GPU from the highest index down
 
 ```
 <host> (4x <model>): idle GPUs [3,2]; history covers 25 min of 6 h; free right now [3,2,1]
-  gpu 3  idle for all 25 min recorded; now 0% 15/32607 MiB
-  gpu 0  busy 40% of 25 min, last 3 min ago by alice; now 71% 20311/32607 MiB (alice)
+  gpu 3  idle for all 25 min recorded; now 0% <used>/<total> MiB
+  gpu 0  busy 40% of 25 min, last 3 min ago by <user>; now 71% <used>/<total> MiB (<user>)
 ```
 
 - `idle GPUs` lists GPUs with no busy minute in the window that are also free now. A minute is
