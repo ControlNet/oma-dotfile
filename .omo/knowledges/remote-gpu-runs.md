@@ -1,7 +1,7 @@
 # Remote GPU runs: what was tried
 
 Tried on 2026-11-26 for the `remote-gpu-run` skill, on a shared GPU workstation and two Slurm
-clusters; the machine details are in `remote-machines.md`.
+clusters. Each machine's own notes are in `~/AGENTS.md` on that machine.
 
 - **One ssh per command** costs 0.3 to 0.4 s and prints the login banner every time. With
   `ControlMaster=auto` and `ControlPersist`, the first connection takes about 0.8 s and later

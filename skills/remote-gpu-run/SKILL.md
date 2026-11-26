@@ -7,9 +7,9 @@ description: Run long GPU experiments on remote machines over SSH and watch them
 
 For two kinds of machine: a GPU workstation reached over SSH, and a Slurm cluster with GPU
 nodes. The agent stays on the local machine and sends commands; long work runs on the remote
-side. Facts about a particular machine (SSH alias, role, data paths, allowed GPUs, Slurm account,
-partition and QoS, environment fixes, usage policy) belong in the project's AGENTS.md or
-`.omo/knowledges/`. Read them first and add what you learn.
+side. Facts about a machine live in `~/AGENTS.md` on that machine; facts about a project on it
+(data paths, allowed GPUs, environment fixes) live in the project's AGENTS.md or
+`.omo/knowledges/`.
 
 ## Connect
 
@@ -28,9 +28,12 @@ partition and QoS, environment fixes, usage policy) belong in the project's AGEN
 
 ## Before the first run on a machine
 
-- Read the cluster's or machine's usage policy. Common rules: nothing heavy on login nodes, no
-  agent tools on login nodes, no queue polling more often than once a minute, jobs that hold
-  GPUs idle get cancelled.
+- Read the machine's notes: `ssh <host> cat ~/AGENTS.md`, and follow them. If there is none,
+  write one from the machine's documentation and usage policy and what you find (workstation or
+  cluster, GPUs, accounts, partitions and QoS, storage, limits, links to the docs). Add lasting
+  facts you learn later; keep project details out of it.
+- Common rules: nothing heavy on login nodes, no agent tools on login nodes, no queue polling
+  more often than once a minute, jobs that hold GPUs idle get cancelled.
 - Check free GPUs (`nvidia-smi`), use only the GPUs the project allows, and never touch other
   users' processes, jobs, Herdr workspaces or tmux sessions.
 
