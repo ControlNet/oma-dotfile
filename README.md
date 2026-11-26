@@ -88,7 +88,7 @@ already covers writing skills). Your other entries and exclusions in that file a
 
 | Source | Skills |
 |---|---|
-| This repo's `skills/` | `auto-review-loop`, `contribute-issue-to-merge`, `github-cli`, `gpu-availability`, `notion-api`, `remote-gpu-run`, `secret-guard` |
+| This repo's `skills/` | `auto-review-loop`, `contribute-issue-to-merge`, `detached-gpu-queue`, `github-cli`, `gpu-availability`, `notion-api`, `remote-gpu-run`, `secret-guard` |
 | `vercel-labs/skills` | `find-skills` |
 | `anthropics/skills` | `frontend-design`, `skill-creator` |
 | `slidevjs/slidev` | `slidev` |
