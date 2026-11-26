@@ -31,7 +31,7 @@ side. Facts about a machine live in `~/AGENTS.md` on that machine; facts about a
 ## Before the first run on a machine
 
 - Read the machine's notes: `ssh <host> cat ~/AGENTS.md`, and follow them. If there is none,
-  write one from the machine's documentation and usage policy and what you find (workstation or
+  or it holds only the gpu-availability recorder's note, write one from the machine's documentation and usage policy and what you find (workstation or
   cluster, GPUs, accounts, partitions and QoS, storage, limits, links to the docs). Add lasting
   facts you learn later; keep project details out of it.
 - Common rules: nothing heavy on login nodes, no agent tools on login nodes, no queue polling
@@ -45,7 +45,7 @@ side. Facts about a machine live in `~/AGENTS.md` on that machine; facts about a
 ## Code, data and environment
 
 - Code: commit and push locally, then `git pull --ff-only` on the remote. Do not edit code there.
-- Data and results: `rsync -a --partial -e "ssh -o ControlPath=~/.ssh/cm-%C" ...`, through the
+- Data and results: `rsync -a --partial -e "ssh -o BatchMode=yes -o ControlPath=~/.ssh/cm-%C" ...`, through the
   cluster's data transfer node if it has one. Never rsync over a file a running job still
   writes.
 - Build the environment with the project's tool (pixi, uv or conda) on the remote. Put caches
@@ -69,16 +69,21 @@ side. Facts about a machine live in `~/AGENTS.md` on that machine; facts about a
      compatible versions (`herdr --version` on both).
    - Add the profile and tell the user: `herdr machine add <ssh-alias> --label <label>`.
 2. One workspace per run, never inside the user's own workspaces:
-   `herdr --machine <label> workspace create --label <run> --cwd <remote-dir> --no-focus`, and
-   read the pane from `.result.root_pane.pane_id`.
-3. Start the job with a log on the data disk and an exit marker that also lands in the log
-   (this form works in bash and zsh):
-   `herdr --machine <label> pane run <pane> "( <command>; echo RUN_EXIT=\$? ) 2>&1 | tee -a <log>"`
+   `herdr --machine <label> workspace create --label <run> --cwd <remote-dir> --no-focus`; note
+   the workspace from `.result.workspace.workspace_id` and the pane from
+   `.result.root_pane.pane_id`. A retry is a new run.
+3. Start the job with a new log on the data disk for each attempt (an old `RUN_EXIT=` line
+   would end the wait at once) and an exit marker that also lands in the log (this form works
+   in bash and zsh):
+   `herdr --machine <label> pane run <pane> "( <command>; echo RUN_EXIT=\$? ) 2>&1 | tee <log>"`
+   The command is in double quotes, so escape any `$` meant for the remote shell.
 4. Wait in background jobs: `herdr --machine <label> pane wait-output <pane> --regex 'RUN_EXIT=[0-9]+'`
    (no `--timeout` waits until it appears), and for hangs
    `<skill-dir>/scripts/remote-watch.sh <host> --log <log> --done 'RUN_EXIT=' --stall-min 30`.
-5. To stop: `herdr --machine <label> pane send-keys <pane> ctrl+c`.
-6. Close the run's workspace once its results are back.
+5. To stop: `herdr --machine <label> pane send-keys <pane> ctrl+c`. The marker is then not
+   printed, so stop the two waits yourself.
+6. Close the run's workspace once its results are back:
+   `herdr --machine <label> workspace close <workspace>`.
 
 ## Slurm cluster
 
@@ -88,7 +93,8 @@ side. Facts about a machine live in `~/AGENTS.md` on that machine; facts about a
 3. Wait from the local machine, never on the login node (no `sbatch --wait`, loops or tmux
    there): run `<skill-dir>/scripts/remote-watch.sh <host> --job <id> --log <slurm-output> --stall-min 30`
    as a background job. It checks `sacct` every `--interval` seconds (default 300; keep it at 60
-   or more on clusters).
+   or more on clusters). Watch several jobs with one watcher (`--job <id> --job <id>`, or a job
+   array's ID), so the cluster sees one `sacct` call per interval, not one per job.
 4. A job pending for long: report the reason from `squeue -j <id> -o %r`. Moving it to another
    partition, account or QoS is the user's decision.
 5. `scancel` only your own jobs.
@@ -106,22 +112,24 @@ For trying things on a GPU node before a long batch run:
    `sbatch --parsable -J debug -t 01:00:00 --gres=gpu:1 <account, partition, cpus, mem> -o /dev/null --wrap 'sleep infinity'`
 3. Wait for it locally: `<skill-dir>/scripts/remote-watch.sh <host> --job <id> --until-running`
    returns once it runs and prints its node.
-4. Run each command inside it:
-   `ssh <host> "srun --jobid=<id> --overlap -n1 bash -lc 'cd <repo> && <command>'" < /dev/null`.
+4. Run each command inside it, from a login shell like every Slurm command:
+   `ssh <host> "bash -lc 'srun --jobid=<id> --overlap -n1 --chdir=<repo> <command>'" < /dev/null`.
    Slurm older than 20.11 has no `--overlap` and does not need it. For an interactive program,
-   open `ssh -t <host> srun --jobid=<id> --overlap --pty bash` in a local Herdr pane and drive
-   that pane; some clusters also let you `ssh` from the login node into the allocated node.
+   open `ssh -t <host> "bash -lc 'srun --jobid=<id> --overlap --pty bash'"` in a local Herdr
+   pane and drive that pane; some clusters also let you `ssh` from the login node into the allocated node.
 5. `scancel <id>` as soon as you are done. A debug allocation leaves the GPU idle most of the
    time and may count as an interactive session, so keep `--time` short, prefer a small GPU or
    CPU only, and avoid partitions that cancel jobs for low GPU use.
 
 ## Watching
 
-`remote-watch.sh` exits 0 when the job is finished (it left the queue or `--done` matched the
-log) or, with `--until-running`, has started; 1 when the log has not changed for `--stall-min`
-minutes while the job runs; 2 when the host stops answering. On every exit read the log tail
-and decide; for a stall also check that the process is alive and the GPU busy (`nvidia-smi`, or
-`sstat`/`jobstats` on a cluster). Start the watcher again if the run continues.
+`remote-watch.sh` exits 0 when every job completed or `--done` matched the log, or, with
+`--until-running`, a job has started; 1 when the log has not changed for `--stall-min` minutes
+while a job runs; 2 when the host stops answering; 3 when a job ended in another state
+(`FAILED`, `TIMEOUT`, `OUT_OF_MEMORY`, `NODE_FAIL`, `CANCELLED`), or with `--until-running`
+ended before it ran. It prints each job's state. On every exit read the log tail and decide;
+for a stall also check that the process is alive and the GPU busy (`nvidia-smi`, or `sstat` on
+a cluster, or its `jobstats` if it has one). Start the watcher again if the run continues.
 
 When the run ends, rsync the results back and check them (row counts, error or fallback rate)
 before reporting.

@@ -3,7 +3,7 @@
 # Every ssh call has a timeout: ConnectTimeout does not cover a ProxyCommand.
 #
 # usage: gpu-availability.sh [--hours N] [<ssh-host>...]
-#   --hours N  how far back a GPU must have been idle to count as free (default 6)
+#   --hours N  how many whole hours a GPU must have been idle to count as free (default 6)
 #   hosts      default: the SSH targets of `herdr machine list`
 #
 # On a host without the recorder (gpu-usage-log.sh, run by cron every minute), or with an older
@@ -15,6 +15,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 recorder=$here/gpu-usage-log.sh
 hours=6
 case ${1:-} in --hours) hours=${2:?}; shift 2 ;; esac
+[[ $hours =~ ^[1-9][0-9]*$ ]] || { sed -n '5,7p' "$0" >&2; exit 64; }
 if [ $# -eq 0 ]; then
   mapfile -t hosts < <(herdr machine list --json 2>/dev/null \
     | python3 -c 'import json,sys; [print(m["target"]) for m in json.load(sys.stdin) if m.get("enabled")]')
@@ -22,12 +23,15 @@ if [ $# -eq 0 ]; then
 else
   hosts=("$@")
 fi
+mapfile -t hosts < <(printf '%s\n' "${hosts[@]}" | awk '!seen[$0]++')
 
 ssh_opts=(-q -T -o BatchMode=yes -o ConnectTimeout=15 -o ControlMaster=auto
-          -o "ControlPath=$HOME/.ssh/cm-%C" -o ControlPersist=10m)
+          -o "ControlPath=$HOME/.ssh/cm-%C" -o ControlPersist=10m -o ServerAliveInterval=30)
 want=$(sha256sum "$recorder" | cut -d' ' -f1)
 
-# Remote side: prints "now,..." per GPU, "hist,..." per GPU from the records, and "meta,...".
+# Remote side: prints "now,..." per GPU, "hist,..." per GPU from the records in the window,
+# "meta,<first record in the window>,<last record at all>" and "clock,...". The users field is
+# last and may itself contain commas.
 query=$(cat <<EOF
 hours=$hours
 EOF
@@ -48,12 +52,12 @@ nvidia-smi --query-gpu=index,name,utilization.gpu,memory.used,memory.total --for
     done
 files=$(find ~/.cache/gpu-usage -name '*.tsv' -mtime -$((hours / 24 + 2)) 2>/dev/null | sort)
 if [ -n "$files" ]; then
-  awk -F'\t' -v cut="$cut" '$1 >= cut {
-      i = $2; n[i]++; if (first == "" || $1 < first) first = $1; if ($1 > last) last = $1
+  awk -F'\t' -v cut="$cut" '{ if ($1 > last) last = $1 } $1 >= cut {
+      i = $2; n[i]++; if (first == "" || $1 < first) first = $1
       if ($6 != "-" || $4 > 1024 || $3 > 10) { b[i]++; if ($1 > lb[i]) { lb[i] = $1; who[i] = $6 } }
     }
     END { for (i in n) printf "hist,%s,%d,%d,%d,%s\n", i, n[i], b[i], lb[i], who[i]
-          printf "meta,%d,%d\n", first, last }' $files
+          if (last != "") printf "meta,%d,%d\n", first, last }' $files
 fi
 echo "clock,$now"
 EOF
@@ -64,22 +68,28 @@ report=$(cat <<'PY'
 import sys
 host, hours, note = sys.argv[1], float(sys.argv[2]), sys.argv[3]
 now, hist, meta, clock = {}, {}, None, None
+
+def num(text):
+    # nvidia-smi prints [N/A] or [Not Supported] for some values (MIG, some boards).
+    return int(text) if text.strip().isdigit() else 0
+
 for line in sys.stdin.read().splitlines():
-    kind, *f = line.split(",")
+    kind = line.split(",", 1)[0]
     if kind == "now":
-        idx, name, u, m, t, users = f[0], ",".join(f[1:-4]), f[-4], f[-3], f[-2], f[-1]
-        now[int(idx)] = (name, int(u or 0), int(m or 0), int(t or 0), users)
+        _, idx, name, u, m, t, users = line.split(",", 6)
+        now[int(idx)] = (name, num(u), num(m), num(t), users)
     elif kind == "hist":
-        hist[int(f[0])] = (int(f[1]), int(f[2]), int(f[3]), f[4])
+        _, idx, n, b, last_busy, who = line.split(",", 5)
+        hist[int(idx)] = (int(n), int(b), int(last_busy), who)
     elif kind == "meta":
-        meta = (int(f[0]), int(f[1]))
+        meta = tuple(int(v) for v in line.split(",")[1:3])
     elif kind == "clock":
-        clock = int(f[0])
+        clock = int(line.split(",")[1])
 
 def ago(seconds):
     return f"{seconds / 3600:.1f} h" if seconds >= 3600 else f"{seconds // 60} min"
 
-span = (clock - meta[0]) if meta else 0
+span = (clock - meta[0]) if meta and meta[0] else 0
 stale = meta is not None and clock - meta[1] > 180
 names = sorted({v[0] for v in now.values()})
 free = []
@@ -90,21 +100,23 @@ for idx in sorted(now, reverse=True):
     busy_now = users != "-" or m > 1024 or u > 10
     n, b, last_busy, who = hist.get(idx, (0, 0, 0, ""))
     if n and b:
-        history = f"busy {100 * b // n}% of {ago(span)}, last {ago(clock - last_busy)} ago by {who}"
+        history = f"busy {100 * b // n}% of {ago(span)}, last {ago(clock - last_busy)} ago"
+        history += f" by {who}" if who != "-" else ""
     elif n:
         history = f"idle for all {ago(span)} recorded"
     else:
         history = "no history yet"
-    if n and not b and not busy_now:
+    if n and not b and not busy_now and not stale:
         free.append(str(idx))
     if not busy_now:
         free_now.append(str(idx))
     state = f"now {u}% {m}/{t} MiB" + (f" ({users})" if users != "-" else "")
     lines.append(f"  gpu {idx}  {history}; {state}")
-cover = "" if not meta else (f"; history covers {ago(span)} of {hours:g} h" if span < hours * 3600 - 300 else "")
+short = span < hours * 3600 - 300
+cover = f"; history covers {ago(span)} of {hours:g} h" if span and short else ""
 if stale:
     cover += f"; recorder stopped {ago(clock - meta[1])} ago"
-if not meta or span < hours * 3600 - 300:
+if short or stale:
     cover += f"; free right now [{','.join(free_now) or 'none'}]"
 print(f"{host} ({len(now)}x {', '.join(names)}): idle GPUs [{','.join(free) or 'none'}]{cover}{note}")
 print("\n".join(lines))
@@ -119,8 +131,11 @@ check() {
   if [ -z "$have" ]; then echo "$host: unreachable"; return; fi
   if [ "$have" = no-gpu ]; then echo "$host: no nvidia-smi"; return; fi
   if [ "$(sed -n 1p <<<"$have")" != "$want" ] || [ "$(sed -n 2p <<<"$have")" = 0 ]; then
+    # Write a new file and rename it: cron may be running the old copy, and bash reads a
+    # script as it goes.
     if timeout 60 ssh "${ssh_opts[@]}" "$host" 'mkdir -p ~/.local/share/gpu-usage &&
-        cat > ~/.local/share/gpu-usage/gpu-usage-log.sh &&
+        cat > ~/.local/share/gpu-usage/gpu-usage-log.sh.new &&
+        mv -f ~/.local/share/gpu-usage/gpu-usage-log.sh.new ~/.local/share/gpu-usage/gpu-usage-log.sh &&
         bash ~/.local/share/gpu-usage/gpu-usage-log.sh install' < "$recorder" 2>/dev/null; then
       note=" (recorder installed now)"
     else
@@ -128,7 +143,7 @@ check() {
     fi
   fi
   out=$(timeout 60 ssh "${ssh_opts[@]}" "$host" bash -s <<<"$query" 2>/dev/null)
-  if ! grep -q '^now,' <<<"$out"; then echo "$host: no GPUs or no nvidia-smi$note"; return; fi
+  if ! grep -q '^now,' <<<"$out"; then echo "$host: nvidia-smi query failed or timed out$note"; return; fi
   python3 -c "$report" "$host" "$hours" "$note" <<<"$out"
 }
 

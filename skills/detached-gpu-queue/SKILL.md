@@ -16,7 +16,7 @@ Three mechanisms, three jobs:
 The queue must outlive the session (a closed terminal or a context reset must not cost days of GPU work). The watchdog must belong to the session, because only a background task of the session notifies the model when it exits. Bundled files:
 
 - `scripts/watch_queue.sh`: the watchdog.
-- `assets/queue_template.sh`: a queue skeleton (task wrapper with skip-if-done, time limit and result line).
+- `assets/queue_template.sh`: a queue skeleton (task wrapper with skip-if-done, time limit, result line, and a `GAVE UP` line in the queue log when a task fails).
 
 ## 1. Plan
 
@@ -48,7 +48,7 @@ ps -eo pid,args | grep -E "^ *[0-9]+ bash queue_<name>"
 
 Anchor the pattern at the start of the command line, as the watchdog does: an unanchored pattern also matches the shell that wraps your own command, whose command line contains the same string.
 
-**Never edit a running queue script.** Bash reads scripts incrementally, so an edit corrupts the running queue. To change the plan, write a successor (`queue_<name>_b.sh`) that skips finished tasks, then stop the old one by killing only its bash parent. Keep service children the successor will reuse.
+**Never edit a running queue script.** Bash reads scripts incrementally, so an edit corrupts the running queue. To change the plan, write a successor (`queue_<name>_b.sh`) that skips finished tasks, then stop the old one by killing its bash process. The task it was running keeps going: wait for it to finish, or kill it too (its `timeout` process), before launching the successor, or both run the same task. Keep service children the successor will reuse.
 
 ## 3. Arm the watchdog
 
@@ -70,7 +70,8 @@ Run it as a background task of the session. It checks every `INTERVAL` (60 s) an
 Settings:
 - Watch every path the queue writes to; otherwise a long phase writing elsewhere looks like a stall.
 - Set `STALL_MIN` above the longest legitimate silent step (model load, service swap, a slow checkpoint).
-- Pick a `FAIL_REGEX` that matches only fatal markers, and narrow `FAIL_GLOB` to logs the queue itself writes. Third-party logs (model servers, frameworks) contain handled tracebacks and retried warnings that would wake the session for nothing.
+- Pick a `FAIL_REGEX` that matches only fatal markers, and narrow `FAIL_GLOB` to logs the queue itself writes. Third-party logs (model servers, frameworks) contain handled tracebacks and retried warnings that would wake the session for nothing. The template's `run_task` writes `<name> GAVE UP exit <rc>` to the queue log when a task fails; a marker a task prints itself lands in its `tasks/<name>/task.log`, so to catch those as they happen use `FAIL_GLOB='*.log'` and keep service logs outside the watched paths.
+- Only text written after the watchdog started counts for exit 4, so re-arming after a failure does not fire again on the old marker.
 - Exit 3 means only that nothing changed; a wait without a heartbeat looks the same as a hang, so check which one it is before acting.
 
 The watchdog only reads state. Arm one for every queue; a waiter that only watches for DONE can hide a hang for many hours.
@@ -114,7 +115,9 @@ changes.
   ```
 
   Exits 0-5 mean the same as locally. Exit 255 means the SSH connection dropped, not that the
-  queue failed: reconnect, glance at the queue log, and arm the watchdog again.
+  queue failed: reconnect, glance at the queue log, and arm the watchdog again. The old watchdog
+  keeps running on the server after the connection drops (or after you stop the local task), so
+  stop it first, in its own SSH call: `ssh <host> "pkill -f '^bash -s -- \^bash queue_<name>'"`.
 - Send short commands (status, `git pull`, reading logs) over one multiplexed SSH connection
   instead of a new login each time.
 - A `pkill -f` or `pgrep -f` pattern sent over SSH also matches the remote shell running it;
@@ -138,13 +141,13 @@ The queue script and `watch_queue.sh` are not used.
   check in every job, so resubmitting a finished task does nothing.
 - **Fail loudly.** A task that cannot make progress exits non-zero, so Slurm records it as
   `FAILED`.
-- **Watch.** Run `remote-watch.sh <host> --job <id> --log <output> --stall-min <m> --interval 60`
-  for each job as a background task of the session; all of them share one SSH connection.
-  Exit 0 means the job left the queue, whatever the outcome, so read the state it prints:
-  `COMPLETED`, `FAILED`, `TIMEOUT`, `OUT_OF_MEMORY`, `NODE_FAIL`, or `CANCELLED` (also what a
-  dependent job becomes after an upstream failure). Exit 1 is a stall, 2 an unreachable host.
-  For a job array, watch each task as `<id>_<n>`: the array ID alone returns when its first
-  task ends.
+- **Watch.** Run one `remote-watch.sh <host> --job <id> --job <id> ... --interval 60` for all
+  the queue's jobs (a job array's ID covers its tasks) as a background task of the session; it
+  checks them with one `sacct` call per interval. Exit 0 means every job completed; exit 3 means
+  one ended as `FAILED`, `TIMEOUT`, `OUT_OF_MEMORY`, `NODE_FAIL` or `CANCELLED` (also what a
+  dependent job becomes after an upstream failure), with each job's state printed; 1 is a
+  stall of `--log`, 2 an unreachable host. Arm it again with the new IDs whenever you submit or
+  resubmit jobs.
 - **Change the plan.** `sbatch` keeps a copy of the script it was given, so editing the file
   does not change a job already submitted. Cancel the pending jobs that change (`scancel <id>`),
   submit the new versions, and point jobs that depended on them at the new IDs

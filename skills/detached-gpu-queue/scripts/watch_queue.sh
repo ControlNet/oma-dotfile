@@ -5,7 +5,8 @@
 #   exit 1  no process matches the queue regex and the DONE file is missing (crashed or killed)
 #   exit 2  GPU problem: nvidia-smi fails or times out, fewer GPUs than at start, or a GPU reports ERR! / "requires reset"
 #   exit 3  stall: no file under the watched paths changed for STALL_MIN minutes
-#   exit 4  a file matching FAIL_GLOB under the watched paths, modified after the watchdog started, matches FAIL_REGEX
+#   exit 4  text written to a file matching FAIL_GLOB under the watched paths after the watchdog started matches
+#           FAIL_REGEX (a marker already there when it started does not count, so re-arming after a failure is safe)
 #   exit 5  available RAM below MIN_AVAIL_GB (an OOM kill is close)
 # Usage: watch_queue.sh <queue process regex, matched against `ps -eo args`> <DONE file> <watched path>...
 # Env: INTERVAL=60  STALL_MIN=45  GPUS=<count at start>  MIN_AVAIL_GB=8
@@ -24,6 +25,13 @@ report() {
   free -g | sed -n 2p
 }
 START=$(mktemp); trap 'rm -f "$START"' EXIT
+# Sizes of the fail-glob files at start: only text appended after them is searched. -H follows watched paths that are
+# themselves symlinks (e.g. a run directory linked to a data disk).
+declare -A seen
+if [ -n "$FAIL_REGEX" ]; then
+  while IFS= read -r -d '' f; do seen[$f]=$(stat -c %s "$f"); done \
+    < <(find -H "${PATHS[@]}" -type f -name "$FAIL_GLOB" -print0 2>/dev/null)
+fi
 
 echo "watching '$QUEUE' until $DONE: every ${INTERVAL}s, stall ${STALL_MIN} min, ${GPUS} GPUs, RAM >= ${MIN_AVAIL_GB} GB, fail regex '${FAIL_REGEX}' $(date -Is)"
 while :; do
@@ -44,17 +52,20 @@ while :; do
 
   # Idle time counts from the newest file or the watchdog start, whichever is later: a queue still waiting for its turn
   # (old or empty output dirs) is not a stall at arm time.
-  newest=$( { find "${PATHS[@]}" -type f -printf '%T@\n' 2>/dev/null; stat -c %Y "$START"; } | sort -n | tail -1)
+  newest=$( { find -H "${PATHS[@]}" -type f -printf '%T@\n' 2>/dev/null; stat -c %Y "$START"; } | sort -n | tail -1)
   if [ $(( $(date +%s) - ${newest%.*} )) -gt $((STALL_MIN * 60)) ]; then
     report "STALL: nothing under ${PATHS[*]} changed for more than ${STALL_MIN} min"; exit 3
   fi
 
   if [ -n "$FAIL_REGEX" ]; then
-    hit=$(find "${PATHS[@]}" -type f -name "$FAIL_GLOB" -newer "$START" -exec grep -lE -- "$FAIL_REGEX" {} + 2>/dev/null)
-    [ -n "$hit" ] && { report "FAILED: '$FAIL_REGEX' in"; echo "$hit"; exit 4; }
+    hit=""
+    while IFS= read -r -d '' f; do
+      tail -c +$(( ${seen[$f]:-0} + 1 )) "$f" | grep -qE -- "$FAIL_REGEX" && hit+="$f"$'\n'
+    done < <(find -H "${PATHS[@]}" -type f -name "$FAIL_GLOB" -newer "$START" -print0 2>/dev/null)
+    [ -n "$hit" ] && { report "FAILED: '$FAIL_REGEX' in"; printf '%s' "$hit"; exit 4; }
   fi
 
-  avail=$(free -g | awk '/^Mem:/ {print $7}')
+  avail=$(awk '/^MemAvailable:/ {print int($2 / 1048576)}' /proc/meminfo)  # GB; free's labels are translated
   [ "$avail" -lt "$MIN_AVAIL_GB" ] && { report "LOW MEMORY: ${avail} GB available"; exit 5; }
 
   sleep "$INTERVAL"

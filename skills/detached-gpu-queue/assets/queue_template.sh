@@ -9,7 +9,7 @@ log() { echo "$* $(date -Is)"; }
 
 # Wait until an HTTP endpoint answers (e.g. a model server's health route).
 wait_http() {  # <url> <timeout s>
-  local t=0; until curl -sf "$1" > /dev/null; do sleep 10; t=$((t + 10)); [ $t -ge "$2" ] && return 1; done
+  local t=0; until curl -sf --max-time 10 "$1" > /dev/null; do sleep 10; t=$((t + 10)); [ $t -ge "$2" ] && return 1; done
 }
 
 # Wait until a command succeeds (a free GPU, an earlier queue's DONE file, ...), logging a heartbeat every
@@ -25,16 +25,20 @@ wait_for() {  # <what> <command...>
 # e.g. wait_for "GPU 2 free" bash -c '[ "$(nvidia-smi -i 2 --query-compute-apps=pid --format=csv,noheader | wc -l)" = 0 ]'
 
 # One task: skip if done, run with a hard time limit, record exit code and the result line.
-# run_task writes the task's DONE marker only when the command exits 0. The command itself should resume from its
+# run_task writes the task's DONE marker only when the command exits 0; otherwise it prints "<name> GAVE UP exit <rc>"
+# to the queue log, which wakes the session through the watchdog's FAIL_REGEX. task.log keeps every attempt. The command itself should resume from its
 # partial outputs (checkpoints, appended rows) when restarted, and may write its metric to result.txt in its task dir.
 run_task() {  # <name> <max hours> <command...>
   local name=$1 hours=$2; shift 2
   local dir="$RUN_ROOT/tasks/$name"; mkdir -p "$dir"
   [ -e "$dir/DONE" ] && { log "$name already done"; return 0; }
   log "$name start"
-  timeout --signal=TERM --kill-after=120 "${hours}h" "$@" > "$dir/task.log" 2>&1; local rc=$?
-  [ $rc -eq 0 ] && touch "$dir/DONE"
-  log "$name exit $rc $(tail -1 "$dir/result.txt" 2>/dev/null)"
+  timeout --signal=TERM --kill-after=120 "${hours}h" "$@" >> "$dir/task.log" 2>&1 < /dev/null; local rc=$?
+  if [ $rc -eq 0 ]; then
+    touch "$dir/DONE"; log "$name exit 0 $(tail -1 "$dir/result.txt" 2>/dev/null)"
+  else
+    log "$name GAVE UP exit $rc (see $dir/task.log)"
+  fi
   return $rc
 }
 

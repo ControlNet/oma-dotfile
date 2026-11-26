@@ -19,10 +19,14 @@ case ${1:-} in
 install)
   mkdir -p "$data"
   { crontab -l 2>/dev/null | grep -vF "$marker"
-    echo "* * * * * bash $self sample >/dev/null 2>&1 $marker"; } | crontab -
+    echo "* * * * * bash $self sample >/dev/null 2>&1 $marker"; } | crontab - || exit 1
   # Tell other agents on this machine what the cron entry is.
   if ! grep -qs "gpu-usage-log" "$HOME/AGENTS.md"; then
-    [ -s "$HOME/AGENTS.md" ] || printf '# This machine\n\n' > "$HOME/AGENTS.md"
+    if [ -s "$HOME/AGENTS.md" ]; then
+      [ -z "$(tail -c 1 "$HOME/AGENTS.md")" ] || echo >> "$HOME/AGENTS.md"
+    else
+      printf '# This machine\n\n' > "$HOME/AGENTS.md"
+    fi
     printf '%s\n' "- A cron entry runs ~/.local/share/gpu-usage/gpu-usage-log.sh every minute to record GPU" \
       "  use in ~/.cache/gpu-usage (14 days), for the gpu-availability skill. Remove it with" \
       "  \`bash ~/.local/share/gpu-usage/gpu-usage-log.sh uninstall\`." >> "$HOME/AGENTS.md"
@@ -45,7 +49,7 @@ sample)
       index_of[$uuid]=$idx total[$idx]=$t
       [ "$u" -gt "${util[$idx]:-0}" ] && util[$idx]=$u
       [ "$m" -gt "${mem[$idx]:-0}" ] && mem[$idx]=$m
-    done < <(nvidia-smi --query-gpu=index,uuid,utilization.gpu,memory.used,memory.total \
+    done < <(timeout 20 nvidia-smi --query-gpu=index,uuid,utilization.gpu,memory.used,memory.total \
                --format=csv,noheader,nounits)
     while IFS=, read -r uuid pid; do
       uuid=${uuid// /} pid=${pid// /}
@@ -58,7 +62,7 @@ sample)
         *",$user,"*) ;;
         *) users[$idx]=${users[$idx]:+${users[$idx]},}$user ;;
       esac
-    done < <(nvidia-smi --query-compute-apps=gpu_uuid,pid --format=csv,noheader 2>/dev/null)
+    done < <(timeout 20 nvidia-smi --query-compute-apps=gpu_uuid,pid --format=csv,noheader 2>/dev/null)
     [ "$round" -lt 6 ] && sleep 10
   done
   now=$(date +%s)
