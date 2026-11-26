@@ -3,17 +3,21 @@
 #
 # usage: remote-watch.sh <ssh-host> [--job <slurm-job-id>] [--log <remote-path>]
 #                        [--done <regex>] [--stall-min <minutes>] [--interval <seconds>]
+#                        [--until-running]
 #
-# Exit codes: 0 finished (the Slurm job left the queue, or --done matched the log),
+# --until-running: return as soon as the Slurm job starts (prints its node), e.g. for a debug
+# allocation.
+# Exit codes: 0 finished (the Slurm job left the queue, or --done matched the log), or started
+#             with --until-running,
 #             1 stalled (the log has not changed for --stall-min minutes while the job runs),
 #             2 the host stopped answering, 64 usage error.
 # Every check reuses one shared SSH connection (ControlMaster), so it does not log in again.
 set -u
 
-usage() { sed -n '4,5p' "$0" >&2; exit 64; }
+usage() { sed -n '4,6p' "$0" >&2; exit 64; }
 [ $# -ge 1 ] || usage
 host=$1; shift
-job="" log="" done_re="" stall_min=0 interval=300
+job="" log="" done_re="" stall_min=0 interval=300 until_running=0
 while [ $# -gt 0 ]; do
   case $1 in
     --job) job=${2:?}; shift 2 ;;
@@ -21,10 +25,12 @@ while [ $# -gt 0 ]; do
     --done) done_re=${2:?}; shift 2 ;;
     --stall-min) stall_min=${2:?}; shift 2 ;;
     --interval) interval=${2:?}; shift 2 ;;
+    --until-running) until_running=1; shift ;;
     *) usage ;;
   esac
 done
 [ -n "$job$log" ] || usage
+[ "$until_running" = 0 ] || [ -n "$job" ] || usage
 
 ssh_opts=(-q -T -o BatchMode=yes -o ControlMaster=auto -o "ControlPath=$HOME/.ssh/cm-%C"
           -o ControlPersist=30m -o ServerAliveInterval=30 -o ServerAliveCountMax=4)
@@ -34,7 +40,7 @@ remote_script=$(cat <<EOF
 job=$(printf %q "$job") log=$(printf %q "$log") done_re=$(printf %q "$done_re")
 case \$log in "~/"*) log="\$HOME/\${log#"~/"}" ;; esac
 if [ -n "\$job" ]; then
-  echo "state=\$(sacct -j "\$job" -X -n -P --format=State,ExitCode,Elapsed 2>/dev/null | head -1)"
+  echo "state=\$(sacct -j "\$job" -X -n -P --format=State,ExitCode,Elapsed,NodeList 2>/dev/null | head -1)"
 fi
 if [ -n "\$log" ] && [ -f "\$log" ]; then
   echo "age=\$(( \$(date +%s) - \$(stat -c %Y "\$log") ))"
@@ -65,6 +71,9 @@ while :; do
 
   if [ -n "$matched" ]; then
     echo "$host: finished: $matched"; log_tail; exit 0
+  fi
+  if [ "$until_running" = 1 ] && [ "${state%%|*}" = RUNNING ]; then
+    echo "$host: job $job running on ${state##*|}"; exit 0
   fi
   if [ -n "$job" ] && [ -n "$state" ]; then
     case ${state%%|*} in

@@ -22,6 +22,8 @@ side. Facts about a machine live in `~/AGENTS.md` on that machine; facts about a
   shows whether the master is up; if it dropped, say so and open it again.
 - Slurm and module commands usually need a login shell: `bash -lc '...'`. For anything longer
   than one line, pipe a script instead of nesting quotes: `ssh <host> bash -l -s < script.sh`.
+  Inside such a script, give every `ssh` and `srun` `< /dev/null`; otherwise they read the rest
+  of the script as their input and the commands after them never run.
 - A `pkill -f` or `pgrep -f` pattern sent over ssh also matches the remote shell running it,
   which kills the ssh session. Send it in its own ssh call with an anchored pattern, e.g.
   `pgrep -u $USER -f '^python train.py'`.
@@ -83,10 +85,27 @@ side. Facts about a machine live in `~/AGENTS.md` on that machine; facts about a
    partition, account or QoS is the user's decision.
 5. `scancel` only your own jobs.
 
+## Debugging on a Slurm cluster
+
+For trying things on a GPU node before a long batch run:
+
+1. Hold an allocation with a placeholder job, so nothing waits on the login node while it is
+   pending: `sbatch --parsable -J debug -t 01:00:00 --gres=gpu:1 <account, partition, cpus, mem> -o /dev/null --wrap 'sleep infinity'`.
+2. Wait for it locally: `<skill-dir>/scripts/remote-watch.sh <host> --job <id> --until-running`
+   returns once it runs and prints its node.
+3. Run each command inside it:
+   `ssh <host> "srun --jobid=<id> --overlap -n1 bash -lc 'cd <repo> && <command>'" < /dev/null`.
+   Slurm older than 20.11 has no `--overlap` and does not need it. For an interactive program,
+   open `ssh -t <host> srun --jobid=<id> --overlap --pty bash` in a local Herdr pane and drive
+   that pane; some clusters also let you `ssh` from the login node into the allocated node.
+4. `scancel <id>` as soon as you are done. A debug allocation leaves the GPU idle most of the
+   time and may count as an interactive session, so keep `--time` short, prefer a small GPU or
+   CPU only, and avoid partitions that cancel jobs for low GPU use.
+
 ## Watching
 
 `remote-watch.sh` exits 0 when the job is finished (it left the queue or `--done` matched the
-log), 1 when the log has not changed for `--stall-min` minutes while the job runs, and 2 when the
+log) or, with `--until-running`, has started; 1 when the log has not changed for `--stall-min` minutes while the job runs, and 2 when the
 host stops answering. On every exit read the log tail and decide; for a stall also check that
 the process is alive and the GPU busy (`nvidia-smi`, or `sstat`/`jobstats` on a cluster). Start
 the watcher again if the run continues.
