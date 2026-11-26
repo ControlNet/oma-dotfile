@@ -89,8 +89,11 @@ side. Facts about a machine live in `~/AGENTS.md` on that machine; facts about a
 
 For trying things on a GPU node before a long batch run:
 
-1. Hold an allocation with a placeholder job, so nothing waits on the login node while it is
-   pending: `sbatch --parsable -J debug -t 01:00:00 --gres=gpu:1 <account, partition, cpus, mem> -o /dev/null --wrap 'sleep infinity'`.
+1. Pick a partition you may use that has idle nodes: compare `sinfo -o '%P %F %G'` (nodes
+   allocated/idle/other/total, GPUs) with your QoS from
+   `sacctmgr -n -P show assoc user=$USER format=Account,QOS` and each partition's `AllowQos` in
+   `scontrol show partition`. A CPU-only partition is enough when no GPU is needed. Then hold an
+   allocation with a placeholder job, so nothing waits on the login node while it is pending: `sbatch --parsable -J debug -t 01:00:00 --gres=gpu:1 <account, partition, cpus, mem> -o /dev/null --wrap 'sleep infinity'`.
 2. Wait for it locally: `<skill-dir>/scripts/remote-watch.sh <host> --job <id> --until-running`
    returns once it runs and prints its node.
 3. Run each command inside it:
