@@ -55,6 +55,8 @@ side. Facts about a machine live in `~/AGENTS.md` on that machine; facts about a
   and look at the first outputs as soon as they appear.
 - Make long runs resumable (skip finished items, write results per item), so a crash or a
   preemption costs one item.
+- Keep the log current, or the stall check reports a healthy job as stuck: unbuffered output
+  (`python -u` or `PYTHONUNBUFFERED=1`) and a progress line at least every few minutes.
 
 ## GPU workstation: its Herdr server
 
@@ -64,8 +66,9 @@ side. Facts about a machine live in `~/AGENTS.md` on that machine; facts about a
 2. One workspace per run, never inside the user's own workspaces:
    `herdr --machine <label> workspace create --label <run> --cwd <remote-dir> --no-focus`, and
    read the pane from `.result.root_pane.pane_id`.
-3. Start the job with a log on the data disk and an exit marker:
-   `herdr --machine <label> pane run <pane> "<command> 2>&1 | tee -a <log>; echo RUN_EXIT=\${PIPESTATUS[0]}"`
+3. Start the job with a log on the data disk and an exit marker that also lands in the log
+   (this form works in bash and zsh):
+   `herdr --machine <label> pane run <pane> "( <command>; echo RUN_EXIT=\$? ) 2>&1 | tee -a <log>"`
 4. Wait in background jobs: `herdr --machine <label> pane wait-output <pane> --regex 'RUN_EXIT=[0-9]+'`
    (no `--timeout` waits until it appears), and for hangs
    `<skill-dir>/scripts/remote-watch.sh <host> --log <log> --done 'RUN_EXIT=' --stall-min 30`.
@@ -92,26 +95,28 @@ For trying things on a GPU node before a long batch run:
 1. Pick a partition you may use that has idle nodes: compare `sinfo -o '%P %F %G'` (nodes
    allocated/idle/other/total, GPUs) with your QoS from
    `sacctmgr -n -P show assoc user=$USER format=Account,QOS` and each partition's `AllowQos` in
-   `scontrol show partition`. A CPU-only partition is enough when no GPU is needed. Then hold an
-   allocation with a placeholder job, so nothing waits on the login node while it is pending: `sbatch --parsable -J debug -t 01:00:00 --gres=gpu:1 <account, partition, cpus, mem> -o /dev/null --wrap 'sleep infinity'`.
-2. Wait for it locally: `<skill-dir>/scripts/remote-watch.sh <host> --job <id> --until-running`
+   `scontrol show partition`. A CPU-only partition is enough when no GPU is needed.
+2. Hold an allocation with a placeholder job, so nothing waits on the login node while it is
+   pending:
+   `sbatch --parsable -J debug -t 01:00:00 --gres=gpu:1 <account, partition, cpus, mem> -o /dev/null --wrap 'sleep infinity'`
+3. Wait for it locally: `<skill-dir>/scripts/remote-watch.sh <host> --job <id> --until-running`
    returns once it runs and prints its node.
-3. Run each command inside it:
+4. Run each command inside it:
    `ssh <host> "srun --jobid=<id> --overlap -n1 bash -lc 'cd <repo> && <command>'" < /dev/null`.
    Slurm older than 20.11 has no `--overlap` and does not need it. For an interactive program,
    open `ssh -t <host> srun --jobid=<id> --overlap --pty bash` in a local Herdr pane and drive
    that pane; some clusters also let you `ssh` from the login node into the allocated node.
-4. `scancel <id>` as soon as you are done. A debug allocation leaves the GPU idle most of the
+5. `scancel <id>` as soon as you are done. A debug allocation leaves the GPU idle most of the
    time and may count as an interactive session, so keep `--time` short, prefer a small GPU or
    CPU only, and avoid partitions that cancel jobs for low GPU use.
 
 ## Watching
 
 `remote-watch.sh` exits 0 when the job is finished (it left the queue or `--done` matched the
-log) or, with `--until-running`, has started; 1 when the log has not changed for `--stall-min` minutes while the job runs, and 2 when the
-host stops answering. On every exit read the log tail and decide; for a stall also check that
-the process is alive and the GPU busy (`nvidia-smi`, or `sstat`/`jobstats` on a cluster). Start
-the watcher again if the run continues.
+log) or, with `--until-running`, has started; 1 when the log has not changed for `--stall-min`
+minutes while the job runs; 2 when the host stops answering. On every exit read the log tail
+and decide; for a stall also check that the process is alive and the GPU busy (`nvidia-smi`, or
+`sstat`/`jobstats` on a cluster). Start the watcher again if the run continues.
 
 When the run ends, rsync the results back and check them (row counts, error or fallback rate)
 before reporting.
