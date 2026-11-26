@@ -36,8 +36,9 @@ side. Facts about a machine live in `~/AGENTS.md` on that machine; facts about a
   facts you learn later; keep project details out of it.
 - Common rules: nothing heavy on login nodes, no agent tools on login nodes, no queue polling
   more often than once a minute, jobs that hold GPUs idle get cancelled.
-- Check free GPUs (`nvidia-smi`) and never touch other users' processes, jobs, Herdr
-  workspaces or tmux sessions. On a workstation, use the GPUs the user or project names; if
+- Check free GPUs and never touch other users' processes, jobs, Herdr workspaces or tmux
+  sessions. To choose between workstations, or to see whether a GPU has stayed free rather
+  than being idle for a moment, use the gpu-availability skill; `nvidia-smi` shows only now. On a workstation, use the GPUs the user or project names; if
   none are named, take free ones from the highest index down (3, 2, 1, 0) and pin them with
   `CUDA_VISIBLE_DEVICES`.
 
