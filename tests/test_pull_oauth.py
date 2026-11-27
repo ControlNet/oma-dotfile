@@ -112,7 +112,7 @@ class OAuthTests(TestCase):
         parsed = json.loads(dst.read_text())
         self.assertEqual(parsed['provider']['codex'],
                          {'options': {'baseURL': 'https://example.invalid/v1'}})
-        for model in ('gpt-6.1-sol', 'gpt-6-luna', 'gpt-6.1-sol-fast', 'gpt-6-luna-fast'):
+        for model in ('gpt-6.2-sol', 'gpt-6-luna', 'gpt-6.2-sol-fast', 'gpt-6-luna-fast'):
             self.assertEqual(parsed['provider']['openai']['models'][model]['limit'],
                              {'context': 400000, 'input': 272000, 'output': 128000})
         self.assertEqual(parsed['plugin'], json.loads((ROOT / 'config/opencode/opencode.jsonc').read_text())['plugin'])
@@ -130,7 +130,7 @@ class OAuthTests(TestCase):
                 self.assertNotIn('codex', parsed['provider'])
                 install_files(opencode.OpenCode(), self.context('api'), directory)
                 installed = json.loads((directory / 'opencode.jsonc').read_text())['provider']
-                for model in ('gpt-6.1-sol', 'gpt-6-luna'):
+                for model in ('gpt-6.2-sol', 'gpt-6-luna'):
                     self.assertEqual(installed['codex']['models'][model]['limit'],
                                      {'context': 400000, 'input': 272000, 'output': 128000})
 
@@ -156,7 +156,7 @@ class OAuthTests(TestCase):
         # Native routing lives in its own block; see tests/test_omo_native.py.
         opencode = read_jsonc_object(self.tmp / 'omo.jsonc')['[opencode]']
         self.assertNotIn('"codex/', json.dumps(opencode))
-        self.assertIn('"openai/gpt-6.1-sol"', actual)
+        self.assertIn('"openai/gpt-6.2-sol"', actual)
         install_files(omo.OmoConfig(), self.context('api'), self.tmp)
         self.assertEqual((self.tmp / 'omo.jsonc').read_text(), (ROOT / 'config/omo/omo.jsonc').read_text())
 
@@ -169,7 +169,7 @@ class OAuthTests(TestCase):
         with use_console(Recorder()) as printed:
             omp.install_models(self.context('oauth', oauth=True, env={}), self.tmp)
         self.assertEqual(dst.read_text(), (ROOT / 'config/omp/models.oauth.yml').read_text())
-        for model in ('gpt-6.1-sol', 'gpt-6-luna', 'gpt-6.1-sol-fast', 'gpt-6-luna-fast'):
+        for model in ('gpt-6.2-sol', 'gpt-6-luna', 'gpt-6.2-sol-fast', 'gpt-6-luna-fast'):
             self.assertIn(f'      {model}:\n        contextWindow: 272000\n        maxTokens: 128000', dst.read_text())
         self.assertEqual(printed.warnings, [])
         with use_console(Recorder()):

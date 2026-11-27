@@ -8,9 +8,9 @@
 - `omp_models_oauth.yaml` sets `modelOverrides` for native `openai-codex` GPT-6.1 Sol/GPT-6 Luna models and their fast aliases. OAuth installation copies it to `models.yml` without adding gateway credentials or replacing native model discovery.
 - The custom catalogs omit `gpt-5.4-mini` and `gpt-5.5`; no OMO agent/category or OMP model role selects them. Historical Tokscale aliases and test fixtures remain for their separate purposes.
 - In OAuth mode, `pull.py` preserves the installed `provider.codex` object, so removing a model from the repository template does not prune it from an already installed OAuth config. The active OpenCode file needs a one-time cleanup or an API-mode reinstall.
-- `omp_config.yml` maps `smol` and `tiny` to `gpt-6-luna`; all other OMP roles use `gpt-6.1-sol` with role-specific thinking levels.
+- `omp_config.yml` maps `smol` and `tiny` to `gpt-6-luna`; all other OMP roles use `gpt-6.2-sol` with role-specific thinking levels.
 - GPT-5.6 Sol and Terra roles converge on GPT-6 Sol; GPT-5.6 Luna roles move to GPT-6 Luna. Historical GPT-5.6 aliases remain in `tokscale_model_alias.json` for old usage records.
-- On 2026-09-30 every GPT-6 Sol slot moved to GPT-6.1 Sol (see `gpt-6-1-sol-migration.md`); GPT-6 Sol aliases remain in Tokscale for history.
+- On 2026-09-30 every GPT-6 Sol slot moved to GPT-6.1 Sol (see `gpt-6-1-sol-migration.md`); GPT-6 Sol aliases remain in Tokscale for history. On 2026-11-27 they moved on to GPT-6.2 Sol (see `gpt-6-2-sol-migration.md`).
 - GPT-6.1 Sol and GPT-6 Luna use the official standard prices for prompts of at most 272K input tokens. OpenCode sets `context: 400000`, `input: 272000`, and `output: 128000` for both the custom `codex` gateway and official `openai` OAuth provider. Both OMP modes retain a conservative 272K total context window because OMP has no separate input limit. Neither client's local compaction metadata is a strict per-request input guard.
 
 ## Field mapping

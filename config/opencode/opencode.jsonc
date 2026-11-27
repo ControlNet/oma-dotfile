@@ -163,7 +163,7 @@
             }
           }
         },
-        "gpt-6.1-sol": {
+        "gpt-6.2-sol": {
           "reasoning": true,
           "limit": {
             "context": 400000,
@@ -231,14 +231,14 @@
             "output": 128000
           }
         },
-        "gpt-6.1-sol": {
+        "gpt-6.2-sol": {
           "limit": {
             "context": 400000,
             "input": 272000,
             "output": 128000
           }
         },
-        "gpt-6.1-sol-fast": {
+        "gpt-6.2-sol-fast": {
           "limit": {
             "context": 400000,
             "input": 272000,

@@ -125,9 +125,9 @@ class NativeModelsTests(TestCase):
         opencode = read_jsonc_object(ROOT / "config/opencode/opencode.jsonc")["provider"]["codex"]["models"]
         by_id = {model["id"]: model for model in provider["models"]}
         self.assertEqual(set(by_id), set(opencode))
-        sol = by_id["gpt-6.1-sol"]
-        self.assertEqual(sol["contextWindow"], opencode["gpt-6.1-sol"]["limit"]["input"])
-        self.assertEqual(sol["maxTokens"], opencode["gpt-6.1-sol"]["limit"]["output"])
+        sol = by_id["gpt-6.2-sol"]
+        self.assertEqual(sol["contextWindow"], opencode["gpt-6.2-sol"]["limit"]["input"])
+        self.assertEqual(sol["maxTokens"], opencode["gpt-6.2-sol"]["limit"]["output"])
         self.assertEqual(sol["input"], ["text", "image"])
         self.assertEqual(sol["cost"], {"input": 2.0, "output": 10.0, "cacheRead": 0.1, "cacheWrite": 2.5})
         # xhigh and max are unsupported unless mapped, and the template relies on both.
